@@ -11,19 +11,16 @@ tiver nenhuma rodando" — não precisa de `GetActiveObject`.
 from __future__ import annotations
 
 from ..models import LayoutCaixa, TipoLinha
+from . import configuracoes
 
 _CDR_MILLIMETER = 3
 
-# Mesmas cores usadas na pré-visualização em tela (ver `_ESTILO_POR_TIPO`
-# em `preview_canvas.py`) — assim o arquivo aberto no CorelDRAW é
-# reconhecível na hora, com o tipo de linha diferenciado por cor.
-_COR_POR_TIPO: dict[TipoLinha, tuple[int, int, int]] = {
-    TipoLinha.CORTE: (20, 20, 25),
-    TipoLinha.VINCO: (40, 100, 220),
-    TipoLinha.CORTE_SERRA: (230, 110, 20),
-    TipoLinha.MEIO_CORTE: (30, 160, 90),
-    TipoLinha.DOBRA: (150, 150, 160),
-}
+# Padrão esperado pela gráfica: tudo preto. Só o vinco sai tracejado — os
+# demais tipos (corte, corte-serra, meio-corte, dobra) saem contínuos. A
+# pré-visualização em tela usa cores por tipo pra facilitar a edição (ver
+# `_ESTILO_POR_TIPO` em `preview_canvas.py`), mas o arquivo entregue via
+# CorelDRAW segue a mesma convenção do SVG/PDF/JPG (ver `exportacao.py`).
+_COR_LINHA = (0, 0, 0)
 
 # Padrão da gráfica: linhas em 1pt. Outline.Width usa a unidade do
 # documento (mm — ver `doc.Unit` em `desenhar_layout`), então convertemos
@@ -32,24 +29,55 @@ _COR_POR_TIPO: dict[TipoLinha, tuple[int, int, int]] = {
 _LARGURA_LINHA_PT = 1.0
 _LARGURA_LINHA_MM = _LARGURA_LINHA_PT * 25.4 / 72
 
-# Padrões de traço por tipo de linha (mm), espelhando o estilo em tela
-# (`_ESTILO_POR_TIPO` em `preview_canvas.py`). None = linha contínua.
-# IMPORTANTE: um array com período 2 (ex.: [6,3] ou [6,3,6,3]) renderiza
-# como linha SÓLIDA no CorelDRAW — quirk observado empiricamente nesta
-# automação. Por isso usa 4 valores levemente assimétricos (não
-# periódicos) em vez do par dash/gap "limpo".
-_TRACO_POR_TIPO: dict[TipoLinha, list[float] | None] = {
-    TipoLinha.CORTE: None,
-    TipoLinha.VINCO: [6.0, 3.0, 5.9, 3.1],
-    TipoLinha.CORTE_SERRA: [6.0, 3.0, 1.0, 3.0],
-    TipoLinha.MEIO_CORTE: [2.0, 2.0, 1.9, 2.1],
-    TipoLinha.DOBRA: [1.5, 1.5, 1.4, 1.6],
-}
+# Traço do vinco — DashLength/GapLength do CorelDRAW são multiplicadores
+# INTEIROS da espessura da linha (Outline.Width), não mm direto —
+# confirmado testando direto contra o CorelDRAW. O valor em mm configurável
+# (`configuracoes.traco_vinco_mm()`) é convertido pro multiplicador mais
+# próximo na hora de desenhar (ver `_estilo_tracejado_vinco`).
+
+
+def _estilo_tracejado_vinco(app):
+    """Cria (e devolve) um `OutlineStyle` novo pro traço do vinco, a
+    partir do traço/espaço configurado em mm (Configurações) — convertido
+    pro multiplicador inteiro da espessura da linha, unidade real do
+    CorelDRAW.
+
+    A API documentada é `OutlineStyles.Add()` seguida de
+    `SetDashLength`/`SetGapLength` — bem diferente do antigo
+    `Application.CreateOutlineStyle(count, array)` que o código usava
+    antes (aceitava a chamada sem erro, mas renderizava errado).
+
+    Duas coisas confirmadas testando direto contra o CorelDRAW: (1)
+    `DashLength`/`GapLength` só aceitam número inteiro (valor fracionário
+    é truncado, não arredondado) — por isso não dá pra replicar aqui o
+    ajuste fino por comprimento de linha que existe em `exportacao.py`
+    (`_traco_ajustado`), que depende de valores fracionários; (2) os
+    setters são pouco confiáveis — às vezes simplesmente não pegam —
+    mas atribuir `DashCount = 3` antes de chamar os Set* (mesmo que o
+    valor em si não "pegue", ele fica 1 do mesmo jeito) faz os dois
+    setters funcionarem de forma consistente (15/15 em teste direto)."""
+    traco_mm, espaco_mm = configuracoes.traco_vinco_mm()
+    dash_length = max(1, round(traco_mm / _LARGURA_LINHA_MM))
+    gap_length = max(1, round(espaco_mm / _LARGURA_LINHA_MM))
+
+    estilo = app.OutlineStyles.Add()
+    estilo.DashCount = 3
+    estilo.SetDashLength(1, dash_length)
+    estilo.SetGapLength(1, gap_length)
+    app.OutlineStyles.Save()
+    return estilo
+
 
 _FONTE_LEGENDA = "Arial"
-_TAMANHO_FONTE_LEGENDA = 10.0
-_MARGEM_LEGENDA_MM = 6.0
-_RAIO_BOLINHA_MM = 1.5
+
+# Legenda de cores: tamanho configurável em Configurações — não escala
+# com o tamanho do layout, então não fica grande demais numa caixa
+# pequena. Bolinha sem contorno (só preenchimento). O `Size` do
+# `CreateArtisticText` não é em mm — pelos testes numerados que o usuário
+# comparou contra uma caixa de referência, `Size=6` deu 1,5mm de altura
+# (proporção confirmada: ~4pt de `Size` por mm de altura).
+_FATOR_SIZE_CDR_POR_MM = 4.0
+_MARGEM_LEGENDA_MM = 0.6  # relativo à altura da legenda, ver _desenhar_legenda
 
 
 class CorelIndisponivel(RuntimeError):
@@ -79,18 +107,17 @@ def conectar():
 
 
 def desenhar_layout(app, layout: LayoutCaixa) -> None:
-    """Desenha as linhas técnicas do layout no documento ativo do
-    CorelDRAW — cria um documento novo se não houver nenhum aberto."""
-    try:
-        doc = app.ActiveDocument
-    except Exception:  # noqa: BLE001
-        doc = None
-    if doc is None:
-        doc = app.CreateDocument()
+    """Desenha as linhas técnicas do layout num documento NOVO do
+    CorelDRAW — sempre cria um documento, nunca reaproveita um que já
+    esteja aberto (senão a automação desenha por cima de um arquivo que
+    pode estar em edição)."""
+    doc = app.CreateDocument()
     doc.Unit = _CDR_MILLIMETER
 
     layer = doc.ActiveLayer
     altura = layout.altura_total
+    cor_linha = app.CreateRGBColor(*_COR_LINHA)
+    estilo_vinco = _estilo_tracejado_vinco(app)  # um só, reaproveitado por todo vinco do layout
 
     for linha in layout.linhas:
         # CorelDRAW usa eixo Y crescendo pra cima; nosso layout usa Y
@@ -100,13 +127,11 @@ def desenhar_layout(app, layout: LayoutCaixa) -> None:
         y1 = altura - linha.y1
         y2 = altura - linha.y2
         shape = layer.CreateLineSegment(linha.x1, y1, linha.x2, y2)
-        r, g, b = _COR_POR_TIPO.get(linha.tipo, (0, 0, 0))
-        shape.Outline.Color = app.CreateRGBColor(r, g, b)
+        shape.Outline.Color = cor_linha
         shape.Outline.Width = _LARGURA_LINHA_MM
 
-        padrao = _TRACO_POR_TIPO.get(linha.tipo)
-        if padrao:
-            shape.Outline.Style = app.CreateOutlineStyle(len(padrao), padrao)
+        if linha.tipo == TipoLinha.VINCO:
+            shape.Outline.Style = estilo_vinco
 
     _desenhar_legenda(app, layer, layout)
 
@@ -117,25 +142,41 @@ def _desenhar_legenda(app, layer, layout: LayoutCaixa) -> None:
     """Desenha a legenda de cores de impressão (nome + bolinha) acima do
     layout — mesmo conteúdo que já vai pro SVG/PDF/JPG (ver
     `_LegendaExportacao` em `exportacao.py`), só que direto no documento
-    do CorelDRAW."""
+    do CorelDRAW. O nome de cada cor sai escrito na própria cor (pedido do
+    usuário), igual à pré-visualização em tela — só o título "CORES:" fica
+    preto. Tamanho vem de Configurações (não escala com o layout)."""
     if not layout.cores_legenda:
         return
 
+    altura = configuracoes.altura_legenda_mm()
+    tamanho_fonte_cdr = altura * _FATOR_SIZE_CDR_POR_MM
+    raio_bolinha = altura / 2
+    margem = altura * _MARGEM_LEGENDA_MM
+
     # CorelDRAW usa Y crescendo pra cima (mesma convenção do loop de
     # linhas acima) — "acima do desenho" é y > altura_total.
-    y = layout.altura_total + _MARGEM_LEGENDA_MM
+    y = layout.altura_total + margem
     x = 0.0
 
-    titulo = layer.CreateArtisticText(x, y, "CORES:", Font=_FONTE_LEGENDA, Size=_TAMANHO_FONTE_LEGENDA)
-    x += titulo.SizeWidth + 4.0
+    titulo = layer.CreateArtisticText(x, y, "CORES:", Font=_FONTE_LEGENDA, Size=tamanho_fonte_cdr)
+    titulo.Text.Story.Bold = True
+    _aplicar_cor_preenchimento(app, titulo, 0, 0, 0)
+    x += titulo.SizeWidth + raio_bolinha
 
     for cor in layout.cores_legenda:
-        bolinha = layer.CreateEllipse2(x + _RAIO_BOLINHA_MM, y + 1.5, _RAIO_BOLINHA_MM)
+        # CreateArtisticText ancora (x, y) na linha de base do texto, então
+        # o corpo visível da letra fica de y até y + altura aproximada —
+        # centraliza a bolinha nesse intervalo (texto é só maiúsculas, sem
+        # descendente abaixo da base, ver `nome.upper()` em main_window.py).
+        bolinha = layer.CreateEllipse2(x + raio_bolinha, y + altura * 0.5, raio_bolinha)
+        bolinha.Outline.SetNoOutline()  # sem contorno, só preenchimento (pedido do usuário)
         _aplicar_cor_preenchimento(app, bolinha, cor.r, cor.g, cor.b)
-        x += _RAIO_BOLINHA_MM * 2 + 3.0
+        x += raio_bolinha * 3
 
-        texto = layer.CreateArtisticText(x, y, cor.nome, Font=_FONTE_LEGENDA, Size=_TAMANHO_FONTE_LEGENDA)
-        x += texto.SizeWidth + 8.0
+        texto = layer.CreateArtisticText(x, y, cor.nome, Font=_FONTE_LEGENDA, Size=tamanho_fonte_cdr)
+        texto.Text.Story.Bold = True
+        _aplicar_cor_preenchimento(app, texto, cor.r, cor.g, cor.b)
+        x += texto.SizeWidth + raio_bolinha * 3
 
 
 def _aplicar_cor_preenchimento(app, shape, r: int, g: int, b: int) -> None:

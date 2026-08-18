@@ -193,6 +193,10 @@ class ServicoLayoutCaixa:
                 linhas.append(LinhaDesenho(xb, y0, xb, y2, TipoLinha.CORTE_SERRA))
                 linhas.append(LinhaDesenho(xa, y3, xa, y5, TipoLinha.CORTE_SERRA))
                 linhas.append(LinhaDesenho(xb, y3, xb, y5, TipoLinha.CORTE_SERRA))
+                # Vinco vertical na faixa central (y2-y3), entre o painel
+                # central e as abas laterais — existia no branch "sem
+                # corte" (algumas linhas acima) e faltava aqui.
+                linhas.append(LinhaDesenho(xv, y2, xv, y3, TipoLinha.VINCO))
 
         _copiar_cores_legenda(m, layout)
         return layout

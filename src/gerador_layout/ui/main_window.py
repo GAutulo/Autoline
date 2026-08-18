@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -16,7 +18,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +28,8 @@ from PySide6.QtWidgets import (
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
 from . import corel_bridge, exportacao
+from .dialogo_configuracoes import DialogoConfiguracoes
+from .estilo import Cor
 from .preview_canvas import PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
@@ -52,14 +58,18 @@ class JanelaPrincipal(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Gerador de Layout de Caixas")
-        self.resize(1200, 820)
+        # Tamanho pra quando a janela for restaurada (não-maximizada, ver
+        # main.py) — cabe com folga numa tela de notebook comum de 1366×768
+        # (altura útil ~728px descontando a barra de tarefas).
+        self.resize(1180, 680)
 
         self._servico = ServicoLayoutCaixa()
-        self._checks_cor: dict[str, tuple[QCheckBox, tuple[int, int, int]]] = {}
+        self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
 
         self._montar_ui()
         self._montar_menu()
+        self._montar_barra_ferramentas()
         self._conectar_sinais()
         self._ao_trocar_tipo()
 
@@ -83,11 +93,18 @@ class JanelaPrincipal(QMainWindow):
 
     def _montar_painel_esquerdo(self) -> QWidget:
         painel = QWidget()
-        painel.setMaximumWidth(300)
+        painel.setObjectName("painelEsquerdo")
+        painel.setMaximumWidth(320)
         vbox = QVBoxLayout(painel)
+        vbox.setContentsMargins(12, 14, 12, 14)
+        # Espaçamento generoso entre os 3 grupos — antes eles se juntavam
+        # todos no topo com um vão vazio solto embaixo; mais respiro aqui
+        # faz esse espaço parecer intencional, não sobra.
+        vbox.setSpacing(20)
 
         grupo_tipo = QGroupBox("Tipo de caixa")
         form_tipo = QFormLayout(grupo_tipo)
+        form_tipo.setVerticalSpacing(10)
         self.combo_tipo = QComboBox()
         for tipo in TipoCaixa:
             self.combo_tipo.addItem(NOME_EXIBICAO_TIPO_CAIXA[tipo], tipo)
@@ -97,6 +114,7 @@ class JanelaPrincipal(QMainWindow):
 
         grupo_medidas = QGroupBox("Medidas C × L × A (mm)")
         form_medidas = QFormLayout(grupo_medidas)
+        form_medidas.setVerticalSpacing(12)
         self.spin_comprimento = self._criar_spin(300)
         self.spin_largura = self._criar_spin(200)
         self.spin_altura = self._criar_spin(150)
@@ -107,49 +125,76 @@ class JanelaPrincipal(QMainWindow):
 
         grupo_cores = QGroupBox("Legenda de cores")
         grid_cores = QGridLayout(grupo_cores)
+        grid_cores.setHorizontalSpacing(8)
+        grid_cores.setVerticalSpacing(8)
+        # 3 colunas — usadas normalmente só 1-2 cores por vez, então vale
+        # mais compactar na vertical do que espalhar por 4 linhas (testei
+        # 4 colunas antes e cortava o texto de nomes maiores).
+        _COLUNAS_CORES = 3
         for i, (nome, rgb) in enumerate(_CORES_DISPONIVEIS):
-            chk = QCheckBox(nome)
-            self._checks_cor[nome] = (chk, rgb)
-            grid_cores.addWidget(chk, i // 2, i % 2)
-        self._checks_cor["Preto"][0].setChecked(True)
+            chip = self._montar_chip_cor(nome, rgb)
+            self._chips_cor[nome] = (chip, rgb)
+            grid_cores.addWidget(chip, i // _COLUNAS_CORES, i % _COLUNAS_CORES)
+        self._chips_cor["Preto"][0].setChecked(True)
         vbox.addWidget(grupo_cores)
 
         vbox.addStretch(1)
         return painel
 
     def _montar_painel_direito(self) -> QWidget:
+        # O rótulo "PRÉ-VISUALIZAÇÃO" e os controles de zoom viviam numa
+        # barra própria, embaixo da barra de ferramentas — duas fileiras de
+        # chrome empilhadas, com a de zoom sobrando bastante espaço vazio à
+        # direita dos botões de exportar. Ver `_montar_barra_ferramentas`:
+        # os controles de zoom/"Ajustar à tela" agora moram lá, preenchendo
+        # esse vazio e liberando uma fileira inteira de altura pro canvas.
         painel = QWidget()
+        painel.setObjectName("painelDireito")
         vbox = QVBoxLayout(painel)
-        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setContentsMargins(0, 0, 12, 10)
+        vbox.setSpacing(8)
 
-        barra = QHBoxLayout()
-        barra.addWidget(QLabel("PRÉ-VISUALIZAÇÃO"))
-        barra.addStretch(1)
-        self.label_zoom = QLabel("100%")
-        botao_ajustar = QPushButton("Ajustar à tela")
-        botao_ajustar.clicked.connect(lambda: self.canvas.ajustar_a_tela())
-        barra.addWidget(self.label_zoom)
-        barra.addWidget(botao_ajustar)
-        vbox.addLayout(barra)
+        legenda_e_canvas = QWidget()
+        vbox_legenda_canvas = QVBoxLayout(legenda_e_canvas)
+        vbox_legenda_canvas.setContentsMargins(12, 6, 0, 0)
+        vbox_legenda_canvas.setSpacing(6)
 
         self.painel_legenda_cores = PainelLegendaCores()
-        vbox.addWidget(self.painel_legenda_cores)
+        vbox_legenda_canvas.addWidget(self.painel_legenda_cores)
 
         self.canvas = PreviewCanvas()
-        self.canvas.zoom_alterado.connect(
-            lambda z: self.label_zoom.setText(f"{z * 100:.0f}%")
-        )
-        vbox.addWidget(self.canvas, 1)
+        vbox_legenda_canvas.addWidget(self.canvas, 1)
+        vbox.addWidget(legenda_e_canvas, 1)
 
         # Trechos (Impressora/Riscador) embaixo da pré-visualização — mais
         # largura disponível aqui do que na barra lateral esquerda.
-        grupo_trechos = QGroupBox("Medidas geradas / ajustáveis")
-        vbox_trechos = QVBoxLayout(grupo_trechos)
+        # Riscador antes de Impressora (pedido do usuário) e um estilo
+        # compacto (`grupoMedidasGeradas` em estilo.py) — é uma tabela de
+        # números densa, não precisa do mesmo respiro dos cartões da
+        # esquerda.
+        #
+        # Retrátil (setCheckable): o canvas ganha espaço quando o usuário
+        # não precisa olhar/ajustar esses números no momento — em vez de
+        # simplesmente encolher os campos até ficarem ilegíveis, ou inflar
+        # a janela inteira pra "criar" espaço (as duas coisas já foram
+        # tentadas e não resolveram de verdade). Começa aberto.
+        self._grupo_medidas = QGroupBox("Medidas geradas / ajustáveis")
+        self._grupo_medidas.setObjectName("grupoMedidasGeradas")
+        self._grupo_medidas.setCheckable(True)
+        self._grupo_medidas.setChecked(True)
+        self._grupo_medidas.setToolTip("Clique no título pra recolher e dar mais espaço à pré-visualização")
+        vbox_trechos = QVBoxLayout(self._grupo_medidas)
+        vbox_trechos.setSpacing(4)
         self.linha_impressora = LinhaTrechos("Impressora", _ROTULOS_IMPRESSORA_MALETA)
         self.linha_riscador = LinhaTrechos("Riscador", _ROTULOS_RISCADOR_MALETA)
-        vbox_trechos.addWidget(self.linha_impressora)
         vbox_trechos.addWidget(self.linha_riscador)
-        vbox.addWidget(grupo_trechos)
+        vbox_trechos.addWidget(self.linha_impressora)
+        self._grupo_medidas.toggled.connect(self.linha_riscador.setVisible)
+        self._grupo_medidas.toggled.connect(self.linha_impressora.setVisible)
+        margem = QHBoxLayout()
+        margem.setContentsMargins(12, 0, 0, 0)
+        margem.addWidget(self._grupo_medidas)
+        vbox.addLayout(margem)
 
         return painel
 
@@ -157,8 +202,8 @@ class JanelaPrincipal(QMainWindow):
         """Conecta todos os sinais de UI depois que toda a janela já existe,
         evitando disparar _recalcular() com widgets ainda não criados."""
         self.combo_tipo.currentIndexChanged.connect(self._ao_trocar_tipo)
-        for chk, _rgb in self._checks_cor.values():
-            chk.stateChanged.connect(self._recalcular)
+        for chip, _rgb in self._chips_cor.values():
+            chip.toggled.connect(self._recalcular)
         for spin in (self.spin_comprimento, self.spin_largura, self.spin_altura):
             spin.valueChanged.connect(self._recalcular)
         self.linha_impressora.valor_alterado.connect(self._recalcular)
@@ -171,6 +216,40 @@ class JanelaPrincipal(QMainWindow):
         spin.setSuffix(" mm")
         spin.setValue(valor_padrao)
         return spin
+
+    def _montar_chip_cor(self, nome: str, rgb: tuple[int, int, int]) -> QPushButton:
+        """Botão de alternância que mostra a própria cor, em vez de um
+        checkbox genérico + nome em texto — remove a ambiguidade de "qual
+        tom exatamente é Ciano" e deixa a legenda mais rápida de escanear.
+        Cor de preenchimento/texto muda dinamicamente com o estado (ver
+        `_repintar_chip_cor`), então precisa de estilo por widget — o QSS
+        global só cuida do raio/peso da fonte (seletor `chipCor`)."""
+        chip = QPushButton(nome)
+        chip.setCheckable(True)
+        chip.setProperty("chipCor", True)
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip.toggled.connect(lambda marcado, c=chip, rgb=rgb: self._repintar_chip_cor(c, rgb, marcado))
+        self._repintar_chip_cor(chip, rgb, False)
+        return chip
+
+    @staticmethod
+    def _repintar_chip_cor(chip: QPushButton, rgb: tuple[int, int, int], marcado: bool) -> None:
+        r, g, b = rgb
+        if marcado:
+            # Texto branco ou escuro, o que for mais legível sobre a cor de
+            # fundo (mesmo cálculo de luminância usado na legenda de
+            # impressão em `preview_canvas.py`).
+            luminancia = 0.299 * r + 0.587 * g + 0.114 * b
+            cor_texto = "#1a1d29" if luminancia > 170 else "#ffffff"
+            chip.setStyleSheet(
+                f"background: rgb({r},{g},{b}); color: {cor_texto}; "
+                f"border: 1px solid rgb({r},{g},{b});"
+            )
+        else:
+            chip.setStyleSheet(
+                f"background: transparent; color: rgb({r},{g},{b}); "
+                f"border: 1px solid rgb({r},{g},{b});"
+            )
 
     # ── Lógica ──────────────────────────────────────────────────────
     def _ao_trocar_tipo(self) -> None:
@@ -189,8 +268,8 @@ class JanelaPrincipal(QMainWindow):
     def _obter_medidas(self) -> MedidasCaixa:
         cores = [
             CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
-            for nome, (chk, rgb) in self._checks_cor.items()
-            if chk.isChecked()
+            for nome, (chip, rgb) in self._chips_cor.items()
+            if chip.isChecked()
         ]
         imp = self.linha_impressora.valores()
         ris = self.linha_riscador.valores()
@@ -213,6 +292,46 @@ class JanelaPrincipal(QMainWindow):
         )
 
     # ── Menu / Exportação ───────────────────────────────────────────
+    def _montar_barra_ferramentas(self) -> None:
+        """As ações de exportação são o motivo do app existir, mas antes
+        só apareciam dentro de Arquivo > Exportar layout — uma barra de
+        ferramentas sempre visível deixa isso descobrível sem precisar
+        abrir menu nenhum. O menu continua existindo (ver `_montar_menu`)
+        pra quem já tem o hábito, chamando exatamente os mesmos métodos.
+
+        Zoom e "Ajustar à tela" ficam à direita, na mesma barra — viviam
+        numa barra própria embaixo desta, sobrando um vão vazio enorme à
+        direita dos botões de exportar (a barra de ferramentas ocupa a
+        largura toda da janela, mas os botões só usam a parte esquerda).
+        Juntar os dois usa esse espaço e ainda libera uma fileira inteira
+        de altura pro canvas."""
+        barra = QToolBar("Exportar")
+        barra.setMovable(False)
+        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.addToolBar(barra)
+
+        # Símbolos simples (não emoji colorido — herdam a cor do texto do
+        # botão, ficam monocromáticos como o resto do app) só pra dar um
+        # pouco de caráter visual à barra e diferenciar "salvar arquivo"
+        # de "mandar pra outro programa" rapidamente, sem precisar ler.
+        barra.addAction("↓ SVG", self._exportar_svg)
+        barra.addAction("↓ PDF", self._exportar_pdf)
+        barra.addAction("↓ JPG", self._exportar_jpg)
+        barra.addSeparator()
+        barra.addAction("→ CorelDRAW", self._exportar_corel)
+
+        espacador = QWidget()
+        espacador.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        barra.addWidget(espacador)
+
+        self.label_zoom = QLabel("100%")
+        self.label_zoom.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO}; font-weight: 600;")
+        barra.addWidget(self.label_zoom)
+        botao_ajustar = QPushButton("Ajustar à tela")
+        botao_ajustar.clicked.connect(lambda: self.canvas.ajustar_a_tela())
+        barra.addWidget(botao_ajustar)
+        self.canvas.zoom_alterado.connect(lambda z: self.label_zoom.setText(f"{z * 100:.0f}%"))
+
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
         menu_arquivo.addAction("Conectar ao CorelDRAW", self._conectar_corel)
@@ -224,6 +343,68 @@ class JanelaPrincipal(QMainWindow):
         menu_exportar.addAction("Exportar como JPG...", self._exportar_jpg)
         menu_exportar.addSeparator()
         menu_exportar.addAction("Enviar para o CorelDRAW", self._exportar_corel)
+
+        menu_arquivo.addSeparator()
+        menu_arquivo.addAction("Configurações...", self._abrir_configuracoes)
+        menu_arquivo.addSeparator()
+        acao_sair = menu_arquivo.addAction("Sair")
+        acao_sair.setShortcut("Alt+F4")
+        acao_sair.triggered.connect(self.close)
+
+        menu_exibir = self.menuBar().addMenu("&Exibir")
+        acao_grade = menu_exibir.addAction("Grade do canvas")
+        acao_grade.setCheckable(True)
+        acao_grade.setChecked(True)
+        acao_grade.toggled.connect(self.canvas.definir_grade_visivel)
+
+        acao_medidas = menu_exibir.addAction("Medidas geradas / ajustáveis")
+        acao_medidas.setCheckable(True)
+        acao_medidas.setChecked(True)
+        # Sincronização nos dois sentidos: o menu controla o grupo
+        # retrátil (ver `_montar_painel_direito`) e vice-versa — clicar
+        # no checkbox do título do grupo também deve marcar/desmarcar
+        # aqui, senão os dois controles saem de sincronia.
+        acao_medidas.toggled.connect(self._grupo_medidas.setChecked)
+        self._grupo_medidas.toggled.connect(acao_medidas.setChecked)
+
+        menu_ajuda = self.menuBar().addMenu("A&juda")
+        menu_ajuda.addAction("Sobre...", self._mostrar_sobre)
+
+    def _abrir_configuracoes(self) -> None:
+        dialogo = DialogoConfiguracoes(self)
+        if dialogo.exec() == DialogoConfiguracoes.DialogCode.Accepted:
+            self.statusBar().showMessage("Configurações salvas", 6000)
+            if dialogo.tema_alterado:
+                resposta = QMessageBox.question(
+                    self,
+                    "Reiniciar agora?",
+                    "O novo tema só aparece depois de reiniciar o app. Fechar agora?",
+                )
+                if resposta == QMessageBox.StandardButton.Yes:
+                    self.close()
+
+    def _mostrar_sobre(self) -> None:
+        QMessageBox.about(
+            self,
+            "Sobre o Gerador de Layout de Caixas",
+            "<b>Gerador de Layout de Caixas</b><br><br>"
+            "Gera o layout técnico de corte/vinco de caixas e envoltórios "
+            "a partir das medidas, com exportação em SVG, PDF, JPG e "
+            "automação direta com o CorelDRAW.",
+        )
+
+    @contextmanager
+    def _cursor_espera(self):
+        """Mostra o cursor de espera durante uma exportação/conexão com o
+        CorelDRAW — sem isso a janela fica sem nenhum feedback visual
+        enquanto renderiza um JPG grande ou desenha centenas de linhas no
+        CorelDRAW, e passa a impressão de estar travada."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        try:
+            yield
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _layout_pronto_para_exportar(self) -> bool:
         layout = self.canvas.layout_atual
@@ -239,7 +420,8 @@ class JanelaPrincipal(QMainWindow):
         if not caminho:
             return
         try:
-            exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+            with self._cursor_espera():
+                exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -252,7 +434,8 @@ class JanelaPrincipal(QMainWindow):
         if not caminho:
             return
         try:
-            exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+            with self._cursor_espera():
+                exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -265,7 +448,8 @@ class JanelaPrincipal(QMainWindow):
         if not caminho:
             return
         try:
-            exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+            with self._cursor_espera():
+                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -273,7 +457,8 @@ class JanelaPrincipal(QMainWindow):
 
     def _conectar_corel(self) -> None:
         try:
-            self._corel_app = corel_bridge.conectar()
+            with self._cursor_espera():
+                self._corel_app = corel_bridge.conectar()
         except corel_bridge.CorelIndisponivel as exc:
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
         else:
@@ -283,9 +468,10 @@ class JanelaPrincipal(QMainWindow):
         if not self._layout_pronto_para_exportar():
             return
         try:
-            if self._corel_app is None:
-                self._corel_app = corel_bridge.conectar()
-            corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual)
+            with self._cursor_espera():
+                if self._corel_app is None:
+                    self._corel_app = corel_bridge.conectar()
+                corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual)
         except corel_bridge.CorelIndisponivel as exc:
             self._corel_app = None
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
@@ -293,7 +479,7 @@ class JanelaPrincipal(QMainWindow):
             self._corel_app = None
             QMessageBox.critical(self, "Erro ao desenhar no CorelDRAW", str(exc))
         else:
-            self.statusBar().showMessage("Layout enviado para o CorelDRAW", 6000)
+            self.statusBar().showMessage("Novo layout desenhado no CorelDRAW", 6000)
 
     def _recalcular(self) -> None:
         medidas = self._obter_medidas()
