@@ -15,11 +15,14 @@ visualização agora é nativa do próprio aplicativo.
       caixa suportados (maleta normal, maleta transpassada, envoltórios).
 - [x] Pré-visualização 2D nativa, com zoom (roda do mouse) e pan (arrastar) —
       não depende mais de nenhum programa externo para conferir o desenho.
-- [x] Legenda de cores de impressão.
+- [x] Legenda de cores de impressão (em tela e nos arquivos exportados).
+- [x] Exportação própria em SVG/PDF vetorial e JPG raster (elimina de vez
+      a necessidade de qualquer programa de desenho externo).
+- [x] Envio do layout pro CorelDRAW por automação COM (igual ao sistema
+      original em C#) — conecta numa instância aberta ou abre uma nova,
+      e desenha as linhas técnicas direto no documento ativo.
 - [ ] Camada de elementos gráficos (textos, símbolos, logos) posicionáveis
       sobre o layout.
-- [ ] Exportação própria em PDF/SVG vetorial (elimina de vez a necessidade
-      de qualquer programa de desenho externo).
 - [ ] Visualização 3D da caixa montada, a partir do mesmo layout 2D.
 
 ## Rodando localmente
@@ -46,7 +49,9 @@ src/gerador_layout/
 ├── main.py               # ponto de entrada do aplicativo
 └── ui/
     ├── main_window.py    # janela principal (formulário de medidas)
-    └── preview_canvas.py # canvas 2D (QGraphicsView) com zoom/pan/legenda
+    ├── preview_canvas.py # canvas 2D (QGraphicsView) com zoom/pan + legenda de cores
+    ├── exportacao.py     # exportação para SVG/PDF/JPG
+    └── corel_bridge.py   # automação COM com o CorelDRAW (só Windows)
 tests/
 └── test_layout_service.py
 ```

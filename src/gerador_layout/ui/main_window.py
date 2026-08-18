@@ -7,12 +7,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -21,7 +23,9 @@ from PySide6.QtWidgets import (
 
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
-from .preview_canvas import PreviewCanvas
+from . import corel_bridge, exportacao
+from .preview_canvas import PainelLegendaCores, PreviewCanvas
+from .segmented_row import LinhaTrechos
 
 _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
     ("Preto", (0, 0, 0)),
@@ -34,19 +38,30 @@ _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
     ("Laranja", (255, 120, 0)),
 ]
 
+# Rótulos exibidos em cada trecho, por tipo de caixa. A Impressora sempre
+# tem 5 trechos; o Riscador tem 3 na maleta e 5 no envoltório.
+_TIPOS_MALETA = {TipoCaixa.MALETA_NORMAL, TipoCaixa.MALETA_TRANSPASSADA}
+
+_ROTULOS_IMPRESSORA_MALETA = ["Aba", "L", "C", "L", "C"]
+_ROTULOS_IMPRESSORA_ENVOLTORIO = ["Aba", "A", "C", "A", "Aba"]
+_ROTULOS_RISCADOR_MALETA = ["Sup", "Centro", "Inf", "", ""]
+_ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
+
 
 class JanelaPrincipal(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Gerador de Layout de Caixas")
-        self.resize(1100, 760)
+        self.resize(1200, 820)
 
         self._servico = ServicoLayoutCaixa()
         self._checks_cor: dict[str, tuple[QCheckBox, tuple[int, int, int]]] = {}
+        self._corel_app = None
 
         self._montar_ui()
+        self._montar_menu()
         self._conectar_sinais()
-        self._recalcular()
+        self._ao_trocar_tipo()
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
@@ -61,10 +76,14 @@ class JanelaPrincipal(QMainWindow):
         splitter.addWidget(self._montar_painel_direito())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([360, 740])
+        # Painel esquerdo só com tipo/medidas/cores agora — os trechos
+        # (Impressora/Riscador) ficam embaixo da pré-visualização, à
+        # direita, com bem mais espaço pra respirar.
+        splitter.setSizes([260, 940])
 
     def _montar_painel_esquerdo(self) -> QWidget:
         painel = QWidget()
+        painel.setMaximumWidth(300)
         vbox = QVBoxLayout(painel)
 
         grupo_tipo = QGroupBox("Tipo de caixa")
@@ -85,26 +104,6 @@ class JanelaPrincipal(QMainWindow):
         form_medidas.addRow("Largura (L):", self.spin_largura)
         form_medidas.addRow("Altura (A):", self.spin_altura)
         vbox.addWidget(grupo_medidas)
-
-        grupo_trechos = QGroupBox("Medidas geradas / ajustáveis")
-        form_trechos = QFormLayout(grupo_trechos)
-        self.spin_imp_aba = self._criar_spin(4, opcional=True)
-        self.spin_imp_l1 = self._criar_spin(0, opcional=True)
-        self.spin_imp_c1 = self._criar_spin(0, opcional=True)
-        self.spin_imp_l2 = self._criar_spin(0, opcional=True)
-        self.spin_imp_c2 = self._criar_spin(0, opcional=True)
-        self.spin_ris_sup = self._criar_spin(0, opcional=True)
-        self.spin_ris_centro = self._criar_spin(0, opcional=True)
-        self.spin_ris_inf = self._criar_spin(0, opcional=True)
-        form_trechos.addRow("Impressora — aba:", self.spin_imp_aba)
-        form_trechos.addRow("Impressora — L1:", self.spin_imp_l1)
-        form_trechos.addRow("Impressora — C1:", self.spin_imp_c1)
-        form_trechos.addRow("Impressora — L2:", self.spin_imp_l2)
-        form_trechos.addRow("Impressora — C2:", self.spin_imp_c2)
-        form_trechos.addRow("Riscador — superior:", self.spin_ris_sup)
-        form_trechos.addRow("Riscador — centro:", self.spin_ris_centro)
-        form_trechos.addRow("Riscador — inferior:", self.spin_ris_inf)
-        vbox.addWidget(grupo_trechos)
 
         grupo_cores = QGroupBox("Legenda de cores")
         grid_cores = QGridLayout(grupo_cores)
@@ -133,76 +132,180 @@ class JanelaPrincipal(QMainWindow):
         barra.addWidget(botao_ajustar)
         vbox.addLayout(barra)
 
+        self.painel_legenda_cores = PainelLegendaCores()
+        vbox.addWidget(self.painel_legenda_cores)
+
         self.canvas = PreviewCanvas()
         self.canvas.zoom_alterado.connect(
             lambda z: self.label_zoom.setText(f"{z * 100:.0f}%")
         )
         vbox.addWidget(self.canvas, 1)
 
-        self.label_info = QLabel("Dimensões serão exibidas aqui...")
-        vbox.addWidget(self.label_info)
+        # Trechos (Impressora/Riscador) embaixo da pré-visualização — mais
+        # largura disponível aqui do que na barra lateral esquerda.
+        grupo_trechos = QGroupBox("Medidas geradas / ajustáveis")
+        vbox_trechos = QVBoxLayout(grupo_trechos)
+        self.linha_impressora = LinhaTrechos("Impressora", _ROTULOS_IMPRESSORA_MALETA)
+        self.linha_riscador = LinhaTrechos("Riscador", _ROTULOS_RISCADOR_MALETA)
+        vbox_trechos.addWidget(self.linha_impressora)
+        vbox_trechos.addWidget(self.linha_riscador)
+        vbox.addWidget(grupo_trechos)
 
         return painel
 
     def _conectar_sinais(self) -> None:
         """Conecta todos os sinais de UI depois que toda a janela já existe,
         evitando disparar _recalcular() com widgets ainda não criados."""
-        self.combo_tipo.currentIndexChanged.connect(self._recalcular)
+        self.combo_tipo.currentIndexChanged.connect(self._ao_trocar_tipo)
         for chk, _rgb in self._checks_cor.values():
             chk.stateChanged.connect(self._recalcular)
-        for spin in (
-            self.spin_comprimento,
-            self.spin_largura,
-            self.spin_altura,
-            self.spin_imp_aba,
-            self.spin_imp_l1,
-            self.spin_imp_c1,
-            self.spin_imp_l2,
-            self.spin_imp_c2,
-            self.spin_ris_sup,
-            self.spin_ris_centro,
-            self.spin_ris_inf,
-        ):
+        for spin in (self.spin_comprimento, self.spin_largura, self.spin_altura):
             spin.valueChanged.connect(self._recalcular)
+        self.linha_impressora.valor_alterado.connect(self._recalcular)
+        self.linha_riscador.valor_alterado.connect(self._recalcular)
 
-    def _criar_spin(self, valor_padrao: float, *, opcional: bool = False) -> QDoubleSpinBox:
+    def _criar_spin(self, valor_padrao: float) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setRange(0, 100000)
         spin.setDecimals(1)
         spin.setSuffix(" mm")
         spin.setValue(valor_padrao)
-        if opcional:
-            spin.setSpecialValueText("(automático)")
         return spin
 
     # ── Lógica ──────────────────────────────────────────────────────
+    def _ao_trocar_tipo(self) -> None:
+        tipo = self.combo_tipo.currentData()
+        self.linha_impressora.definir_visiveis(5)
+        if tipo in _TIPOS_MALETA:
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_MALETA)
+            self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_MALETA)
+            self.linha_riscador.definir_visiveis(3)
+        else:
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_ENVOLTORIO)
+            self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_ENVOLTORIO)
+            self.linha_riscador.definir_visiveis(5)
+        self._recalcular()
+
     def _obter_medidas(self) -> MedidasCaixa:
         cores = [
             CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
             for nome, (chk, rgb) in self._checks_cor.items()
             if chk.isChecked()
         ]
+        imp = self.linha_impressora.valores()
+        ris = self.linha_riscador.valores()
         return MedidasCaixa(
             tipo=self.combo_tipo.currentData(),
             comprimento=self.spin_comprimento.value(),
             largura=self.spin_largura.value(),
             altura=self.spin_altura.value(),
-            impressora_aba=self.spin_imp_aba.value(),
-            impressora_largura_1=self.spin_imp_l1.value(),
-            impressora_comprimento_1=self.spin_imp_c1.value(),
-            impressora_largura_2=self.spin_imp_l2.value(),
-            impressora_comprimento_2=self.spin_imp_c2.value(),
-            riscador_superior=self.spin_ris_sup.value(),
-            riscador_centro=self.spin_ris_centro.value(),
-            riscador_inferior=self.spin_ris_inf.value(),
+            impressora_aba=imp[0],
+            impressora_largura_1=imp[1],
+            impressora_comprimento_1=imp[2],
+            impressora_largura_2=imp[3],
+            impressora_comprimento_2=imp[4],
+            riscador_superior=ris[0],
+            riscador_centro=ris[1],
+            riscador_inferior=ris[2],
+            riscador_parte_4=ris[3],
+            riscador_parte_5=ris[4],
             cores_legenda=cores,
         )
+
+    # ── Menu / Exportação ───────────────────────────────────────────
+    def _montar_menu(self) -> None:
+        menu_arquivo = self.menuBar().addMenu("&Arquivo")
+        menu_arquivo.addAction("Conectar ao CorelDRAW", self._conectar_corel)
+        menu_arquivo.addSeparator()
+
+        menu_exportar = menu_arquivo.addMenu("Exportar layout")
+        menu_exportar.addAction("Exportar como SVG...", self._exportar_svg)
+        menu_exportar.addAction("Exportar como PDF...", self._exportar_pdf)
+        menu_exportar.addAction("Exportar como JPG...", self._exportar_jpg)
+        menu_exportar.addSeparator()
+        menu_exportar.addAction("Enviar para o CorelDRAW", self._exportar_corel)
+
+    def _layout_pronto_para_exportar(self) -> bool:
+        layout = self.canvas.layout_atual
+        if layout is None or not layout.linhas:
+            QMessageBox.warning(self, "Nada para exportar", "Informe as medidas da caixa antes de exportar.")
+            return False
+        return True
+
+    def _exportar_svg(self) -> None:
+        if not self._layout_pronto_para_exportar():
+            return
+        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como SVG", "layout.svg", "SVG (*.svg)")
+        if not caminho:
+            return
+        try:
+            exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Erro ao exportar", str(exc))
+        else:
+            self.statusBar().showMessage(f"Exportado: {caminho}", 6000)
+
+    def _exportar_pdf(self) -> None:
+        if not self._layout_pronto_para_exportar():
+            return
+        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como PDF", "layout.pdf", "PDF (*.pdf)")
+        if not caminho:
+            return
+        try:
+            exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Erro ao exportar", str(exc))
+        else:
+            self.statusBar().showMessage(f"Exportado: {caminho}", 6000)
+
+    def _exportar_jpg(self) -> None:
+        if not self._layout_pronto_para_exportar():
+            return
+        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como JPG", "layout.jpg", "JPEG (*.jpg)")
+        if not caminho:
+            return
+        try:
+            exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Erro ao exportar", str(exc))
+        else:
+            self.statusBar().showMessage(f"Exportado: {caminho}", 6000)
+
+    def _conectar_corel(self) -> None:
+        try:
+            self._corel_app = corel_bridge.conectar()
+        except corel_bridge.CorelIndisponivel as exc:
+            QMessageBox.critical(self, "Erro ao conectar", str(exc))
+        else:
+            self.statusBar().showMessage("Conectado ao CorelDRAW", 6000)
+
+    def _exportar_corel(self) -> None:
+        if not self._layout_pronto_para_exportar():
+            return
+        try:
+            if self._corel_app is None:
+                self._corel_app = corel_bridge.conectar()
+            corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual)
+        except corel_bridge.CorelIndisponivel as exc:
+            self._corel_app = None
+            QMessageBox.critical(self, "Erro ao conectar", str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self._corel_app = None
+            QMessageBox.critical(self, "Erro ao desenhar no CorelDRAW", str(exc))
+        else:
+            self.statusBar().showMessage("Layout enviado para o CorelDRAW", 6000)
 
     def _recalcular(self) -> None:
         medidas = self._obter_medidas()
         layout = self._servico.calcular(medidas)
         self.canvas.definir_layout(layout)
-        self.label_info.setText(
-            f"Gerado: {layout.largura_total:.1f} × {layout.altura_total:.1f} mm "
-            f"({len(layout.linhas)} segmentos) — {layout.descricao}"
+        self.painel_legenda_cores.definir_cores(layout.cores_legenda)
+
+        self.linha_impressora.atualizar_valores_efetivos(layout.segmentos_impressora)
+        self.linha_impressora.definir_total(layout.largura_total)
+        self.linha_riscador.atualizar_valores_efetivos(
+            layout.segmentos_riscador + [0.0] * (5 - len(layout.segmentos_riscador))
         )
+        self.linha_riscador.definir_total(layout.altura_total)
+
+        self.statusBar().showMessage(layout.descricao)

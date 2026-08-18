@@ -115,3 +115,9 @@ class LayoutCaixa:
     largura_total: float = 0.0
     altura_total: float = 0.0
     descricao: str = ""
+
+    # Valores efetivos (já com os padrões aplicados) de cada trecho — usados
+    # pela UI para mostrar o número real que está sendo usado no desenho,
+    # mesmo quando o campo foi deixado em "automático".
+    segmentos_impressora: list[float] = field(default_factory=list)
+    segmentos_riscador: list[float] = field(default_factory=list)
