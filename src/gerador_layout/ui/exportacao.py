@@ -2,7 +2,13 @@
 
 SVG e PDF saem vetoriais (qualidade perfeita em qualquer escala — e como
 as coordenadas da cena já são em milímetros, o PDF sai na escala real
-1:1). JPG sai em raster, com supersampling pra ficar nítido.
+1:1). JPG sai em raster, com a resolução calculada a partir de um DPI alvo
+(ver `exportar_jpg`) pra sair nítido o bastante pra impressão.
+
+Os arquivos exportados aqui saem sempre em preto e traço contínuo, com o
+vinco como única exceção tracejada — mesmo que a pré-visualização em tela
+use cores por tipo de linha pra facilitar a edição (ver `_ESTILO_POR_TIPO`
+em `preview_canvas.py`). Ver `_PenasExportacao` abaixo.
 
 Pro CorelDRAW em si não existe exportação de arquivo (.cdr é formato
 proprietário, sem biblioteca aberta capaz de gravá-lo) — em vez disso, o
@@ -12,7 +18,7 @@ ver `corel_bridge.py`.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QMarginsF, QRectF, QSize, QSizeF
+from PySide6.QtCore import Qt, QMarginsF, QRectF, QSize, QSizeF
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -33,10 +39,76 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 
-from ..models import CorImpressao
+from ..models import CorImpressao, TipoLinha
+from . import configuracoes
 
-_FONTE_LEGENDA = QFont("Segoe UI", 8)
-_MARGEM_LEGENDA = 4.0  # mm entre o desenho e a legenda, e ao redor do texto
+# Legenda de cores: tamanho configurável em Configurações (não escala com
+# o tamanho do layout — um fator proporcional ainda deixava a legenda
+# grande demais em caixas muito pequenas). Arial Negrito, bolinha do
+# mesmo tamanho do texto, sem contorno (só preenchimento).
+_FATOR_MARGEM_LEGENDA = 0.6  # espaço entre o desenho e a legenda, em relação à altura do texto
+
+# Tamanho de referência (pt) usado pra montar a fonte da legenda — grande
+# de propósito, bem maior que o alvo final (`configuracoes.altura_legenda_mm()`).
+# Ver `_fonte_e_escala_legenda` pra entender por quê.
+_TAMANHO_FONTE_REFERENCIA_PT = 24.0
+
+
+def _fonte_e_escala_legenda() -> tuple[QFont, float]:
+    """Fonte Arial Negrito num tamanho grande fixo (`_TAMANHO_FONTE_REFERENCIA_PT`)
+    + o fator de escala geométrica que, aplicado via `QGraphicsItem.setScale`,
+    encolhe o texto até a altura de caixa-alta valer `configuracoes.altura_legenda_mm()`
+    na cena.
+
+    Pedir a fonte JÁ no tamanho pequeno final (algo entre 1 e 3pt, pelas
+    contas) funciona matematicamente, mas na prática o rasterizador de
+    fonte perde precisão nesse tamanho — cada letra individualmente ainda
+    sai legível, mas o espaçamento entre elas (`advance width`,
+    arredondado pro pixel mais próximo nesse tamanho minúsculo) fica
+    errado, e a palavra sai com uma quebra estranha no meio (ex.: "CORES:"
+    saindo "CO RES:"). Desenhar grande e encolher por transformação
+    geométrica depois evita esse problema — o layout do texto é calculado
+    no tamanho grande (preciso) e só a apresentação final é escalada.
+
+    Não cacheia (era cacheado antes) porque o valor pode mudar em
+    Configurações no meio da sessão — é uma conta bem barata, recalcular
+    a cada exportação não pesa."""
+    fonte = QFont("Arial", -1, QFont.Weight.Bold)
+    fonte.setPointSizeF(_TAMANHO_FONTE_REFERENCIA_PT)
+    cap_height_referencia = QFontMetricsF(fonte).capHeight()
+    altura_alvo = configuracoes.altura_legenda_mm()
+    escala = altura_alvo / cap_height_referencia if cap_height_referencia > 0 else 1.0
+    return fonte, escala
+
+# Padrão esperado pela gráfica nos arquivos entregues: tudo preto, só o
+# vinco sai tracejado (os demais tipos — corte, corte-serra, meio-corte,
+# dobra — saem contínuos), todos na mesma espessura de 1,0pt — mesmo
+# padrão usado no CorelDRAW (ver `_LARGURA_LINHA_MM` em `corel_bridge.py`)
+# — em vez das espessuras variadas por tipo que a pré-visualização em
+# tela usa (0.4-0.6, pensadas só pra ficarem legíveis na tela, nunca
+# pra sair fiéis no arquivo final).
+_COR_EXPORTACAO = QColor(0, 0, 0)
+_LARGURA_LINHA_MM = 1.0 * 25.4 / 72  # 1,0pt
+
+
+def _traco_ajustado(comprimento: float, traco: float, espaco: float) -> tuple[float, float]:
+    """Ajusta o par (traço, espaço) pra caber um número inteiro de vezes
+    dentro do comprimento da linha, mantendo a proporção traço:espaço.
+
+    Sem isso, o último ciclo antes do fim da linha quase nunca fecha
+    exatamente — sobra um traço cortado pela metade bem no final. Numa
+    linha comprida isso passa despercebido, mas nos vincos curtos deste
+    layout (às vezes só uns 40mm) sobra pouca margem de erro: esse traço
+    cortado aparece bem menor que os outros, lendo como "um traço grande e
+    um pequeno" no meio do que devia ser um padrão uniforme. Arredondar
+    pro número de ciclos mais próximo e redistribuir o comprimento entre
+    eles garante que todo traço sai do mesmo tamanho, do início ao fim."""
+    periodo = traco + espaco
+    if periodo <= 0 or comprimento <= 0:
+        return traco, espaco
+    ciclos = max(1, round(comprimento / periodo))
+    fator = comprimento / (ciclos * periodo)
+    return traco * fator, espaco * fator
 
 
 class _LegendaExportacao:
@@ -57,27 +129,47 @@ class _LegendaExportacao:
         if not cores:
             return
 
-        metrics = QFontMetricsF(_FONTE_LEGENDA)
-        x = 0.0
-        y = rect_desenho.top() - _MARGEM_LEGENDA - metrics.height()
-        self._adicionar_texto("CORES:", x, y, QColor(30, 30, 35))
-        x += metrics.horizontalAdvance("CORES:") + 6
+        self._fonte, self._escala = _fonte_e_escala_legenda()
+        metrics = QFontMetricsF(self._fonte)  # métrico no tamanho grande de referência
+        altura_fonte = metrics.height() * self._escala  # convertido pra mm reais da cena
+        margem = altura_fonte * _FATOR_MARGEM_LEGENDA
+        diametro = configuracoes.altura_legenda_mm()  # bolinha do mesmo tamanho do texto, sempre
 
+        x = 0.0
+        y = rect_desenho.top() - margem - altura_fonte
+        self._adicionar_texto("CORES:", x, y, QColor(0, 0, 0))
+        x += metrics.horizontalAdvance("CORES:") * self._escala + diametro * 0.5
+
+        # `setPos(x, y)` ancora o topo da caixa do texto em y, não a linha
+        # de base — o corpo visível da letra (maiúscula, sem descendente)
+        # fica entre `y + ascent - capHeight` e `y + ascent`. Centraliza a
+        # bolinha nesse intervalo, não na altura de linha inteira (que
+        # inclui espaço acima/abaixo da letra em si).
+        raio = diametro / 2
+        centro_y = y + (metrics.ascent() - metrics.capHeight() / 2) * self._escala
         for cor in cores:
-            bolinha = QGraphicsEllipseItem(QRectF(x, y + 1.5, 5, 5))
+            bolinha = QGraphicsEllipseItem(QRectF(x, centro_y - raio, diametro, diametro))
             bolinha.setBrush(QBrush(QColor(cor.r, cor.g, cor.b)))
-            bolinha.setPen(QPen(QColor(90, 90, 90), 0.25))
+            bolinha.setPen(Qt.PenStyle.NoPen)  # sem contorno, só preenchimento (pedido do usuário)
             scene.addItem(bolinha)
             self._itens.append(bolinha)
-            x += 8
+            x += diametro + diametro * 0.5
 
-            self._adicionar_texto(cor.nome, x, y, QColor(30, 30, 35))
-            x += metrics.horizontalAdvance(cor.nome) + 10
+            self._adicionar_texto(cor.nome, x, y, QColor(cor.r, cor.g, cor.b))
+            x += metrics.horizontalAdvance(cor.nome) * self._escala + diametro * 1.5
 
     def _adicionar_texto(self, texto: str, x: float, y: float, cor: QColor) -> None:
+        # Desenha no tamanho grande de referência (`self._fonte`) e encolhe
+        # via transformação geométrica (`setScale`) — ver
+        # `_fonte_e_escala_legenda` pro motivo (evita o texto sair com
+        # letras "quebradas"/mal espaçadas que aparecem pedindo a fonte já
+        # pequena direto). `setScale` escala em torno da origem local do
+        # item (0, 0), que é o mesmo ponto ancorado por `setPos` — a
+        # posição (x, y) continua sendo o topo-esquerda de verdade.
         item = QGraphicsSimpleTextItem(texto)
-        item.setFont(_FONTE_LEGENDA)
+        item.setFont(self._fonte)
         item.setBrush(QBrush(cor))
+        item.setScale(self._escala)
         item.setPos(x, y)
         self._scene.addItem(item)
         self._itens.append(item)
@@ -95,14 +187,30 @@ def _rect_com_legenda(scene: QGraphicsScene, cores: list[CorImpressao]) -> tuple
 
 
 class _PenasExportacao:
-    """Troca temporariamente o QPen cosmetic das linhas técnicas (usado na
-    pré-visualização em tela pra manter espessura constante em qualquer
-    zoom, ver `_desenhar_linhas_tecnicas` em `preview_canvas.py`) por um
-    pen não-cosmetic equivalente, só durante a exportação — os motores de
-    pintura vetorial/raster usados no `scene.render()` de exportação não
-    preservam corretamente o dash pattern de um pen cosmetic (ele sai
-    sólido mesmo em linhas tracejadas como o vinco). Restaura os pens
-    originais depois do render."""
+    """Normaliza temporariamente as linhas técnicas pro padrão esperado nos
+    arquivos entregues à gráfica — tudo preto, só o vinco tracejado, com
+    traço fino e curto (ver `_COR_EXPORTACAO`/`_TRACO_VINCO_MM` acima) — e
+    troca o QPen cosmetic (usado na pré-visualização em tela pra manter
+    espessura constante em qualquer zoom, ver `_desenhar_linhas_tecnicas`
+    em `preview_canvas.py`) por um pen não-cosmetic equivalente: os
+    motores de pintura vetorial/raster usados no `scene.render()` de
+    exportação não preservam corretamente o dash pattern de um pen
+    cosmetic (ele sai sólido mesmo em linhas que deveriam ser
+    tracejadas). Restaura os pens originais (cor, estilo e cosmetic)
+    depois do render, então a pré-visualização em tela nunca é afetada
+    por isso.
+
+    Também força a espessura pro mesmo padrão real usado no CorelDRAW
+    (`_LARGURA_LINHA_MM`, 1,0pt) — a espessura original do pen vem de
+    `_ESTILO_POR_TIPO` em `preview_canvas.py`, pensada pra ficar legível
+    na tela em qualquer zoom, não pra representar a espessura real de
+    impressão.
+
+    Cada vinco é ajustado (ver `_traco_ajustado`) pra caber um número
+    inteiro de ciclos traço+espaço no seu próprio comprimento, pra nunca
+    sobrar um traço cortado pela metade bem no fim da linha — que é o que
+    lia como "um traço grande e um pequeno" no meio de um padrão que
+    devia ser uniforme."""
 
     def __init__(self, scene: QGraphicsScene) -> None:
         self._originais: list[tuple[QGraphicsLineItem, QPen]] = []
@@ -115,6 +223,18 @@ class _PenasExportacao:
             self._originais.append((item, pen_original))
             pen_exportacao = QPen(pen_original)
             pen_exportacao.setCosmetic(False)
+            pen_exportacao.setColor(_COR_EXPORTACAO)
+            pen_exportacao.setWidthF(_LARGURA_LINHA_MM)
+            if item.data(0) == TipoLinha.VINCO:
+                # setDashPattern usa múltiplos da espessura da pena, não mm
+                # direto — converte pra sair no tamanho ajustado calculado
+                # por `_traco_ajustado`. Lê de Configurações a cada chamada
+                # (não cacheia) pelo mesmo motivo de `_fonte_e_escala_legenda`.
+                traco, espaco = _traco_ajustado(item.line().length(), *configuracoes.traco_vinco_mm())
+                pen_exportacao.setStyle(Qt.PenStyle.CustomDashLine)
+                pen_exportacao.setDashPattern([traco / _LARGURA_LINHA_MM, espaco / _LARGURA_LINHA_MM])
+            else:
+                pen_exportacao.setStyle(Qt.PenStyle.SolidLine)
             item.setPen(pen_exportacao)
 
     def restaurar(self) -> None:
@@ -140,6 +260,8 @@ def exportar_svg(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
         gerador.setDescription("Gerado pelo LayoutCorel")
 
         painter = QPainter(gerador)
+        if not painter.isActive():
+            raise RuntimeError(f"Não consegui iniciar a exportação SVG em: {caminho}")
         try:
             scene.render(painter, source=rect)
         finally:
@@ -170,6 +292,8 @@ def exportar_pdf(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
         impressora.setPageLayout(layout_pagina)
 
         painter = QPainter(impressora)
+        if not painter.isActive():
+            raise RuntimeError(f"Não consegui iniciar a exportação PDF em: {caminho}")
         try:
             scene.render(painter, source=rect)
         finally:
@@ -180,20 +304,41 @@ def exportar_pdf(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
 
 
 def exportar_jpg(
-    scene: QGraphicsScene, cores_legenda: list[CorImpressao], caminho: str, *, supersample: int = 4
+    scene: QGraphicsScene, cores_legenda: list[CorImpressao], caminho: str, *, dpi: int | None = None
 ) -> None:
+    """Exporta em raster (JPG) na resolução `dpi` — por padrão, o valor
+    configurado em Configurações (`configuracoes.dpi_exportacao_jpg()`,
+    300 se nunca ajustado).
+
+    Antes disso a resolução vinha de um fator fixo de "pixels por mm da
+    cena" (supersample=4), o que dava só ~101 DPI — pouco pra imprimir com
+    nitidez — e a imagem não carregava a informação de DPI, então qualquer
+    programa que abrisse o JPG assumia ~96 DPI e mostrava/imprimia o
+    arquivo bem maior (e mais borrado) do que o tamanho real em mm.
+    Calcular a partir de um DPI alvo e gravar esse DPI na própria imagem
+    (`setDotsPerMeterX/Y`) resolve os dois problemas de uma vez.
+    """
+    if dpi is None:
+        dpi = configuracoes.dpi_exportacao_jpg()
     rect, legenda = _rect_com_legenda(scene, cores_legenda)
     penas = _PenasExportacao(scene)
     try:
-        largura = max(1, int(rect.width() * supersample))
-        altura = max(1, int(rect.height() * supersample))
+        pixels_por_mm = dpi / 25.4
+        largura = max(1, round(rect.width() * pixels_por_mm))
+        altura = max(1, round(rect.height() * pixels_por_mm))
 
         imagem = QImage(largura, altura, QImage.Format.Format_RGB32)
         imagem.fill(0xFFFFFFFF)  # fundo branco
+        dots_por_metro = round(pixels_por_mm * 1000)
+        imagem.setDotsPerMeterX(dots_por_metro)
+        imagem.setDotsPerMeterY(dots_por_metro)
 
         painter = QPainter(imagem)
+        if not painter.isActive():
+            raise RuntimeError(f"Não consegui preparar a imagem para exportação em: {caminho}")
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             scene.render(painter, source=rect)
         finally:
             painter.end()
@@ -201,4 +346,7 @@ def exportar_jpg(
         penas.restaurar()
         legenda.remover()
 
-    imagem.save(caminho, "JPG", quality=92)
+    if not imagem.save(caminho, "JPG", quality=95):
+        raise RuntimeError(
+            f"Não consegui salvar o JPG em: {caminho} (verifique permissão de escrita e espaço em disco)"
+        )

@@ -14,12 +14,15 @@ abaixo), montado por fora do canvas em `main_window.py` — assim ela nunca
 sobrepõe o desenho, ao contrário do painel de dimensão (que é pequeno e
 fica num canto, sem esse problema).
 
-As cores usadas aqui são só para leitura em tela — a exportação real sai
-tudo em preto, com o tipo de linha (contínua/tracejada) indicando corte
-ou vinco, como no sistema original.
+A pré-visualização segue o mesmo padrão dos arquivos exportados (ver
+`exportacao.py`/`corel_bridge.py`): tudo preto, só o vinco tracejado —
+assim o que aparece em tela é exatamente o que sai no arquivo final, sem
+diferenças pra explicar.
 """
 
 from __future__ import annotations
+
+import math
 
 from PySide6.QtCore import QLineF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
@@ -34,22 +37,40 @@ from PySide6.QtWidgets import (
 )
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
+from .estilo import Cor
 
+# Cor das linhas técnicas na pré-visualização: a cor de texto do tema
+# (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
+# desapareceria contra o fundo escuro do canvas. `Cor.TEXTO` já é claro
+# no tema escuro e escuro no tema claro, então acompanha automaticamente.
+_COR_LINHA = QColor(Cor.TEXTO)
 _ESTILO_POR_TIPO: dict[TipoLinha, tuple[QColor, Qt.PenStyle, float]] = {
-    TipoLinha.CORTE: (QColor(20, 20, 25), Qt.PenStyle.SolidLine, 0.6),
-    TipoLinha.VINCO: (QColor(40, 100, 220), Qt.PenStyle.DashLine, 0.5),
-    TipoLinha.CORTE_SERRA: (QColor(230, 110, 20), Qt.PenStyle.DashDotLine, 0.5),
-    TipoLinha.MEIO_CORTE: (QColor(30, 160, 90), Qt.PenStyle.DotLine, 0.5),
-    TipoLinha.DOBRA: (QColor(150, 150, 160), Qt.PenStyle.DotLine, 0.4),
+    TipoLinha.CORTE: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.6),
+    TipoLinha.VINCO: (_COR_LINHA, Qt.PenStyle.DashLine, 0.5),
+    TipoLinha.CORTE_SERRA: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.6),
+    TipoLinha.MEIO_CORTE: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.5),
+    TipoLinha.DOBRA: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.4),
 }
 
 _ZOOM_MINIMO = 0.05
 _ZOOM_MAXIMO = 40.0
 
+# Fundo do canvas: um branco liso incomoda a vista numa área grande (era
+# a reclamação) e não lê como área de desenho técnico. Uma grade bem sutil
+# de 10mm resolve as duas coisas — quebra a monotonia e ainda funciona
+# como referência visual de escala. Traço fino/cosmetic (não escala
+# espessura com o zoom) e cor quase invisível de propósito: é textura de
+# fundo, não pode competir com as linhas do próprio layout. Vem de
+# `Cor` (ver estilo.py) pra também inverter certo no tema escuro.
+_COR_FUNDO_CANVAS = QColor(*Cor.CANVAS_FUNDO_RGB)
+_COR_GRADE = QColor(*Cor.CANVAS_GRADE_RGBA)
+_PASSO_GRADE_MM = 10.0
+
+_r, _g, _b, _a = Cor.PAINEL_FLUTUANTE_RGBA
 _ESTILO_PAINEL = (
-    "background: rgba(250, 250, 255, 235);"
-    "border: 1px solid rgba(0, 0, 0, 30);"
-    "border-radius: 4px;"
+    f"background: rgba({_r}, {_g}, {_b}, {_a});"
+    f"border: 1px solid {Cor.BORDA};"
+    "border-radius: 6px;"
     "padding: 4px 8px;"
     "font-size: 12px;"
 )
@@ -81,8 +102,9 @@ class PreviewCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setBackgroundBrush(QBrush(QColor(250, 250, 255)))
+        self.setBackgroundBrush(QBrush(_COR_FUNDO_CANVAS))
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
+        self._grade_visivel = True
 
         self._zoom_atual = 1.0
         self._layout: LayoutCaixa | None = None
@@ -91,7 +113,7 @@ class PreviewCanvas(QGraphicsView):
         # nunca "explode" de tamanho numa caixa pequena.
         self._painel_dimensao = QLabel(self)
         self._painel_dimensao.setStyleSheet(
-            _ESTILO_PAINEL + "color: #46505a; font-weight: 700; font-size: 13px;"
+            _ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 13px;"
         )
         self._painel_dimensao.hide()
 
@@ -124,6 +146,30 @@ class PreviewCanvas(QGraphicsView):
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
         self._zoom_atual = self.transform().m11()
         self.zoom_alterado.emit(self._zoom_atual)
+
+    # ── Fundo ───────────────────────────────────────────────────────
+    def definir_grade_visivel(self, visivel: bool) -> None:
+        self._grade_visivel = visivel
+        self.viewport().update()
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802
+        painter.fillRect(rect, _COR_FUNDO_CANVAS)
+        if not self._grade_visivel:
+            return
+
+        pen = QPen(_COR_GRADE)
+        pen.setCosmetic(True)  # traço de 1px na tela, não 1mm — em qualquer zoom
+        painter.setPen(pen)
+
+        x = math.floor(rect.left() / _PASSO_GRADE_MM) * _PASSO_GRADE_MM
+        while x < rect.right():
+            painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+            x += _PASSO_GRADE_MM
+
+        y = math.floor(rect.top() / _PASSO_GRADE_MM) * _PASSO_GRADE_MM
+        while y < rect.bottom():
+            painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+            y += _PASSO_GRADE_MM
 
     # ── Zoom com a roda do mouse ───────────────────────────────────
     def wheelEvent(self, event) -> None:  # noqa: N802 (nome exigido pelo Qt)
@@ -182,6 +228,7 @@ class PreviewCanvas(QGraphicsView):
             pen.setCosmetic(True)  # espessura constante independente do zoom
             item = QGraphicsLineItem(QLineF(linha.x1, linha.y1, linha.x2, linha.y2))
             item.setPen(pen)
+            item.setData(0, linha.tipo)  # lido por `_PenasExportacao` em exportacao.py
             self._scene.addItem(item)
 
 
@@ -210,7 +257,7 @@ class PainelLegendaCores(QWidget):
             return
 
         titulo = QLabel("CORES:")
-        titulo.setStyleSheet("font-weight: 700; color: #333; font-size: 12px;")
+        titulo.setStyleSheet(f"font-weight: 700; color: {Cor.TEXTO}; font-size: 12px;")
         self._layout.addWidget(titulo)
 
         for cor in cores:
