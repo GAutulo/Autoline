@@ -38,6 +38,29 @@ def test_maleta_normal_300x200x150():
     assert TipoLinha.VINCO in tipos_presentes
     assert TipoLinha.CORTE_SERRA in tipos_presentes
 
+    # Segmentos efetivos (com os padrões aplicados) devem bater com o
+    # exemplo documentado: Impressora = 4×200×300×200×300, Riscador = 100×150×100.
+    assert layout.segmentos_impressora == [4.0, 200.0, 300.0, 200.0, 300.0]
+    assert layout.segmentos_riscador == [100.0, 150.0, 100.0]
+    assert sum(layout.segmentos_impressora) == layout.largura_total
+    assert sum(layout.segmentos_riscador) == layout.altura_total
+
+
+def test_maleta_transpassada_riscador_usa_largura_cheia():
+    """A maleta transpassada usa Largura × Altura × Largura no riscador,
+    diferente da maleta normal, que usa (Largura/2) × Altura × (Largura/2)."""
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.MALETA_TRANSPASSADA,
+        comprimento=300,
+        largura=200,
+        altura=150,
+    )
+
+    layout = ServicoLayoutCaixa().calcular(medidas)
+
+    assert layout.segmentos_riscador == [200.0, 150.0, 200.0]
+    assert layout.altura_total == 200 + 150 + 200
+
 
 def test_medidas_geradas_manuais_nao_alteram_c_l_a():
     """Ajustar um trecho manualmente não deve mudar C×L×A (regra do domínio),

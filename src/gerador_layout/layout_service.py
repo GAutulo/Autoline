@@ -113,6 +113,8 @@ class ServicoLayoutCaixa:
 
         layout.largura_total = x5
         layout.altura_total = y5
+        layout.segmentos_impressora = [aba_imp, imp2, imp3, imp4, imp5]
+        layout.segmentos_riscador = [ris1, ris2, ris3, ris4, ris5]
         if fechamento_normal:
             layout.descricao = (
                 "Envoltório fechamento normal — com corte"
@@ -213,7 +215,7 @@ class ServicoLayoutCaixa:
         largura2 = _valor_ou_padrao(m.impressora_largura_2, m.largura)
         comprimento2 = _valor_ou_padrao(m.impressora_comprimento_2, m.comprimento)
 
-        aba_riscador_padrao = m.largura / 2.0
+        aba_riscador_padrao = m.largura if m.tipo == TipoCaixa.MALETA_TRANSPASSADA else m.largura / 2.0
         topo = _valor_ou_padrao(m.riscador_superior, aba_riscador_padrao)
         centro = _valor_ou_padrao(m.riscador_centro, m.altura)
         inferior = _valor_ou_padrao(m.riscador_inferior, aba_riscador_padrao)
@@ -236,6 +238,8 @@ class ServicoLayoutCaixa:
         layout.largura_total = x5
         layout.altura_total = y3
         layout.descricao = "Maleta normal — medidas por trecho"
+        layout.segmentos_impressora = [aba_lat, largura1, comprimento1, largura2, comprimento2]
+        layout.segmentos_riscador = [topo, centro, inferior]
 
         # ── CORTES EXTERNOS ────────────────────────────────────────
         _adicionar_segmentos_horizontais_com_serra(
