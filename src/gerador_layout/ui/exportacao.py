@@ -257,7 +257,7 @@ def exportar_svg(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
         gerador.setViewBox(rect)
         gerador.setResolution(2540)
         gerador.setTitle("Layout de caixa")
-        gerador.setDescription("Gerado pelo LayoutCorel")
+        gerador.setDescription("Gerado pelo Autoline")
 
         painter = QPainter(gerador)
         if not painter.isActive():

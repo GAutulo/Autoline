@@ -1,5 +1,7 @@
 <#
-driver.ps1 - launch, screenshot (safely), and stop the LayoutCorel app.
+driver.ps1 - launch, screenshot (safely), and stop the Autoline app
+(project folder / internal name still "gerador-layout-caixas" -- Autoline
+is the rebrand applied to the UI/exe, see estilo.py).
 
 Two things this driver fixes, both found by actually running it (see
 Gotchas in SKILL.md for the full story):
@@ -30,11 +32,11 @@ Gotchas in SKILL.md for the full story):
 
 Usage (from repo root, PowerShell):
     . .claude\skills\run-gerador-layout-caixas\driver.ps1
-    $app = Start-LayoutCorel                      # dev mode (fast)
+    $app = Start-Autoline                      # dev mode (fast)
     Save-AppScreenshot -App $app -Path "$env:TEMP\tela.png"
-    Stop-LayoutCorel -App $app
+    Stop-Autoline -App $app
 
-    $app = Start-LayoutCorel -Modo exe            # packaged dist\LayoutCorel.exe
+    $app = Start-Autoline -Modo exe            # packaged dist\Autoline.exe
 
 $app is a small object: @{ Proc = <Process>; Hwnd = <IntPtr> }.
 #>
@@ -45,7 +47,7 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 
-public class LayoutCorelDriver {
+public class AutolineDriver {
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -75,7 +77,7 @@ public class LayoutCorelDriver {
 }
 "@ -ErrorAction SilentlyContinue
 
-function Start-LayoutCorel {
+function Start-Autoline {
     <#
     .SYNOPSIS
     Launches the app and returns @{ Proc = <Process>; Hwnd = <IntPtr> }
@@ -92,9 +94,9 @@ function Start-LayoutCorel {
     )
 
     if ($Modo -eq "exe") {
-        $exe = Join-Path $RepoRoot "dist\LayoutCorel.exe"
+        $exe = Join-Path $RepoRoot "dist\Autoline.exe"
         if (-not (Test-Path $exe)) {
-            throw "dist\LayoutCorel.exe nao existe. Rode primeiro: .venv\Scripts\pyinstaller.exe --noconfirm LayoutCorel.spec"
+            throw "dist\Autoline.exe nao existe. Rode primeiro: .venv\Scripts\pyinstaller.exe --noconfirm Autoline.spec"
         }
         $proc = Start-Process -FilePath $exe -PassThru
     } else {
@@ -127,7 +129,7 @@ function Start-LayoutCorel {
         foreach ($f in $filhos) { $candidatos += $f.ProcessId }
 
         foreach ($pidCandidato in $candidatos) {
-            $hwnd = [LayoutCorelDriver]::FindWindowForProcess([uint32]$pidCandidato)
+            $hwnd = [AutolineDriver]::FindWindowForProcess([uint32]$pidCandidato)
             if ($hwnd -ne [IntPtr]::Zero) {
                 $procJanela = Get-Process -Id $pidCandidato
                 return @{ Proc = $procJanela; Hwnd = $hwnd; LauncherPid = $launcherPid }
@@ -154,11 +156,11 @@ function Save-AppScreenshot {
     if ($App.Proc.HasExited) { throw "Processo (PID $($App.Proc.Id)) ja encerrou." }
     $hwnd = $App.Hwnd
 
-    [LayoutCorelDriver]::ShowWindow($hwnd, 9) | Out-Null  # SW_RESTORE, caso esteja minimizada
+    [AutolineDriver]::ShowWindow($hwnd, 9) | Out-Null  # SW_RESTORE, caso esteja minimizada
     Start-Sleep -Milliseconds 200
 
-    $rect = New-Object LayoutCorelDriver+RECT
-    [LayoutCorelDriver]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+    $rect = New-Object AutolineDriver+RECT
+    [AutolineDriver]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
     $largura = $rect.Right - $rect.Left
     $altura = $rect.Bottom - $rect.Top
     if ($largura -le 0 -or $altura -le 0) {
@@ -170,7 +172,7 @@ function Save-AppScreenshot {
     $gr = [System.Drawing.Graphics]::FromImage($bmp)
     $hdc = $gr.GetHdc()
     try {
-        $ok = [LayoutCorelDriver]::PrintWindow($hwnd, $hdc, 2)  # PW_RENDERFULLCONTENT
+        $ok = [AutolineDriver]::PrintWindow($hwnd, $hdc, 2)  # PW_RENDERFULLCONTENT
     } finally {
         $gr.ReleaseHdc($hdc)
     }
@@ -182,14 +184,14 @@ function Save-AppScreenshot {
     Write-Output "Screenshot salvo: $Path ($largura x $altura)"
 }
 
-function Stop-LayoutCorel {
+function Stop-Autoline {
     param([Parameter(Mandatory)][hashtable]$App)
     $App.Proc.Refresh()
     if (-not $App.Proc.HasExited) {
         Stop-Process -Id $App.Proc.Id -Force
     }
     # Mata tambem o stub lancador (-Modo dev), se for um PID diferente --
-    # ver Start-LayoutCorel. Ignora erro: normalmente ja saiu junto com o filho.
+    # ver Start-Autoline. Ignora erro: normalmente ja saiu junto com o filho.
     if ($App.LauncherPid -and $App.LauncherPid -ne $App.Proc.Id) {
         Stop-Process -Id $App.LauncherPid -Force -ErrorAction SilentlyContinue
     }

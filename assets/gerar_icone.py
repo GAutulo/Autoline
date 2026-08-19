@@ -7,10 +7,13 @@ def desenhar_icone(tamanho: int) -> Image.Image:
     img = Image.new("RGBA", (tamanho, tamanho), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
-    cor_fundo = (30, 100, 180, 255)      # azul (mesma família da barra do app original)
-    cor_caixa = (250, 250, 255, 255)
-    cor_linha = (30, 60, 110, 255)
-    cor_vinco = (210, 70, 40, 255)
+    # Paleta Autoline (ver estilo.py): carvão de fundo, painéis em osso,
+    # contorno em kraft escuro, vinco tracejado em kraft — mesma lógica
+    # de cores do resto do rebranding, não uma paleta só do ícone.
+    cor_fundo = (30, 26, 22, 255)     # carvão
+    cor_caixa = (237, 230, 216, 255)  # osso
+    cor_linha = (140, 106, 59, 255)   # kraft escuro
+    cor_vinco = (199, 154, 93, 255)   # kraft
 
     pad = int(tamanho * 0.08)
     d.rounded_rectangle([pad, pad, tamanho - pad, tamanho - pad], radius=int(tamanho * 0.14), fill=cor_fundo)

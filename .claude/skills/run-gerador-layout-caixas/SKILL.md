@@ -5,8 +5,8 @@ description: Build, run, and drive the Gerador de Layout de Caixas desktop app (
 
 Windows desktop app (PySide6/Qt). Drive it via
 `.claude\skills\run-gerador-layout-caixas\driver.ps1` — a PowerShell
-module with `Start-LayoutCorel` / `Save-AppScreenshot` /
-`Stop-LayoutCorel`. All paths below are relative to the repo root.
+module with `Start-Autoline` / `Save-AppScreenshot` /
+`Stop-Autoline`. All paths below are relative to the repo root.
 
 ## Setup
 
@@ -19,22 +19,22 @@ python -m venv .venv
 ## Build (packaged .exe — optional, dev mode below doesn't need this)
 
 ```powershell
-.venv\Scripts\pyinstaller.exe --noconfirm LayoutCorel.spec
+.venv\Scripts\pyinstaller.exe --noconfirm Autoline.spec
 ```
 
-Produces `dist\LayoutCorel.exe`. Dev mode (below) is faster to iterate
+Produces `dist\Autoline.exe`. Dev mode (below) is faster to iterate
 with; build this when you specifically need to verify the packaged exe.
 
 ## Run (agent path)
 
 ```powershell
 . .claude\skills\run-gerador-layout-caixas\driver.ps1
-$app = Start-LayoutCorel               # dev mode — launches via .venv's pythonw.exe
+$app = Start-Autoline               # dev mode — launches via .venv's pythonw.exe
 Save-AppScreenshot -App $app -Path "$env:TEMP\tela.png"
-Stop-LayoutCorel -App $app
+Stop-Autoline -App $app
 ```
 
-Use `Start-LayoutCorel -Modo exe` instead to drive `dist\LayoutCorel.exe`
+Use `Start-Autoline -Modo exe` instead to drive `dist\Autoline.exe`
 (build it first — see above).
 
 `$app` is `@{ Proc = <Process>; Hwnd = <IntPtr>; LauncherPid = <int> }` —
@@ -45,16 +45,16 @@ each one exists.
 
 | command | what it does |
 |---|---|
-| `Start-LayoutCorel [-Modo dev\|exe]` | Launches the app, waits up to 15s for its window, returns `$app`. Throws with a specific message if the process dies first or the window never appears. |
+| `Start-Autoline [-Modo dev\|exe]` | Launches the app, waits up to 15s for its window, returns `$app`. Throws with a specific message if the process dies first or the window never appears. |
 | `Save-AppScreenshot -App $app -Path <file>` | Screenshots exactly that window (via `PrintWindow`, not screen coordinates — see Gotchas) to a PNG file. |
-| `Stop-LayoutCorel -App $app` | Kills the window-owning process and the launcher stub, if they're different PIDs. |
+| `Stop-Autoline -App $app` | Kills the window-owning process and the launcher stub, if they're different PIDs. |
 
 Screenshots land wherever `-Path` says; nothing writes anywhere on its
 own.
 
 ## Run (human path)
 
-Double-click `dist\LayoutCorel.exe`, or from repo root:
+Double-click `dist\Autoline.exe`, or from repo root:
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -112,9 +112,9 @@ path doesn't, see Gotchas.)
   window at all.** Confirmed with `Get-CimInstance Win32_Process
   -Filter "ParentProcessId=..."`: the process you launch is a stub;
   a *child* `pythonw.exe` with the same command line is the one that
-  actually owns the Qt window. `Start-LayoutCorel` searches the
+  actually owns the Qt window. `Start-Autoline` searches the
   launched PID *and* its direct children for a window, and
-  `Stop-LayoutCorel` kills both PIDs (the child is usually already
+  `Stop-Autoline` kills both PIDs (the child is usually already
   gone by the time the launcher is asked to stop, hence
   `-ErrorAction SilentlyContinue` there). The packaged exe
   (`-Modo exe`) does the same thing for a different reason — PyInstaller
@@ -151,7 +151,7 @@ path doesn't, see Gotchas.)
   startup (run the human path with `python.exe`, not `pythonw.exe`, to
   see the traceback) or `.venv` doesn't have PySide6 installed (rerun
   Setup).
-- **`dist\LayoutCorel.exe nao existe`** (from `-Modo exe`): run Build
+- **`dist\Autoline.exe nao existe`** (from `-Modo exe`): run Build
   first.
 - **`.venv nao existe`** (from `-Modo dev`): run Setup first.
 - **PowerShell throws a parser error pointing at what looks like

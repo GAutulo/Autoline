@@ -1,2 +1,3 @@
 -r requirements.txt
 pyinstaller>=6.0
+Pillow>=10.0  # só usado por assets/gerar_icone.py, não faz parte do app em si
