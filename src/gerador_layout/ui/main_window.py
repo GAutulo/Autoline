@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTabBar,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
+from ..paineis import Painel, calcular_paineis
 from . import corel_bridge, exportacao
 from .dialogo_configuracoes import DialogoConfiguracoes
 from .dialogo_logo import DialogoSepararCoresLogo
@@ -81,6 +83,7 @@ class JanelaPrincipal(QMainWindow):
         self._servico = ServicoLayoutCaixa()
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
+        self._paineis_atuais: list[Painel] = []
 
         self._montar_ui()
         self._montar_dock_propriedades_mockup()
@@ -434,15 +437,43 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
             self.painel_propriedades_mockup.definir_elemento(None)
+        # Mostrar/esconder os painéis ao redor muda o tamanho disponível
+        # do canvas — sem reencaixar aqui, a visão que estava centralizada
+        # antes da troca fica deslocada (às vezes "presa" perto do canto
+        # superior esquerdo) porque o zoom/posição antigos não fazem mais
+        # sentido pro novo tamanho de viewport.
+        self.canvas.ajustar_a_tela()
 
     # ── Mockup (Fase 2): dock de propriedades, barra e criação de itens ─
     def _montar_dock_propriedades_mockup(self) -> None:
-        self.painel_propriedades_mockup = PainelPropriedadesMockup(self._cores_impressao_ativas)
+        self.painel_propriedades_mockup = PainelPropriedadesMockup(
+            self._cores_impressao_ativas, self._paineis_disponiveis
+        )
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
 
+        # QScrollArea entre o dock e o painel: o painel cresce bastante
+        # pra elementos com mais campos (ex.: checklist com várias
+        # variantes) — sem rolagem, numa janela restaurada (não
+        # maximizada, ver `self.resize` no __init__) o botão "Remover
+        # elemento" ficava cortado embaixo, fora da área visível, sem
+        # nenhum jeito de rolar até ele (achado revisando, não reportado
+        # pelo usuário — mas era um bug de verdade).
+        rolagem = QScrollArea()
+        rolagem.setWidget(self.painel_propriedades_mockup)
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QScrollArea.Shape.NoFrame)
+        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Sem isso, o `QScrollArea` não repassa a largura preferida do
+        # painel de propriedades pro dock (o `sizeHint` de um QScrollArea
+        # não reflete o do widget lá dentro) — o dock encolhia pra ~140px
+        # e cortava toda label/campo na horizontal. Achado revisando com
+        # a rolagem vertical ligada, não é óbvio olhando só o caso feliz
+        # (janela grande, nada rolando).
+        rolagem.setMinimumWidth(340)
+
         self.dock_propriedades_mockup = QDockWidget("Propriedades", self)
-        self.dock_propriedades_mockup.setWidget(self.painel_propriedades_mockup)
+        self.dock_propriedades_mockup.setWidget(rolagem)
         self.dock_propriedades_mockup.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
         )
@@ -483,6 +514,11 @@ class JanelaPrincipal(QMainWindow):
         acao_agrupar.setToolTip("Ctrl+G")
         acao_desagrupar = barra.addAction("Desagrupar", lambda: self.canvas.desagrupar_selecionados())
         acao_desagrupar.setToolTip("Ctrl+Shift+G")
+        barra.addSeparator()
+        acao_frente = barra.addAction("Trazer p/ frente", lambda: self.canvas.trazer_para_frente())
+        acao_frente.setToolTip("Ctrl+Home")
+        acao_tras = barra.addAction("Enviar p/ trás", lambda: self.canvas.enviar_para_tras())
+        acao_tras.setToolTip("Ctrl+End")
 
         barra.hide()
 
@@ -537,16 +573,26 @@ class JanelaPrincipal(QMainWindow):
         self._adicionar_elemento_mockup_e_selecionar(elemento)
 
     def _adicionar_logo(self) -> None:
-        caminho, _ = QFileDialog.getOpenFileName(self, "Adicionar logotipo vetorial", "", "SVG (*.svg)")
+        # Aceita PNG/JPG além de SVG — pra quem só tem o logotipo em
+        # imagem (o caso mais comum na prática, a maioria das empresas
+        # não tem versão vetorial à mão), não faz sentido travar no
+        # formato: quem pediu "logotipo" quer usar o arquivo que tem, a
+        # separação de cor automática só se aplica quando é SVG mesmo.
+        caminho, _ = QFileDialog.getOpenFileName(
+            self, "Adicionar logotipo", "", "Logotipos (*.svg *.png *.jpg *.jpeg);;SVG (*.svg);;Imagem (*.png *.jpg *.jpeg)"
+        )
         if not caminho:
             return
         try:
-            elemento = ElementoLogoVetorial(caminho)
+            if caminho.lower().endswith(".svg"):
+                elemento = ElementoLogoVetorial(caminho)
+            else:
+                elemento = ElementoImagem(caminho)
         except ValueError as exc:
             QMessageBox.critical(self, "Erro ao abrir logotipo", str(exc))
             return
         self._adicionar_elemento_mockup_e_selecionar(elemento)
-        if elemento.cores_detectadas:
+        if isinstance(elemento, ElementoLogoVetorial) and elemento.cores_detectadas:
             self._remapear_cores_logo(elemento)
 
     def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
@@ -610,7 +656,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+                exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -624,7 +670,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+                exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -638,7 +684,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual.cores_legenda, caminho)
+                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -660,7 +706,9 @@ class JanelaPrincipal(QMainWindow):
             with self._cursor_espera():
                 if self._corel_app is None:
                     self._corel_app = corel_bridge.conectar()
-                corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual)
+                corel_bridge.desenhar_layout(
+                    self._corel_app, self.canvas.layout_atual, self.canvas.elementos_mockup
+                )
         except corel_bridge.CorelIndisponivel as exc:
             self._corel_app = None
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
@@ -670,11 +718,16 @@ class JanelaPrincipal(QMainWindow):
         else:
             self.statusBar().showMessage("Novo layout desenhado no CorelDRAW", 6000)
 
+    def _paineis_disponiveis(self) -> list[Painel]:
+        return list(self._paineis_atuais)
+
     def _recalcular(self) -> None:
         medidas = self._obter_medidas()
         layout = self._servico.calcular(medidas)
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
+        self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
+        self.canvas.definir_paineis(self._paineis_atuais)
 
         self.linha_impressora.atualizar_valores_efetivos(layout.segmentos_impressora)
         self.linha_impressora.definir_total(layout.largura_total)

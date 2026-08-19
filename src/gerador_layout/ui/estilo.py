@@ -405,6 +405,14 @@ QDockWidget::title {{
     font-weight: 700;
 }}
 
+/* Sem isso, o viewport de dentro de um QScrollArea (ex.: o dock de
+   propriedades do mockup, ver main_window.py) pinta com a cor de fundo
+   padrão do estilo nativo do Qt em vez de acompanhar o tema. */
+QScrollArea, QScrollArea > QWidget > QWidget {{
+    background: transparent;
+    border: none;
+}}
+
 QScrollBar:vertical, QScrollBar:horizontal {{
     background: transparent;
     border: none;
