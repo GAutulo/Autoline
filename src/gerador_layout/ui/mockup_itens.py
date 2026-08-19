@@ -108,6 +108,14 @@ class ElementoMockup(QGraphicsObject):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
+        # Sem isso, `itemChange` abaixo nunca é chamado pra posição — e é
+        # o único jeito de saber que a posição mudou por causa de um
+        # arrasto comum (mover o corpo), que usa o `setPos` nativo do Qt
+        # direto, sem passar pelo nosso `_redimensionar_para`/`_girar_para`
+        # (que já emitem `geometria_alterada` manualmente). Precisa disso
+        # pro painel de propriedades atualizar os campos X/Y ao vivo
+        # enquanto o usuário arrasta, não só depois de soltar o mouse.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
 
         # Painel "dono" do elemento (frente, lateral, tampa...) — pura
@@ -116,6 +124,12 @@ class ElementoMockup(QGraphicsObject):
         # painel vizinho, então travar nisso atrapalharia mais do que
         # ajudaria. Serve pra Fase 3 (3D) saber em qual face colar o quê.
         self._painel_id: str | None = None
+
+        # Trava de proporção (item 4 da lista de melhorias inspiradas em
+        # ArtiosCAD/CorelDRAW/etc.) — afeta tanto arrastar uma alça
+        # (`_redimensionar_para` abaixo) quanto editar Largura/Altura
+        # pelos campos do painel de propriedades (`definir_tamanho`).
+        self._proporcao_travada = False
 
         self._alca_ativa = Alca.NENHUMA
         self._arrastando = False
@@ -145,7 +159,43 @@ class ElementoMockup(QGraphicsObject):
     def definir_painel(self, painel_id: str | None) -> None:
         self._painel_id = painel_id
 
+    @property
+    def proporcao_travada(self) -> bool:
+        return self._proporcao_travada
+
+    def definir_proporcao_travada(self, travada: bool) -> None:
+        self._proporcao_travada = travada
+
+    def definir_largura(self, largura: float) -> None:
+        """Muda só a largura — se a proporção estiver travada, a altura
+        acompanha na mesma razão atual. Ver docstring de `definir_tamanho`
+        pra por que isso é um método à parte, não uma inferência dentro
+        de `definir_tamanho`."""
+        altura = self._altura
+        if self._proporcao_travada and self._largura:
+            altura = self._altura * (largura / self._largura)
+        self.definir_tamanho(largura, altura)
+
+    def definir_altura(self, altura: float) -> None:
+        largura = self._largura
+        if self._proporcao_travada and self._altura:
+            largura = self._largura * (altura / self._altura)
+        self.definir_tamanho(largura, altura)
+
     def definir_tamanho(self, largura: float, altura: float) -> None:
+        """Define largura E altura de uma vez, sem nenhuma lógica de
+        proporção — quem quer editar só um lado respeitando a trava usa
+        `definir_largura`/`definir_altura` acima, não este método.
+
+        (Antes esse método tentava ADIVINHAR qual dos dois lados o
+        chamador queria mudar, comparando com o valor atual — parecia
+        certo num teste manual com `setValue()`, mas quebrava na prática:
+        `QDoubleSpinBox` dispara `valueChanged` a CADA TECLA digitada, não
+        só no Enter, então "digitar 20" gerava uma sequência de chamadas
+        com o valor "atual" já alterado pela tecla anterior — cada
+        chamada via uma comparação diferente e a conta de escala
+        divergia a cada dígito, resultado final errado. Método explícito
+        e sem essa suposição resolve de vez.)"""
         self.prepareGeometryChange()
         self._largura = max(_LARGURA_MINIMA_MM, largura)
         self._altura = max(_ALTURA_MINIMA_MM, altura)
@@ -153,7 +203,20 @@ class ElementoMockup(QGraphicsObject):
         self.update()
         self.geometria_alterada.emit()
 
+    def retangulo_conteudo_cena(self) -> QRectF:
+        """Retângulo de conteúdo de verdade — sem a margem das alças de
+        seleção que `boundingRect()` inclui (ver abaixo) — em coordenadas
+        da CENA. É o que a exportação usa: `boundingRect()` existe pra o
+        Qt saber até onde repintar durante a edição, nunca deveria
+        definir o tamanho de um arquivo exportado."""
+        return self.mapRectToScene(QRectF(0, 0, self._largura, self._altura))
+
     # ── QGraphicsItem ────────────────────────────────────────────────
+    def itemChange(self, change, value):  # noqa: N802
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.geometria_alterada.emit()
+        return super().itemChange(change, value)
+
     def boundingRect(self) -> QRectF:
         margem = _DISTANCIA_ALCA_ROTACAO_MM + _TAMANHO_ALCA_ROTACAO_MM
         return QRectF(0, 0, self._largura, self._altura).adjusted(-margem, -margem, margem, margem)
@@ -278,6 +341,21 @@ class ElementoMockup(QGraphicsObject):
             nova_largura = max(_LARGURA_MINIMA_MM, abs(diff_local.x()))
         if rel_y != 0.5:
             nova_altura = max(_ALTURA_MINIMA_MM, abs(diff_local.y()))
+
+        if self._proporcao_travada and self._arrasto_largura_inicial and self._arrasto_altura_inicial:
+            # Mesmo puxando só uma alça de borda (largura OU altura), com
+            # a proporção travada o outro eixo acompanha na mesma escala
+            # — não só as alças de canto. Usa o eixo que a alça realmente
+            # controla como referência da escala (o outro, se também
+            # mudou, é ignorado — só um eixo pode ser "o motivo" do
+            # arrasto de cada vez).
+            escala = (
+                nova_largura / self._arrasto_largura_inicial
+                if rel_x != 0.5
+                else nova_altura / self._arrasto_altura_inicial
+            )
+            nova_largura = max(_LARGURA_MINIMA_MM, self._arrasto_largura_inicial * escala)
+            nova_altura = max(_ALTURA_MINIMA_MM, self._arrasto_altura_inicial * escala)
 
         origem_nova = QPointF(nova_largura / 2, nova_altura / 2)
         ponto_local_novo = QPointF((1 - rel_x) * nova_largura, (1 - rel_y) * nova_altura)

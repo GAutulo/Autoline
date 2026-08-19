@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 
-from ..models import CorImpressao, TipoLinha
+from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from . import configuracoes
 
 # Legenda de cores: tamanho configurável em Configurações (não escala com
@@ -179,11 +179,41 @@ class _LegendaExportacao:
             self._scene.removeItem(item)
 
 
-def _rect_com_legenda(scene: QGraphicsScene, cores: list[CorImpressao]) -> tuple[QRectF, _LegendaExportacao]:
-    rect_desenho = scene.itemsBoundingRect()
-    legenda = _LegendaExportacao(scene, cores, rect_desenho)
-    rect_final = scene.itemsBoundingRect() if legenda._itens else rect_desenho
+def _rect_com_legenda(
+    scene: QGraphicsScene, layout: LayoutCaixa
+) -> tuple[QRectF, _LegendaExportacao]:
+    # O retângulo do desenho é o tamanho real da faca (`largura_total` ×
+    # `altura_total`), NUNCA `scene.itemsBoundingRect()` — esse inclui a
+    # margem das alças de seleção de todo elemento de mockup (14mm pra
+    # cada lado, ver `ElementoMockup.boundingRect()`), o que inflava o
+    # arquivo exportado bem além do tamanho real da caixa assim que
+    # qualquer elemento de mockup existia na cena. O conteúdo de mockup
+    # em si ainda sai no arquivo — `scene.render()` desenha tudo que
+    # intersecta esse retângulo, só o TAMANHO do arquivo é que agora vem
+    # da caixa, não da soma de tudo que existe na cena.
+    rect_desenho = QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
+    legenda = _LegendaExportacao(scene, layout.cores_legenda, rect_desenho)
+    rect_final = rect_desenho
+    if legenda._itens:
+        for item in legenda._itens:
+            rect_final = rect_final.united(item.sceneBoundingRect())
     return rect_final, legenda
+
+
+class _SelecaoOculta:
+    """Desmarca toda seleção de elemento de mockup durante a exportação
+    e restaura depois — as alças de redimensionar/rotacionar (ver
+    `ElementoMockup._pintar_selecao`) só deveriam aparecer editando na
+    tela, nunca dentro de um arquivo exportado."""
+
+    def __init__(self, scene: QGraphicsScene) -> None:
+        self._selecionados = list(scene.selectedItems())
+        for item in self._selecionados:
+            item.setSelected(False)
+
+    def restaurar(self) -> None:
+        for item in self._selecionados:
+            item.setSelected(True)
 
 
 class _PenasExportacao:
@@ -242,8 +272,9 @@ class _PenasExportacao:
             item.setPen(pen_original)
 
 
-def exportar_svg(scene: QGraphicsScene, cores_legenda: list[CorImpressao], caminho: str) -> None:
-    rect, legenda = _rect_com_legenda(scene, cores_legenda)
+def exportar_svg(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> None:
+    rect, legenda = _rect_com_legenda(scene, layout)
+    selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
     try:
         # QSvgGenerator só aceita resolução em DPI inteiro. Pra converter
@@ -268,11 +299,13 @@ def exportar_svg(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
             painter.end()
     finally:
         penas.restaurar()
+        selecao.restaurar()
         legenda.remover()
 
 
-def exportar_pdf(scene: QGraphicsScene, cores_legenda: list[CorImpressao], caminho: str) -> None:
-    rect, legenda = _rect_com_legenda(scene, cores_legenda)
+def exportar_pdf(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> None:
+    rect, legenda = _rect_com_legenda(scene, layout)
+    selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
     try:
         # As coordenadas da cena já são em mm — a página do PDF sai com o
@@ -300,11 +333,12 @@ def exportar_pdf(scene: QGraphicsScene, cores_legenda: list[CorImpressao], camin
             painter.end()
     finally:
         penas.restaurar()
+        selecao.restaurar()
         legenda.remover()
 
 
 def exportar_jpg(
-    scene: QGraphicsScene, cores_legenda: list[CorImpressao], caminho: str, *, dpi: int | None = None
+    scene: QGraphicsScene, layout: LayoutCaixa, caminho: str, *, dpi: int | None = None
 ) -> None:
     """Exporta em raster (JPG) na resolução `dpi` — por padrão, o valor
     configurado em Configurações (`configuracoes.dpi_exportacao_jpg()`,
@@ -320,7 +354,8 @@ def exportar_jpg(
     """
     if dpi is None:
         dpi = configuracoes.dpi_exportacao_jpg()
-    rect, legenda = _rect_com_legenda(scene, cores_legenda)
+    rect, legenda = _rect_com_legenda(scene, layout)
+    selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
     try:
         pixels_por_mm = dpi / 25.4
@@ -344,6 +379,7 @@ def exportar_jpg(
             painter.end()
     finally:
         penas.restaurar()
+        selecao.restaurar()
         legenda.remover()
 
     if not imagem.save(caminho, "JPG", quality=95):

@@ -57,10 +57,16 @@ class ElementoChecklistCores(ElementoMockup):
         self._variantes.append(nome)
         self._reajustar_caixa()
 
-    def remover_variante(self, indice: int) -> None:
+    def remover_variante(self, indice: int) -> bool:
+        """Devolve se removeu de verdade — nunca deixa a lista vazia (a
+        última variante fica), e quem chama (painel de propriedades)
+        precisa saber se aconteceu de verdade pra manter a lista visual
+        em sincronia com isso."""
         if len(self._variantes) > 1 and 0 <= indice < len(self._variantes):
             self._variantes.pop(indice)
             self._reajustar_caixa()
+            return True
+        return False
 
     @property
     def fonte_familia(self) -> str:

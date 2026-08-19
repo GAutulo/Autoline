@@ -9,6 +9,8 @@ mostra o SVG com as cores originais do arquivo.
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgRenderer
@@ -17,12 +19,44 @@ from . import svg_cores
 from .mockup_itens import ElementoMockup
 
 _LARGURA_PADRAO_MM = 40.0
+_PADRAO_ENCODING_XML = re.compile(rb'encoding=["\']([\w-]+)["\']')
+
+
+def _ler_conteudo_svg(caminho_arquivo: str) -> str:
+    """Lê o arquivo tentando, em ordem: UTF-8 (o padrão de verdade pra
+    SVG, cobre a maioria), o encoding que o próprio cabeçalho `<?xml?>`
+    declara (comum em arquivo mais antigo ou exportado por ferramenta
+    que não usa UTF-8 por padrão — ex.: `ISO-8859-1`), e por último
+    Latin-1 como rede de segurança (Latin-1 nunca falha ao decodificar
+    nenhuma sequência de bytes, então garante que pelo menos abre — na
+    pior hipótese um acento sai errado num comentário do arquivo, mas
+    isso não impede o logotipo de aparecer).
+
+    Faltava isso: um SVG de verdade com encoding diferente de UTF-8
+    derrubava o app inteiro com `UnicodeDecodeError` direto no
+    `open().read()`, antes até de chegar no `try/except` que já existia
+    (esse só pega `ValueError`)."""
+    with open(caminho_arquivo, "rb") as arquivo:
+        bruto = arquivo.read()
+
+    declarado = _PADRAO_ENCODING_XML.search(bruto[:200])
+    candidatos = ["utf-8-sig", declarado.group(1).decode("ascii") if declarado else None, "latin-1"]
+    for codificacao in candidatos:
+        if not codificacao:
+            continue
+        try:
+            return bruto.decode(codificacao)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return bruto.decode("latin-1", errors="replace")  # nunca deveria chegar aqui — latin-1 sozinho já não falha
 
 
 class ElementoLogoVetorial(ElementoMockup):
     def __init__(self, caminho_arquivo: str, parent=None) -> None:
-        with open(caminho_arquivo, "r", encoding="utf-8") as arquivo:
-            conteudo_original = arquivo.read()
+        try:
+            conteudo_original = _ler_conteudo_svg(caminho_arquivo)
+        except OSError as exc:
+            raise ValueError(f"Não consegui ler o arquivo: {caminho_arquivo}") from exc
 
         renderer = QSvgRenderer()
         if not renderer.load(conteudo_original.encode("utf-8")):
@@ -33,7 +67,10 @@ class ElementoLogoVetorial(ElementoMockup):
 
         self._caminho_arquivo = caminho_arquivo
         self._conteudo_original = conteudo_original
-        self._cores_detectadas = svg_cores.detectar_cores(conteudo_original)
+        try:
+            self._cores_detectadas = svg_cores.detectar_cores(conteudo_original)
+        except Exception:  # noqa: BLE001 — XML malformado não pode derrubar o app, só perde a separação de cor
+            self._cores_detectadas = []
         self._mapa_cores: dict[str, str] = {}
         self._renderer = renderer
 

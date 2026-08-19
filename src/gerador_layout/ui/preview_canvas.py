@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QLineF, QPointF, Qt, Signal
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
+from ..paineis import Painel
 from .estilo import Cor
 from .mockup_itens import ElementoMockup, GrupoMockup
 
@@ -119,6 +120,17 @@ class PreviewCanvas(QGraphicsView):
         self._modo_mockup = False
         self._elementos_mockup: list[ElementoMockup] = []
 
+        # Painéis (faces) da caixa atual — só pra desenhar a grade encaixada
+        # em cada face (ver `drawBackground`), não pra recorte/seleção.
+        self._paineis: list[Painel] = []
+
+        # Pan com o botão do meio (scroll-click) — funciona nos dois modos
+        # (Dieline E Layout), diferente do `ScrollHandDrag` (arrastar com o
+        # botão esquerdo), que só existe fora do modo mockup, porque lá o
+        # botão esquerdo já é usado pra mover/selecionar elemento.
+        self._panorama_ativo = False
+        self._panorama_ultimo_ponto = QPointF()
+
         # Painel fixo (HUD) por cima da cena — não escala com o zoom, então
         # nunca "explode" de tamanho numa caixa pequena.
         self._painel_dimensao = QLabel(self)
@@ -163,6 +175,14 @@ class PreviewCanvas(QGraphicsView):
         self._grade_visivel = visivel
         self.viewport().update()
 
+    def definir_paineis(self, paineis: list[Painel]) -> None:
+        """Faces da caixa atual (ver `paineis.py`) — usadas só pra
+        encaixar a grade de fundo em cada face (grade própria, alinhada
+        ao canto de cada painel, em vez de uma grade só cobrindo o
+        canvas inteiro sem relação com onde as faces realmente estão)."""
+        self._paineis = list(paineis)
+        self.viewport().update()
+
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
         painter.fillRect(rect, _COR_FUNDO_CANVAS)
         if not self._grade_visivel:
@@ -172,6 +192,15 @@ class PreviewCanvas(QGraphicsView):
         pen.setCosmetic(True)  # traço de 1px na tela, não 1mm — em qualquer zoom
         painter.setPen(pen)
 
+        if self._paineis:
+            self._desenhar_grade_por_painel(painter, rect, pen)
+        else:
+            self._desenhar_grade_continua(painter, rect)
+
+    def _desenhar_grade_continua(self, painter, rect) -> None:
+        """Grade contínua cobrindo todo o canvas — usada só antes de
+        calcular qualquer layout (sem painel nenhum ainda pra encaixar
+        a grade)."""
         x = math.floor(rect.left() / _PASSO_GRADE_MM) * _PASSO_GRADE_MM
         while x < rect.right():
             painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
@@ -181,6 +210,29 @@ class PreviewCanvas(QGraphicsView):
         while y < rect.bottom():
             painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
             y += _PASSO_GRADE_MM
+
+    def _desenhar_grade_por_painel(self, painter, rect, pen) -> None:
+        """Uma grade por face, começando do canto de CADA painel (não de
+        um (0,0) global) — assim a grade sempre marca "quão longe da
+        borda desta face" em vez de uma origem arbitrária do desenho
+        inteiro, que é o que realmente ajuda a posicionar arte numa face
+        específica."""
+        for painel in self._paineis:
+            area = QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
+            if not area.intersects(rect):
+                continue
+            painter.save()
+            painter.setClipRect(area)
+            painter.setPen(pen)
+            x = painel.x1
+            while x <= painel.x2:
+                painter.drawLine(QLineF(x, painel.y1, x, painel.y2))
+                x += _PASSO_GRADE_MM
+            y = painel.y1
+            while y <= painel.y2:
+                painter.drawLine(QLineF(painel.x1, y, painel.x2, y))
+                y += _PASSO_GRADE_MM
+            painter.restore()
 
     # ── Zoom com a roda do mouse ───────────────────────────────────
     def wheelEvent(self, event) -> None:  # noqa: N802 (nome exigido pelo Qt)
@@ -199,6 +251,35 @@ class PreviewCanvas(QGraphicsView):
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._reposicionar_paineis()
+
+    # ── Pan com o botão do meio ────────────────────────────────────
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panorama_ativo = True
+            self._panorama_ultimo_ponto = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._panorama_ativo:
+            ponto = event.position()
+            delta = ponto - self._panorama_ultimo_ponto
+            self._panorama_ultimo_ponto = ponto
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton and self._panorama_ativo:
+            self._panorama_ativo = False
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     # ── Painel fixo (HUD) ───────────────────────────────────────────
     def _reposicionar_paineis(self) -> None:
@@ -302,6 +383,28 @@ class PreviewCanvas(QGraphicsView):
                 if item in self._elementos_mockup:
                     self._elementos_mockup.remove(item)
 
+    def trazer_para_frente(self) -> None:
+        """Ordem de empilhamento — só entre elementos de mockup no nível
+        raiz da cena (`self._elementos_mockup`); um elemento dentro de um
+        `GrupoMockup` tem `zValue()` relativa só aos irmãos do mesmo
+        grupo, não faz sentido comparar com o resto da cena."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if not selecionados:
+            return
+        maior = max((it.zValue() for it in self._elementos_mockup), default=0.0)
+        for item in selecionados:
+            maior += 1
+            item.setZValue(maior)
+
+    def enviar_para_tras(self) -> None:
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if not selecionados:
+            return
+        menor = min((it.zValue() for it in self._elementos_mockup), default=0.0)
+        for item in selecionados:
+            menor -= 1
+            item.setZValue(menor)
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if self._modo_mockup:
             if event.key() == Qt.Key.Key_Delete:
@@ -311,6 +414,12 @@ class PreviewCanvas(QGraphicsView):
             eh_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if eh_ctrl and event.key() == Qt.Key.Key_G:
                 self.desagrupar_selecionados() if eh_shift else self.agrupar_selecionados()
+                return
+            if eh_ctrl and event.key() == Qt.Key.Key_Home:
+                self.trazer_para_frente()
+                return
+            if eh_ctrl and event.key() == Qt.Key.Key_End:
+                self.enviar_para_tras()
                 return
         super().keyPressEvent(event)
 
