@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QLineF, Qt, Signal
+from PySide6.QtCore import QLineF, QPointF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from .estilo import Cor
+from .mockup_itens import ElementoMockup, GrupoMockup
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
@@ -109,9 +111,18 @@ class PreviewCanvas(QGraphicsView):
         self._zoom_atual = 1.0
         self._layout: LayoutCaixa | None = None
 
+        # Itens da dieline (linhas calculadas) ficam à parte dos itens de
+        # mockup (adicionados/editados pelo usuário) — `_redesenhar` só
+        # mexe na primeira lista, senão recalcular as medidas apagaria
+        # qualquer elemento de mockup já posicionado na cena.
+        self._itens_dieline: list[QGraphicsItem] = []
+        self._modo_mockup = False
+        self._elementos_mockup: list[ElementoMockup] = []
+
         # Painel fixo (HUD) por cima da cena — não escala com o zoom, então
         # nunca "explode" de tamanho numa caixa pequena.
         self._painel_dimensao = QLabel(self)
+        self._painel_dimensao.setObjectName("rotuloTecnico")
         self._painel_dimensao.setStyleSheet(
             _ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 13px;"
         )
@@ -205,12 +216,15 @@ class PreviewCanvas(QGraphicsView):
 
     # ── Desenho ─────────────────────────────────────────────────────
     def _redesenhar(self) -> None:
-        self._scene.clear()
+        for item in self._itens_dieline:
+            self._scene.removeItem(item)
+        self._itens_dieline.clear()
 
         if self._layout is None or not self._layout.linhas:
             texto = QGraphicsSimpleTextItem("Informe as medidas para gerar a pré-visualização.")
             texto.setBrush(QBrush(QColor(150, 150, 160)))
             self._scene.addItem(texto)
+            self._itens_dieline.append(texto)
             self._painel_dimensao.hide()
             return
 
@@ -230,6 +244,75 @@ class PreviewCanvas(QGraphicsView):
             item.setPen(pen)
             item.setData(0, linha.tipo)  # lido por `_PenasExportacao` em exportacao.py
             self._scene.addItem(item)
+            self._itens_dieline.append(item)
+
+    # ── Modo mockup (seleção/edição de elementos, ver mockup_itens.py) ─
+    def definir_modo_mockup(self, ativo: bool) -> None:
+        """Liga/desliga a edição de mockup. Desligado (padrão): arrastar
+        no canvas move a visão (pan), igual sempre foi. Ligado: clicar
+        num elemento seleciona/move ELE, e arrastar numa área vazia abre
+        uma seleção retangular — troca de `DragMode` resolve os dois
+        comportamentos de graça, o Qt já entende a diferença entre
+        "clique caiu num item" e "clique caiu vazio"."""
+        self._modo_mockup = ativo
+        self.setDragMode(
+            QGraphicsView.DragMode.RubberBandDrag if ativo else QGraphicsView.DragMode.ScrollHandDrag
+        )
+        if not ativo:
+            for item in self._scene.selectedItems():
+                item.setSelected(False)
+
+    @property
+    def modo_mockup(self) -> bool:
+        return self._modo_mockup
+
+    @property
+    def elementos_mockup(self) -> list[ElementoMockup]:
+        return list(self._elementos_mockup)
+
+    def adicionar_elemento_mockup(self, elemento: ElementoMockup, pos: QPointF | None = None) -> None:
+        self._scene.addItem(elemento)
+        if pos is not None:
+            elemento.setPos(pos)
+        self._elementos_mockup.append(elemento)
+
+    def agrupar_selecionados(self) -> GrupoMockup | None:
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if len(selecionados) < 2:
+            return None
+        for el in selecionados:
+            if el in self._elementos_mockup:
+                self._elementos_mockup.remove(el)
+        grupo = GrupoMockup(selecionados)
+        grupo.setSelected(True)
+        self._elementos_mockup.append(grupo)
+        return grupo
+
+    def desagrupar_selecionados(self) -> None:
+        grupos = [it for it in self._scene.selectedItems() if isinstance(it, GrupoMockup)]
+        for grupo in grupos:
+            if grupo in self._elementos_mockup:
+                self._elementos_mockup.remove(grupo)
+            self._elementos_mockup.extend(grupo.desagrupar())
+
+    def remover_selecionados(self) -> None:
+        for item in list(self._scene.selectedItems()):
+            if isinstance(item, ElementoMockup):
+                self._scene.removeItem(item)
+                if item in self._elementos_mockup:
+                    self._elementos_mockup.remove(item)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if self._modo_mockup:
+            if event.key() == Qt.Key.Key_Delete:
+                self.remover_selecionados()
+                return
+            eh_ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            eh_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if eh_ctrl and event.key() == Qt.Key.Key_G:
+                self.desagrupar_selecionados() if eh_shift else self.agrupar_selecionados()
+                return
+        super().keyPressEvent(event)
 
 
 class PainelLegendaCores(QWidget):

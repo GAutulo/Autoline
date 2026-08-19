@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -q)"
+    ]
+  }
+}

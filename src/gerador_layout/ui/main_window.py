@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QTabBar,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -29,7 +31,15 @@ from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
 from . import corel_bridge, exportacao
 from .dialogo_configuracoes import DialogoConfiguracoes
+from .dialogo_logo import DialogoSepararCoresLogo
 from .estilo import Cor
+from .mockup_checklist import ElementoChecklistCores
+from .mockup_formas import ElementoLinha, ElementoRetangulo
+from .mockup_imagem import ElementoImagem
+from .mockup_itens import ElementoMockup
+from .mockup_logo import ElementoLogoVetorial
+from .mockup_texto import ElementoTexto
+from .painel_propriedades_mockup import PainelPropriedadesMockup
 from .preview_canvas import PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
@@ -57,7 +67,12 @@ _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
 class JanelaPrincipal(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Gerador de Layout de Caixas")
+        # "Autoline" é o rebranding proposto (ver autoline-rebranding.html
+        # / dossie_projeto.html) — nome de trabalho, ainda não fechado.
+        # O nome interno do projeto/pasta/`.exe` continua o mesmo por ora
+        # de propósito: trocar isso é uma decisão maior (afeta atalho,
+        # instalador, histórico do repositório) que não foi pedida ainda.
+        self.setWindowTitle("Autoline — Gerador de Layout de Caixas")
         # Tamanho pra quando a janela for restaurada (não-maximizada, ver
         # main.py) — cabe com folga numa tela de notebook comum de 1366×768
         # (altura útil ~728px descontando a barra de tarefas).
@@ -68,10 +83,14 @@ class JanelaPrincipal(QMainWindow):
         self._corel_app = None
 
         self._montar_ui()
-        self._montar_menu()
+        self._montar_dock_propriedades_mockup()
+        self._montar_abas_tela()
         self._montar_barra_ferramentas()
+        self._montar_barra_mockup()
+        self._montar_menu()
         self._conectar_sinais()
         self._ao_trocar_tipo()
+        self._trocar_tela(0)  # começa na tela de Dieline
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
@@ -82,7 +101,8 @@ class JanelaPrincipal(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout_raiz.addWidget(splitter)
 
-        splitter.addWidget(self._montar_painel_esquerdo())
+        self.painel_esquerdo = self._montar_painel_esquerdo()
+        splitter.addWidget(self.painel_esquerdo)
         splitter.addWidget(self._montar_painel_direito())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -208,6 +228,7 @@ class JanelaPrincipal(QMainWindow):
             spin.valueChanged.connect(self._recalcular)
         self.linha_impressora.valor_alterado.connect(self._recalcular)
         self.linha_riscador.valor_alterado.connect(self._recalcular)
+        self.canvas.cena.selectionChanged.connect(self._ao_selecao_mockup_mudar)
 
     def _criar_spin(self, valor_padrao: float) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -265,12 +286,20 @@ class JanelaPrincipal(QMainWindow):
             self.linha_riscador.definir_visiveis(5)
         self._recalcular()
 
-    def _obter_medidas(self) -> MedidasCaixa:
-        cores = [
+    def _cores_impressao_ativas(self) -> list[CorImpressao]:
+        """As tintas marcadas na legenda agora — mesma fonte usada tanto
+        pra calcular o layout (`_obter_medidas`) quanto pra escolher a
+        cor de um elemento de mockup (ver `painel_propriedades_mockup.py`
+        e `dialogo_logo.py`): é sempre a mesma paleta do trabalho atual,
+        não faz sentido ter duas listas de cores diferentes no mesmo app."""
+        return [
             CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
             for nome, (chip, rgb) in self._chips_cor.items()
             if chip.isChecked()
         ]
+
+    def _obter_medidas(self) -> MedidasCaixa:
+        cores = self._cores_impressao_ativas()
         imp = self.linha_impressora.valores()
         ris = self.linha_riscador.valores()
         return MedidasCaixa(
@@ -310,6 +339,11 @@ class JanelaPrincipal(QMainWindow):
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.addToolBar(barra)
 
+        rotulo_marca = QLabel("AUTOLINE")
+        rotulo_marca.setObjectName("rotuloMarca")
+        barra.addWidget(rotulo_marca)
+        barra.addSeparator()
+
         # Símbolos simples (não emoji colorido — herdam a cor do texto do
         # botão, ficam monocromáticos como o resto do app) só pra dar um
         # pouco de caráter visual à barra e diferenciar "salvar arquivo"
@@ -325,7 +359,8 @@ class JanelaPrincipal(QMainWindow):
         barra.addWidget(espacador)
 
         self.label_zoom = QLabel("100%")
-        self.label_zoom.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO}; font-weight: 600;")
+        self.label_zoom.setObjectName("rotuloTecnico")
+        self.label_zoom.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
         barra.addWidget(self.label_zoom)
         botao_ajustar = QPushButton("Ajustar à tela")
         botao_ajustar.clicked.connect(lambda: self.canvas.ajustar_a_tela())
@@ -370,6 +405,159 @@ class JanelaPrincipal(QMainWindow):
         menu_ajuda = self.menuBar().addMenu("A&juda")
         menu_ajuda.addAction("Sobre...", self._mostrar_sobre)
 
+    # ── Duas telas: Dieline (medidas/cores/preview) e Layout (mockup) ──
+    def _montar_abas_tela(self) -> None:
+        """Abas no topo da janela, acima de tudo — trocam qual conjunto
+        de painéis fica visível ao redor do MESMO canvas (a dieline
+        continua servindo de referência visual na tela de Layout, e vai
+        continuar quando o 3D existir na tela de Dieline). Numa barra de
+        ferramentas própria, adicionada antes de qualquer outra, pra
+        ficar sempre na linha mais acima — é navegação, não uma ação, não
+        faz sentido misturar com os botões de exportar/criar elemento."""
+        barra = QToolBar("Tela")
+        barra.setMovable(False)
+        self.addToolBar(barra)
+
+        self.abas_tela = QTabBar()
+        self.abas_tela.addTab("Dieline")
+        self.abas_tela.addTab("Layout")
+        self.abas_tela.setToolTip("Dieline: medidas, cores e a faca de corte. Layout: texto/formas/logotipo sobre a caixa.")
+        self.abas_tela.currentChanged.connect(self._trocar_tela)
+        barra.addWidget(self.abas_tela)
+
+    def _trocar_tela(self, indice: int) -> None:
+        modo_layout = indice == 1
+        self.painel_esquerdo.setVisible(not modo_layout)
+        self._grupo_medidas.setVisible(not modo_layout)
+        self.barra_mockup.setVisible(modo_layout)
+        self.dock_propriedades_mockup.setVisible(modo_layout)
+        self.canvas.definir_modo_mockup(modo_layout)
+        if not modo_layout:
+            self.painel_propriedades_mockup.definir_elemento(None)
+
+    # ── Mockup (Fase 2): dock de propriedades, barra e criação de itens ─
+    def _montar_dock_propriedades_mockup(self) -> None:
+        self.painel_propriedades_mockup = PainelPropriedadesMockup(self._cores_impressao_ativas)
+        self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
+        self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
+
+        self.dock_propriedades_mockup = QDockWidget("Propriedades", self)
+        self.dock_propriedades_mockup.setWidget(self.painel_propriedades_mockup)
+        self.dock_propriedades_mockup.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        # Sem botão de fechar de propósito: a visibilidade já é controlada
+        # pela troca de tela (ver `_trocar_tela`) — se o usuário fechasse
+        # pelo X nativo, não ia ter como reabrir sem reiniciar o app.
+        self.dock_propriedades_mockup.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_propriedades_mockup)
+        self.dock_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
+
+    def _montar_barra_mockup(self) -> None:
+        """Barra de ferramentas do mockup — só fica visível dentro do
+        modo mockup (ver `_alternar_modo_mockup`), pra não poluir a
+        barra principal com botões que não fazem sentido enquanto o
+        usuário só está ajustando a dieline."""
+        # Quebra de linha de propósito: sem isso, o Qt tenta encaixar essa
+        # barra na mesma linha da barra principal (que já tem exportação +
+        # zoom), e a ordem de leitura fica confusa — os botões de criar
+        # elemento apareceriam DEPOIS do "Ajustar à tela". Numa linha
+        # própria fica claro que são dois grupos de ferramentas diferentes.
+        self.addToolBarBreak()
+        barra = QToolBar("Mockup")
+        barra.setMovable(False)
+        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.addToolBar(barra)
+        self.barra_mockup = barra
+
+        barra.addAction("Texto", self._adicionar_texto)
+        barra.addAction("Retângulo", self._adicionar_retangulo)
+        barra.addAction("Linha", self._adicionar_linha)
+        barra.addAction("Imagem...", self._adicionar_imagem)
+        barra.addAction("Logotipo...", self._adicionar_logo)
+        barra.addAction("Checklist de cores", self._adicionar_checklist)
+        barra.addSeparator()
+        acao_agrupar = barra.addAction("Agrupar", lambda: self.canvas.agrupar_selecionados())
+        acao_agrupar.setToolTip("Ctrl+G")
+        acao_desagrupar = barra.addAction("Desagrupar", lambda: self.canvas.desagrupar_selecionados())
+        acao_desagrupar.setToolTip("Ctrl+Shift+G")
+
+        barra.hide()
+
+    def _ao_selecao_mockup_mudar(self) -> None:
+        selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
+        self.painel_propriedades_mockup.definir_elemento(selecionados[0] if len(selecionados) == 1 else None)
+
+    def _posicao_central_canvas(self) -> QPointF:
+        return self.canvas.mapToScene(self.canvas.viewport().rect().center())
+
+    def _adicionar_elemento_mockup_e_selecionar(self, elemento: ElementoMockup) -> None:
+        # Cada elemento novo nasce um pouco deslocado do anterior (efeito
+        # "cascata", igual colar em qualquer editor vetorial) — sem isso,
+        # criar vários elementos seguidos empilha tudo exatamente no
+        # centro, um em cima do outro, impossível de distinguir/clicar.
+        passo = 8.0 * (len(self.canvas.elementos_mockup) % 6)
+        pos = self._posicao_central_canvas() + QPointF(passo, passo)
+        self.canvas.adicionar_elemento_mockup(
+            elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2)
+        )
+        for item in self.canvas.cena.selectedItems():
+            item.setSelected(False)
+        elemento.setSelected(True)
+
+    def _cor_tinta_padrao(self) -> CorImpressao:
+        cores = self._cores_impressao_ativas()
+        return cores[0] if cores else CorImpressao(nome="Preto", r=0, g=0, b=0)
+
+    def _adicionar_texto(self) -> None:
+        self._adicionar_elemento_mockup_e_selecionar(ElementoTexto(texto="Texto", cor_tinta=self._cor_tinta_padrao()))
+
+    def _adicionar_retangulo(self) -> None:
+        self._adicionar_elemento_mockup_e_selecionar(ElementoRetangulo(cor_tinta=self._cor_tinta_padrao()))
+
+    def _adicionar_linha(self) -> None:
+        self._adicionar_elemento_mockup_e_selecionar(ElementoLinha(cor_tinta=self._cor_tinta_padrao()))
+
+    def _adicionar_checklist(self) -> None:
+        self._adicionar_elemento_mockup_e_selecionar(
+            ElementoChecklistCores(variantes=["Cor 1", "Cor 2"], cor_tinta=self._cor_tinta_padrao())
+        )
+
+    def _adicionar_imagem(self) -> None:
+        caminho, _ = QFileDialog.getOpenFileName(self, "Adicionar imagem", "", "Imagens (*.png)")
+        if not caminho:
+            return
+        try:
+            elemento = ElementoImagem(caminho)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Erro ao abrir imagem", str(exc))
+            return
+        self._adicionar_elemento_mockup_e_selecionar(elemento)
+
+    def _adicionar_logo(self) -> None:
+        caminho, _ = QFileDialog.getOpenFileName(self, "Adicionar logotipo vetorial", "", "SVG (*.svg)")
+        if not caminho:
+            return
+        try:
+            elemento = ElementoLogoVetorial(caminho)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Erro ao abrir logotipo", str(exc))
+            return
+        self._adicionar_elemento_mockup_e_selecionar(elemento)
+        if elemento.cores_detectadas:
+            self._remapear_cores_logo(elemento)
+
+    def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
+        dialogo = DialogoSepararCoresLogo(elemento.cores_detectadas, self._cores_impressao_ativas(), self)
+        if dialogo.exec() == DialogoSepararCoresLogo.DialogCode.Accepted:
+            elemento.definir_mapa_cores(dialogo.mapa_escolhido())
+
+    def _remover_elemento_mockup_selecionado(self) -> None:
+        self.canvas.remover_selecionados()
+        self.painel_propriedades_mockup.definir_elemento(None)
+
     def _abrir_configuracoes(self) -> None:
         dialogo = DialogoConfiguracoes(self)
         if dialogo.exec() == DialogoConfiguracoes.DialogCode.Accepted:
@@ -386,11 +574,12 @@ class JanelaPrincipal(QMainWindow):
     def _mostrar_sobre(self) -> None:
         QMessageBox.about(
             self,
-            "Sobre o Gerador de Layout de Caixas",
-            "<b>Gerador de Layout de Caixas</b><br><br>"
+            "Sobre o Autoline",
+            "<b>Autoline</b> — Gerador de Layout de Caixas<br><br>"
             "Gera o layout técnico de corte/vinco de caixas e envoltórios "
             "a partir das medidas, com exportação em SVG, PDF, JPG e "
-            "automação direta com o CorelDRAW.",
+            "automação direta com o CorelDRAW.<br><br>"
+            "<i>Autoline é um nome de trabalho — rebranding ainda em aberto.</i>",
         )
 
     @contextmanager

@@ -12,6 +12,24 @@ elemento. Os arquivos exportados (SVG/PDF/JPG/CorelDRAW) NÃO importam
 nada daqui — são sempre preto sobre branco, seja qual for o tema do
 app, porque isso é convenção da gráfica, não preferência visual.
 
+## Rebranding "Autoline" (nome de trabalho, ver `dossie_projeto.html`)
+
+Paleta Carvão/Kraft/Tinta/Osso — kraft é a cor da própria chapa de
+papelão, tinta é a cor de correção/atenção (`ERRO`), o resto é
+neutro quente em vez de cinza puro. Vem do mesmo material que já foi
+usado pra propor o rebranding (`autoline-rebranding.html`), adaptado
+pro sistema de tokens que já existia aqui.
+
+Kraft (`#C79A5D`) é um tom médio: contra fundo escuro (Carvão) só
+funciona bem como TEXTO se for a versão clara; contra fundo claro
+(Osso) só funciona bem como texto se for a versão escura — por isso
+`PRIMARIA` não é o mesmo hex nos dois temas (tema escuro usa o kraft
+"puro"/claro, tema claro usa o kraft escuro), e por isso `BRANCO`
+(cor de texto sobre um botão preenchido com `PRIMARIA`) também
+inverte: carvão escuro sobre o kraft claro do tema escuro, osso claro
+sobre o kraft escuro do tema claro. Contraste calculado (WCAG) pra
+cada combinação antes de fechar os valores, não só "parece bom".
+
 ## Tema claro/escuro
 
 `Cor` é preenchida, na hora que este módulo é importado, com os valores
@@ -34,54 +52,51 @@ abaixo pega esse caso.
 
 from . import configuracoes
 
-# Cada dict é um tema completo. `BRANCO` é sempre branco/quase-branco em
-# ambos — é usado só como cor de TEXTO sobre o acento (botão primário,
-# "Total"), não como fundo, então não faz sentido escurecer no tema
-# escuro. `CAMPO` é o fundo dos elementos interativos (campo de texto,
-# combobox, indicador de checkbox) — no claro é branco puro pra
-# contrastar com o cartão cinza-claro; no escuro precisa ser MAIS CLARO
-# que o cartão (não mais escuro) pra manter o mesmo princípio de
-# contraste "isso aqui é uma superfície interativa".
+# Cada dict é um tema completo. `CAMPO` é o fundo dos elementos
+# interativos (campo de texto, combobox, indicador de checkbox) — no
+# claro precisa ser mais claro/branco que o cartão, no escuro precisa
+# ser MAIS CLARO que o cartão (não mais escuro) pra manter o mesmo
+# princípio de contraste "isso aqui é uma superfície interativa".
 _PALETA_CLARA = {
-    "PRIMARIA": "#2f6fed",
-    "PRIMARIA_HOVER": "#2559c4",
-    "PRIMARIA_ATIVA": "#1d47a0",
-    "PRIMARIA_CLARA": "#e3ebfc",
-    "PRIMARIA_PRESSIONADA": "#d9e6fc",
-    "TEXTO": "#1a1d29",
-    "TEXTO_SECUNDARIO": "#5b6069",
-    "TEXTO_TERCIARIO": "#8b909a",
-    "BRANCO": "#ffffff",
-    "CAMPO": "#ffffff",
-    "CARTAO": "#eef0f3",
-    "FUNDO_JANELA": "#dde0e5",
-    "BORDA": "#c4c9d0",
-    "BORDA_FORTE": "#9aa0ab",
-    "ERRO": "#d64545",
-    "CANVAS_FUNDO_RGB": (247, 248, 250),
-    "CANVAS_GRADE_RGBA": (0, 0, 0, 14),
-    "PAINEL_FLUTUANTE_RGBA": (255, 255, 255, 235),
+    "PRIMARIA": "#8C6A3B",  # kraft escuro — kraft "puro" não tem contraste suficiente como texto sobre fundo claro
+    "PRIMARIA_HOVER": "#6B4F2A",
+    "PRIMARIA_ATIVA": "#4F3A1E",
+    "PRIMARIA_CLARA": "#F0E2C8",
+    "PRIMARIA_PRESSIONADA": "#E6D2AC",
+    "TEXTO": "#1E1A16",  # carvão
+    "TEXTO_SECUNDARIO": "#8C6A3B",  # kraft escuro
+    "TEXTO_TERCIARIO": "#A8916D",
+    "BRANCO": "#F5F0E6",  # osso 2 — texto claro sobre o kraft escuro de PRIMARIA
+    "CAMPO": "#FBF8F1",
+    "CARTAO": "#F5F0E6",  # osso 2
+    "FUNDO_JANELA": "#EAE1CC",
+    "BORDA": "#DBD6CD",
+    "BORDA_FORTE": "#CAC5BC",
+    "ERRO": "#C1432A",  # tinta
+    "CANVAS_FUNDO_RGB": (250, 246, 237),
+    "CANVAS_GRADE_RGBA": (30, 26, 22, 14),
+    "PAINEL_FLUTUANTE_RGBA": (250, 246, 237, 235),
 }
 
 _PALETA_ESCURA = {
-    "PRIMARIA": "#5b8def",
-    "PRIMARIA_HOVER": "#79a4f2",
-    "PRIMARIA_ATIVA": "#9dbdf6",
-    "PRIMARIA_CLARA": "#26314a",
-    "PRIMARIA_PRESSIONADA": "#1c2538",
-    "TEXTO": "#e8eaed",
-    "TEXTO_SECUNDARIO": "#a4aab5",
-    "TEXTO_TERCIARIO": "#6e7480",
-    "BRANCO": "#ffffff",
-    "CAMPO": "#2c303a",
-    "CARTAO": "#22252b",
-    "FUNDO_JANELA": "#17181c",
-    "BORDA": "#383c44",
-    "BORDA_FORTE": "#525863",
-    "ERRO": "#e5807a",
-    "CANVAS_FUNDO_RGB": (28, 30, 35),
-    "CANVAS_GRADE_RGBA": (255, 255, 255, 18),
-    "PAINEL_FLUTUANTE_RGBA": (34, 37, 43, 235),
+    "PRIMARIA": "#C79A5D",  # kraft
+    "PRIMARIA_HOVER": "#E7C68C",  # kraft claro
+    "PRIMARIA_ATIVA": "#F0DDB0",
+    "PRIMARIA_CLARA": "#3A2F20",
+    "PRIMARIA_PRESSIONADA": "#2F2519",
+    "TEXTO": "#EDE6D8",  # osso
+    "TEXTO_SECUNDARIO": "#B9AF9C",  # osso dim
+    "TEXTO_TERCIARIO": "#8C8270",
+    "BRANCO": "#1E1A16",  # carvão — texto escuro sobre o kraft claro de PRIMARIA
+    "CAMPO": "#3A3025",
+    "CARTAO": "#26201A",  # carvão 2
+    "FUNDO_JANELA": "#1E1A16",  # carvão
+    "BORDA": "#3A3629",
+    "BORDA_FORTE": "#585349",
+    "ERRO": "#C1432A",  # tinta
+    "CANVAS_FUNDO_RGB": (30, 26, 22),
+    "CANVAS_GRADE_RGBA": (237, 230, 216, 16),
+    "PAINEL_FLUTUANTE_RGBA": (38, 32, 26, 235),
 }
 
 _PALETAS = {configuracoes.TEMA_CLARO: _PALETA_CLARA, configuracoes.TEMA_ESCURO: _PALETA_ESCURA}
@@ -101,7 +116,13 @@ def _aplicar_paleta(paleta: dict) -> None:
 _aplicar_paleta(_PALETAS.get(configuracoes.tema(), _PALETA_CLARA))
 
 
-FONTE_FAMILIA = "Segoe UI"
+# As 3 fontes vêm de arquivo (ver `main.py::_carregar_fontes`, carregadas
+# via QFontDatabase antes desta folha de estilo ser aplicada) — não são
+# fontes do sistema, então título/corpo/mono ficam garantidos iguais em
+# qualquer máquina Windows, independente do que estiver instalado.
+FONTE_FAMILIA = "IBM Plex Sans"  # corpo — texto normal em todo o app
+FONTE_MONO = "IBM Plex Mono"  # leituras técnicas: zoom, cota de medida, DPI
+FONTE_DISPLAY = "Big Shoulders Stencil"  # só a marca — ver QLabel#rotuloMarca
 
 FOLHA_DE_ESTILO = f"""
 * {{
@@ -327,6 +348,61 @@ QStatusBar {{
     background: {Cor.CARTAO};
     border-top: 1px solid {Cor.BORDA};
     color: {Cor.TEXTO_SECUNDARIO};
+}}
+
+/* ── Abas de tela (Dieline / Layout, ver main_window.py) ────────────
+   Mesma linguagem visual do resto (cartão + borda), sem o gradiente/
+   sombreado padrão do Qt nativo pra combinar com o estilo chapado do
+   resto do app. */
+QTabBar::tab {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: 1px solid {Cor.BORDA};
+    border-bottom: none;
+    padding: 7px 20px;
+    margin-right: 4px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-weight: 600;
+}}
+QTabBar::tab:selected {{
+    background: {Cor.CARTAO};
+    color: {Cor.TEXTO};
+    border-color: {Cor.BORDA_FORTE};
+}}
+QTabBar::tab:hover:!selected {{
+    color: {Cor.PRIMARIA};
+}}
+
+/* Marca no canto da barra de ferramentas (ver `_montar_barra_ferramentas`
+   em main_window.py) — única fonte que usa a fonte de exibição; o resto
+   do app fica no corpo/mono de propósito, pra não virar cartaz. */
+QLabel#rotuloMarca {{
+    font-family: "{FONTE_DISPLAY}";
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 1px;
+    color: {Cor.PRIMARIA};
+    padding-right: 6px;
+}}
+
+/* Leituras técnicas (zoom, cota de medida) — ver docstring de FONTE_MONO. */
+QLabel#rotuloTecnico {{
+    font-family: "{FONTE_MONO}";
+    font-weight: 500;
+}}
+
+/* ── Dock de propriedades do mockup (ver painel_propriedades_mockup.py)
+   Sem isso, o título do dock fica com o chrome nativo do Qt (cinza claro
+   fixo) — ignora o tema por completo, mais visível ainda no escuro. */
+QDockWidget {{
+    color: {Cor.TEXTO};
+}}
+QDockWidget::title {{
+    background: {Cor.CARTAO};
+    border-bottom: 1px solid {Cor.BORDA};
+    padding: 8px 10px;
+    font-weight: 700;
 }}
 
 QScrollBar:vertical, QScrollBar:horizontal {{

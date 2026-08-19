@@ -16,8 +16,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSettings
 
-_ORGANIZACAO = "GeradorLayoutCaixas"
-_APLICATIVO = "LayoutCorel"
+# Muda a chave de registro onde as preferências ficam salvas (rebranding
+# Autoline) — quem já tinha aberto o app antes vai ver as preferências
+# (tema, DPI, traço do vinco) voltarem ao padrão uma vez, não é bug: é
+# uma chave nova, a antiga (sob "LayoutCorel") só fica órfã no registro.
+_ORGANIZACAO = "Autoline"
+_APLICATIVO = "Autoline"
 
 TEMA_CLARO = "claro"
 TEMA_ESCURO = "escuro"
