@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from contextlib import contextmanager
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -36,11 +38,12 @@ from .estilo import Cor
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_formas import ElementoLinha, ElementoRetangulo
 from .mockup_imagem import ElementoImagem
+from .mockup_icones import construir_icone
 from .mockup_itens import ElementoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import PainelPropriedadesMockup
-from .preview_canvas import PainelLegendaCores, PreviewCanvas
+from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
 _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
@@ -471,40 +474,86 @@ class JanelaPrincipal(QMainWindow):
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _montar_barra_mockup(self) -> None:
-        """Barra de ferramentas do mockup — só fica visível dentro do
-        modo mockup (ver `_alternar_modo_mockup`), pra não poluir a
-        barra principal com botões que não fazem sentido enquanto o
-        usuário só está ajustando a dieline."""
+        """Paleta de ferramentas do modo Layout — vertical, na borda
+        esquerda da janela, só ícone com tooltip (sem texto, pedido
+        explícito do usuário: "não quero nada escrito, quero ícones
+        interativos"), no mesmo lugar/formato da caixa de ferramentas de
+        qualquer CAD/vetorial de verdade (CorelDRAW, ArtiosCAD).
+
+        Selecionar/Texto/Retângulo/Linha são uma FERRAMENTA (ver
+        `FerramentaMockup` em `preview_canvas.py`) — só uma ativa por
+        vez, escolhida num `QActionGroup` exclusivo; escolher uma delas
+        muda o que clicar/arrastar no canvas faz (criar o elemento ali
+        na hora, em vez de sempre no centro da tela + editar depois pela
+        barra de propriedades). O resto (Imagem/Logotipo/Checklist/
+        Agrupar/Desagrupar/ordem) continua ação de um clique só, como
+        sempre foi — não tem um gesto natural de "desenhar" pra elas."""
         # Quebra de linha de propósito: sem isso, o Qt tenta encaixar essa
-        # barra na mesma linha da barra principal (que já tem exportação +
-        # zoom), e a ordem de leitura fica confusa — os botões de criar
-        # elemento apareceriam DEPOIS do "Ajustar à tela". Numa linha
+        # barra na mesma linha da barra principal — numa área/linha
         # própria fica claro que são dois grupos de ferramentas diferentes.
-        self.addToolBarBreak()
-        barra = QToolBar("Mockup")
+        self.addToolBarBreak(Qt.ToolBarArea.LeftToolBarArea)
+        barra = QToolBar("Ferramentas")
+        barra.setObjectName("paletaFerramentasMockup")
         barra.setMovable(False)
-        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.addToolBar(barra)
+        barra.setOrientation(Qt.Orientation.Vertical)
+        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, barra)
         self.barra_mockup = barra
 
-        barra.addAction("Texto", self._adicionar_texto)
-        barra.addAction("Retângulo", self._adicionar_retangulo)
-        barra.addAction("Linha", self._adicionar_linha)
-        barra.addAction("Imagem...", self._adicionar_imagem)
-        barra.addAction("Logotipo...", self._adicionar_logo)
-        barra.addAction("Checklist de cores", self._adicionar_checklist)
+        self._acoes_ferramenta: dict[FerramentaMockup, QAction] = {}
+        grupo_ferramentas = QActionGroup(self)
+        grupo_ferramentas.setExclusive(True)
+
+        def acao_ferramenta(tipo_icone: str, tooltip: str, ferramenta: FerramentaMockup) -> None:
+            acao = QAction(construir_icone(tipo_icone), tooltip, self)
+            acao.setCheckable(True)
+            acao.triggered.connect(lambda: self.canvas.definir_ferramenta(ferramenta))
+            grupo_ferramentas.addAction(acao)
+            barra.addAction(acao)
+            self._acoes_ferramenta[ferramenta] = acao
+
+        acao_ferramenta("selecionar", "Selecionar (Esc)", FerramentaMockup.SELECIONAR)
+        acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
+        acao_ferramenta("ferramenta_retangulo", "Retângulo — clique e arraste pra desenhar", FerramentaMockup.RETANGULO)
+        acao_ferramenta("ferramenta_linha", "Linha — clique e arraste pra desenhar", FerramentaMockup.LINHA)
+        self._acoes_ferramenta[FerramentaMockup.SELECIONAR].setChecked(True)
+
         barra.addSeparator()
-        acao_agrupar = barra.addAction("Agrupar", lambda: self.canvas.agrupar_selecionados())
-        acao_agrupar.setToolTip("Ctrl+G")
-        acao_desagrupar = barra.addAction("Desagrupar", lambda: self.canvas.desagrupar_selecionados())
-        acao_desagrupar.setToolTip("Ctrl+Shift+G")
+        self._acao_icone(barra, "ferramenta_imagem", "Adicionar imagem...", self._adicionar_imagem)
+        self._acao_icone(barra, "ferramenta_logo", "Adicionar logotipo...", self._adicionar_logo)
+        self._acao_icone(barra, "lista", "Adicionar checklist de cores", self._adicionar_checklist)
+
         barra.addSeparator()
-        acao_frente = barra.addAction("Trazer p/ frente", lambda: self.canvas.trazer_para_frente())
-        acao_frente.setToolTip("Ctrl+Home")
-        acao_tras = barra.addAction("Enviar p/ trás", lambda: self.canvas.enviar_para_tras())
-        acao_tras.setToolTip("Ctrl+End")
+        self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
+        self._acao_icone(
+            barra, "desagrupar", "Desagrupar (Ctrl+Shift+G)", lambda: self.canvas.desagrupar_selecionados()
+        )
+
+        barra.addSeparator()
+        self._acao_icone(barra, "trazer_frente", "Trazer p/ frente (Ctrl+Home)", lambda: self.canvas.trazer_para_frente())
+        self._acao_icone(barra, "enviar_tras", "Enviar p/ trás (Ctrl+End)", lambda: self.canvas.enviar_para_tras())
+
+        self.canvas.ferramenta_alterada.connect(self._ao_ferramenta_alterada)
+        self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
+        self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
+        self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
 
         barra.hide()
+
+    def _acao_icone(self, barra: QToolBar, tipo_icone: str, tooltip: str, callback) -> QAction:
+        acao = QAction(construir_icone(tipo_icone), tooltip, self)
+        acao.triggered.connect(callback)
+        barra.addAction(acao)
+        return acao
+
+    def _ao_ferramenta_alterada(self, ferramenta: FerramentaMockup) -> None:
+        """Mantém o botão certo marcado na paleta mesmo quando a
+        ferramenta muda por fora de um clique nela — ex.: Esc, ou voltar
+        pro ponteiro sozinho depois de criar um elemento (ver
+        `_selecionar_e_voltar_ao_ponteiro`)."""
+        acao = self._acoes_ferramenta.get(ferramenta)
+        if acao is not None:
+            acao.setChecked(True)
 
     def _ao_selecao_mockup_mudar(self) -> None:
         selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
@@ -531,14 +580,38 @@ class JanelaPrincipal(QMainWindow):
         cores = self._cores_impressao_ativas()
         return cores[0] if cores else CorImpressao(nome="Preto", r=0, g=0, b=0)
 
-    def _adicionar_texto(self) -> None:
-        self._adicionar_elemento_mockup_e_selecionar(ElementoTexto(texto="Texto", cor_tinta=self._cor_tinta_padrao()))
+    # ── Criar elemento direto no canvas (ferramenta ativa, ver
+    # `_montar_barra_mockup`/`preview_canvas.py::FerramentaMockup`) ──────
+    def _selecionar_e_voltar_ao_ponteiro(self, elemento: ElementoMockup) -> None:
+        for item in self.canvas.cena.selectedItems():
+            item.setSelected(False)
+        elemento.setSelected(True)
+        # Volta pro ponteiro depois de criar UM elemento — mais previsível
+        # pra quem não é usuário assíduo de CAD do que a ferramenta ficar
+        # presa até apertar Esc (convenção do CorelDRAW): sem isso, clicar
+        # de novo em cima do elemento recém-criado desenharia outro em
+        # cima, em vez de selecionar o que acabou de fazer.
+        self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
 
-    def _adicionar_retangulo(self) -> None:
-        self._adicionar_elemento_mockup_e_selecionar(ElementoRetangulo(cor_tinta=self._cor_tinta_padrao()))
+    def _criar_retangulo_por_arrasto(self, rect: QRectF) -> None:
+        elemento = ElementoRetangulo(largura=rect.width(), altura=rect.height(), cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, rect.topLeft())
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
 
-    def _adicionar_linha(self) -> None:
-        self._adicionar_elemento_mockup_e_selecionar(ElementoLinha(cor_tinta=self._cor_tinta_padrao()))
+    def _criar_linha_por_arrasto(self, p1: QPointF, p2: QPointF) -> None:
+        vetor = p2 - p1
+        comprimento = math.hypot(vetor.x(), vetor.y())
+        angulo = math.degrees(math.atan2(vetor.y(), vetor.x()))
+        elemento = ElementoLinha(largura=comprimento, cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, p1)
+        elemento.setRotation(angulo)
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_texto_por_clique(self, pos: QPointF) -> None:
+        elemento = ElementoTexto(texto="Texto", cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, pos)
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+        elemento.iniciar_edicao_inline()
 
     def _adicionar_checklist(self) -> None:
         self._adicionar_elemento_mockup_e_selecionar(

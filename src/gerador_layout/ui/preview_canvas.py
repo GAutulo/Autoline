@@ -23,12 +23,14 @@ diferenças pra explicar.
 from __future__ import annotations
 
 import math
+from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
     QGraphicsView,
@@ -41,6 +43,21 @@ from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from ..paineis import Painel
 from .estilo import Cor
 from .mockup_itens import ElementoMockup, GrupoMockup
+
+
+class FerramentaMockup(Enum):
+    """Ferramenta ativa na tela de Layout — igual a qualquer CAD/vetorial
+    de verdade: SELECIONAR é o ponteiro padrão (clicar/arrastar move e
+    seleciona, como sempre foi); as outras trocam o que um clique/arrasto
+    no canvas vazio faz (ver `PreviewCanvas.mousePressEvent` etc.), pra
+    criar o elemento DIRETO no lugar clicado — em vez do fluxo antigo
+    (clicar um botão de barra sempre cria no centro da tela, editar
+    depois pela barra de propriedades)."""
+
+    SELECIONAR = auto()
+    TEXTO = auto()
+    RETANGULO = auto()
+    LINHA = auto()
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
@@ -94,6 +111,14 @@ class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
     zoom_alterado = Signal(float)
+    # Emitidos quando uma ferramenta de criação termina um gesto de
+    # clique/arrasto no canvas vazio (ver `_finalizar_criacao` abaixo) —
+    # o canvas só sabe a GEOMETRIA (onde/tamanho); quem monta o elemento
+    # de verdade (cor de tinta padrão etc.) é `main_window.py`.
+    retangulo_desenhado = Signal(QRectF)
+    linha_desenhada = Signal(QPointF, QPointF)
+    texto_solicitado = Signal(QPointF)
+    ferramenta_alterada = Signal(object)  # FerramentaMockup
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -130,6 +155,14 @@ class PreviewCanvas(QGraphicsView):
         # botão esquerdo já é usado pra mover/selecionar elemento.
         self._panorama_ativo = False
         self._panorama_ultimo_ponto = QPointF()
+
+        # Ferramenta ativa (ver `FerramentaMockup`) + estado do gesto de
+        # criação em andamento (clique/arrasto pra desenhar um retângulo/
+        # linha novos, ou clique único pra texto).
+        self._ferramenta = FerramentaMockup.SELECIONAR
+        self._criando = False
+        self._ponto_inicial_criacao = QPointF()
+        self._item_preview_criacao: QGraphicsItem | None = None
 
         # Painel fixo (HUD) por cima da cena — não escala com o zoom, então
         # nunca "explode" de tamanho numa caixa pequena.
@@ -245,19 +278,63 @@ class PreviewCanvas(QGraphicsView):
         self.zoom_alterado.emit(self._zoom_atual)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        # Duplo-clique num elemento (ex.: texto, ver `mockup_texto.py`)
+        # tem tratamento próprio no item (editar inline) — só cai pro
+        # "ajustar à tela" de conveniência quando o clique foi em área
+        # vazia do canvas, senão os dois efeitos brigavam (editar texto
+        # E mudar o zoom no mesmo clique).
+        item = self.itemAt(event.pos())
         super().mouseDoubleClickEvent(event)
+        if self._modo_mockup and item is not None:
+            return
         self.ajustar_a_tela()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._reposicionar_paineis()
 
-    # ── Pan com o botão do meio ────────────────────────────────────
+    # ── Ferramenta ativa (ver `FerramentaMockup`) ──────────────────────
+    @property
+    def ferramenta_ativa(self) -> FerramentaMockup:
+        return self._ferramenta
+
+    def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
+        if self._criando:
+            self._cancelar_criacao()
+        self._ferramenta = ferramenta
+        cursores = {
+            FerramentaMockup.SELECIONAR: Qt.CursorShape.ArrowCursor,
+            FerramentaMockup.TEXTO: Qt.CursorShape.IBeamCursor,
+            FerramentaMockup.RETANGULO: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.LINHA: Qt.CursorShape.CrossCursor,
+        }
+        self.setCursor(cursores[ferramenta])
+        # Enquanto uma ferramenta de criação está ativa, arrastar no
+        # canvas vazio desenha a forma nova, não seleciona por retângulo
+        # nem move a visão — `NoDrag` evita que o `QGraphicsView` tente
+        # fazer as duas coisas ao mesmo tempo.
+        if ferramenta == FerramentaMockup.SELECIONAR:
+            self.setDragMode(
+                QGraphicsView.DragMode.RubberBandDrag if self._modo_mockup else QGraphicsView.DragMode.ScrollHandDrag
+            )
+        else:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.ferramenta_alterada.emit(ferramenta)
+
+    # ── Pan com o botão do meio + ferramentas de criação ───────────────
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panorama_ativo = True
             self._panorama_ultimo_ponto = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        if (
+            self._modo_mockup
+            and self._ferramenta != FerramentaMockup.SELECIONAR
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._iniciar_criacao(event.pos())
             event.accept()
             return
         super().mousePressEvent(event)
@@ -271,6 +348,10 @@ class PreviewCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
             event.accept()
             return
+        if self._criando:
+            self._atualizar_criacao(event.pos())
+            event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -279,7 +360,66 @@ class PreviewCanvas(QGraphicsView):
             self.unsetCursor()
             event.accept()
             return
+        if self._criando and event.button() == Qt.MouseButton.LeftButton:
+            self._finalizar_criacao(event.pos())
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
+
+    # ── Gesto de criação (clique/arrasto com uma ferramenta ativa) ─────
+    def _caneta_preview(self) -> QPen:
+        caneta = QPen(QColor(Cor.PRIMARIA), 0.6, Qt.PenStyle.DashLine)
+        caneta.setCosmetic(True)
+        return caneta
+
+    def _iniciar_criacao(self, pos_viewport) -> None:
+        self._ponto_inicial_criacao = self.mapToScene(pos_viewport)
+        if self._ferramenta == FerramentaMockup.TEXTO:
+            # Texto não precisa de arrasto — um clique já basta pra
+            # nascer no lugar certo e entrar direto em edição.
+            self.texto_solicitado.emit(self._ponto_inicial_criacao)
+            return
+        self._criando = True
+        if self._ferramenta == FerramentaMockup.RETANGULO:
+            self._item_preview_criacao = QGraphicsRectItem()
+        elif self._ferramenta == FerramentaMockup.LINHA:
+            self._item_preview_criacao = QGraphicsLineItem()
+        else:
+            self._criando = False
+            return
+        self._item_preview_criacao.setPen(self._caneta_preview())
+        self._scene.addItem(self._item_preview_criacao)
+
+    def _atualizar_criacao(self, pos_viewport) -> None:
+        atual = self.mapToScene(pos_viewport)
+        if isinstance(self._item_preview_criacao, QGraphicsRectItem):
+            self._item_preview_criacao.setRect(QRectF(self._ponto_inicial_criacao, atual).normalized())
+        elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
+            self._item_preview_criacao.setLine(QLineF(self._ponto_inicial_criacao, atual))
+
+    def _finalizar_criacao(self, pos_viewport) -> None:
+        self._criando = False
+        if self._item_preview_criacao is not None:
+            self._scene.removeItem(self._item_preview_criacao)
+            self._item_preview_criacao = None
+
+        atual = self.mapToScene(pos_viewport)
+        # Arrasto mínimo pra não criar uma forma de 0×0 num clique seco
+        # sem querer arrastar de verdade (o gesto mais comum de quem
+        # ainda tá aprendendo a ferramenta).
+        if self._ferramenta == FerramentaMockup.RETANGULO:
+            rect = QRectF(self._ponto_inicial_criacao, atual).normalized()
+            if rect.width() >= 2.0 and rect.height() >= 2.0:
+                self.retangulo_desenhado.emit(rect)
+        elif self._ferramenta == FerramentaMockup.LINHA:
+            if QLineF(self._ponto_inicial_criacao, atual).length() >= 2.0:
+                self.linha_desenhada.emit(self._ponto_inicial_criacao, atual)
+
+    def _cancelar_criacao(self) -> None:
+        self._criando = False
+        if self._item_preview_criacao is not None:
+            self._scene.removeItem(self._item_preview_criacao)
+            self._item_preview_criacao = None
 
     # ── Painel fixo (HUD) ───────────────────────────────────────────
     def _reposicionar_paineis(self) -> None:
@@ -336,9 +476,10 @@ class PreviewCanvas(QGraphicsView):
         comportamentos de graça, o Qt já entende a diferença entre
         "clique caiu num item" e "clique caiu vazio"."""
         self._modo_mockup = ativo
-        self.setDragMode(
-            QGraphicsView.DragMode.RubberBandDrag if ativo else QGraphicsView.DragMode.ScrollHandDrag
-        )
+        # Sempre volta pro ponteiro ao trocar de tela — solta qualquer
+        # ferramenta de criação que tivesse ficado ativa (e já ajusta o
+        # `DragMode`/cursor certo pro modo novo, ver `definir_ferramenta`).
+        self.definir_ferramenta(FerramentaMockup.SELECIONAR)
         if not ativo:
             for item in self._scene.selectedItems():
                 item.setSelected(False)
@@ -407,6 +548,16 @@ class PreviewCanvas(QGraphicsView):
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if self._modo_mockup:
+            if event.key() == Qt.Key.Key_Escape:
+                # Mesma tecla resolve os 2 casos de "sair do que eu tava
+                # fazendo": cancela um desenho em andamento (arrastando
+                # um retângulo/linha), ou solta a ferramenta e volta pro
+                # ponteiro — igual qualquer CAD/vetorial.
+                if self._criando:
+                    self._cancelar_criacao()
+                else:
+                    self.definir_ferramenta(FerramentaMockup.SELECIONAR)
+                return
             if event.key() == Qt.Key.Key_Delete:
                 self.remover_selecionados()
                 return

@@ -314,6 +314,39 @@ QToolBar::separator {{
     margin: 6px 6px;
 }}
 
+/* ── Paleta de ferramentas do Layout (vertical, só ícone) ────────────
+   Mesmo lugar/formato de qualquer CAD/vetorial de verdade — botão
+   quadrado, ícone centralizado, sem o padding largo (pensado pra botão
+   com texto) da regra `QToolBar QToolButton` genérica acima. `:checked`
+   marca a ferramenta ativa (Selecionar/Texto/Retângulo/Linha, ver
+   `FerramentaMockup`); as ações de um clique só (Agrupar, Trazer p/
+   frente...) não ficam `:checked` nunca, só têm o `:hover`. */
+QToolBar#paletaFerramentasMockup {{
+    padding: 8px 6px;
+    spacing: 4px;
+}}
+QToolBar#paletaFerramentasMockup QToolButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 7px;
+    min-width: 20px;
+    min-height: 20px;
+}}
+QToolBar#paletaFerramentasMockup QToolButton:hover {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+}}
+QToolBar#paletaFerramentasMockup QToolButton:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+}}
+QToolBar#paletaFerramentasMockup::separator {{
+    height: 1px;
+    width: auto;
+    margin: 4px 4px;
+}}
+
 QMenuBar {{
     background: {Cor.CARTAO};
     border-bottom: 1px solid {Cor.BORDA};
