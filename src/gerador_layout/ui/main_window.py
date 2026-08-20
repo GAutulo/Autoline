@@ -495,6 +495,8 @@ class JanelaPrincipal(QMainWindow):
         )
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
+        self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
+        self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
 
         # Quebra de linha de propósito, mesmo motivo de `_montar_barra_mockup`:
         # sem isso o Qt tenta encaixar essa barra na mesma linha da barra
@@ -511,11 +513,10 @@ class JanelaPrincipal(QMainWindow):
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _montar_barra_mockup(self) -> None:
-        """Paleta de ferramentas do modo Layout — vertical, na borda
-        esquerda da janela, só ícone com tooltip (sem texto, pedido
-        explícito do usuário: "não quero nada escrito, quero ícones
-        interativos"), no mesmo lugar/formato da caixa de ferramentas de
-        qualquer CAD/vetorial de verdade (CorelDRAW, ArtiosCAD).
+        """Paleta de ferramentas do modo Layout — horizontal, no topo da
+        janela (pedido explícito do usuário — antes ficava na borda
+        esquerda), só ícone com tooltip (sem texto, pedido explícito do
+        usuário: "não quero nada escrito, quero ícones interativos").
 
         Selecionar/Texto/Retângulo/Linha são uma FERRAMENTA (ver
         `FerramentaMockup` em `preview_canvas.py`) — só uma ativa por
@@ -526,15 +527,15 @@ class JanelaPrincipal(QMainWindow):
         Agrupar/Desagrupar/ordem) continua ação de um clique só, como
         sempre foi — não tem um gesto natural de "desenhar" pra elas."""
         # Quebra de linha de propósito: sem isso, o Qt tenta encaixar essa
-        # barra na mesma linha da barra principal — numa área/linha
-        # própria fica claro que são dois grupos de ferramentas diferentes.
-        self.addToolBarBreak(Qt.ToolBarArea.LeftToolBarArea)
+        # barra na mesma linha da barra principal — numa linha própria
+        # fica claro que são dois grupos de ferramentas diferentes.
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
         barra = QToolBar("Ferramentas")
         barra.setObjectName("paletaFerramentasMockup")
         barra.setMovable(False)
-        barra.setOrientation(Qt.Orientation.Vertical)
+        barra.setOrientation(Qt.Orientation.Horizontal)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, barra)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
         self.barra_mockup = barra
 
         self._acoes_ferramenta: dict[FerramentaMockup, QAction] = {}
@@ -617,7 +618,10 @@ class JanelaPrincipal(QMainWindow):
 
     def _ao_selecao_mockup_mudar(self) -> None:
         selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
-        self.painel_propriedades_mockup.definir_elemento(selecionados[0] if len(selecionados) == 1 else None)
+        if len(selecionados) > 1:
+            self.painel_propriedades_mockup.definir_selecao_multipla(len(selecionados))
+        else:
+            self.painel_propriedades_mockup.definir_elemento(selecionados[0] if selecionados else None)
 
     def _posicao_central_canvas(self) -> QPointF:
         return self.canvas.mapToScene(self.canvas.viewport().rect().center())

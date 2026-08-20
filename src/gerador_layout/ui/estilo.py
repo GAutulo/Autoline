@@ -314,7 +314,7 @@ QToolBar::separator {{
     margin: 6px 6px;
 }}
 
-/* ── Paleta de ferramentas do Layout (vertical, só ícone) ────────────
+/* ── Paleta de ferramentas do Layout (horizontal, topo, só ícone) ────
    Mesmo lugar/formato de qualquer CAD/vetorial de verdade — botão
    quadrado, ícone centralizado, sem o padding largo (pensado pra botão
    com texto) da regra `QToolBar QToolButton` genérica acima. `:checked`
@@ -342,8 +342,8 @@ QToolBar#paletaFerramentasMockup QToolButton:checked {{
     border-color: {Cor.PRIMARIA};
 }}
 QToolBar#paletaFerramentasMockup::separator {{
-    height: 1px;
-    width: auto;
+    width: 1px;
+    height: auto;
     margin: 4px 4px;
 }}
 

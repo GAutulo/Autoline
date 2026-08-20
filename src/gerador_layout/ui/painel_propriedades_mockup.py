@@ -78,6 +78,7 @@ class PainelPropriedadesMockup(QWidget):
         self._obter_tintas = obter_tintas_disponiveis
         self._obter_paineis = obter_paineis_disponiveis
         self._elemento: ElementoMockup | None = None
+        self._modo_multiplo = False
         self._spins_geometria: dict[str, QDoubleSpinBox] = {}
         self._rotulo_posicao_painel: QLabel | None = None
 
@@ -87,6 +88,8 @@ class PainelPropriedadesMockup(QWidget):
         # diálogo de separação de cor) sobem por aqui.
         self.remover_solicitado: Callable[[], None] | None = None
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
+        self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
+        self.remover_multiplos_solicitado: Callable[[], None] | None = None
 
         raiz = QHBoxLayout(self)
         raiz.setContentsMargins(2, 0, 2, 0)
@@ -115,7 +118,7 @@ class PainelPropriedadesMockup(QWidget):
         self._botao_remover.setIcon(construir_icone("remover"))
         self._botao_remover.setToolTip("Remover elemento")
         self._botao_remover.setVisible(False)
-        self._botao_remover.clicked.connect(lambda: self.remover_solicitado and self.remover_solicitado())
+        self._botao_remover.clicked.connect(self._ao_clicar_remover)
         raiz.addWidget(self._botao_remover)
 
     # ── Peça básica: ícone + widget lado a lado, sem rótulo de texto ──
@@ -150,8 +153,16 @@ class PainelPropriedadesMockup(QWidget):
         self._layout_campos.addWidget(linha)
         return linha
 
+    def _ao_clicar_remover(self) -> None:
+        if self._modo_multiplo:
+            if self.remover_multiplos_solicitado is not None:
+                self.remover_multiplos_solicitado()
+        elif self.remover_solicitado is not None:
+            self.remover_solicitado()
+
     # ── API pública ─────────────────────────────────────────────────
     def definir_elemento(self, elemento: ElementoMockup | None) -> None:
+        self._modo_multiplo = False
         if self._elemento is not None:
             # Desliga a conexão do elemento ANTERIOR antes de trocar —
             # sem isso, quando esse elemento mudasse de novo (ex.: mover
@@ -218,6 +229,46 @@ class PainelPropriedadesMockup(QWidget):
             self._layout_campos.addWidget(aviso)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
+
+    def definir_selecao_multipla(self, quantidade: int) -> None:
+        """Estado intermediário entre "nada selecionado" (`definir_elemento(None)`)
+        e "um elemento selecionado" — antes, selecionar vários elementos
+        só deixava a barra inteira vazia (editar vários de uma vez não
+        era um caso coberto), o que na prática parecia "não dá pra
+        selecionar mais de um item", já que não tinha nenhum jeito de ver
+        OU agir sobre a seleção múltipla. Não tenta editar propriedade
+        (fonte, cor...) de vários — só alinhar/remover, os dois únicos
+        casos que fazem sentido pra um grupo heterogêneo de elementos."""
+        self._modo_multiplo = True
+        if self._elemento is not None:
+            try:
+                self._elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
+            except (TypeError, RuntimeError):
+                pass
+        self._elemento = None
+        self._spins_geometria = {}
+        self._rotulo_posicao_painel = None
+        self._limpar_barra()
+
+        self._rotulo_vazio.setVisible(False)
+        self._rotulo_tipo.setText(f"{quantidade} selecionados")
+        self._rotulo_tipo.setVisible(True)
+        self._container_campos.setVisible(True)
+        self._botao_remover.setVisible(True)
+
+        disposicao = (
+            ("alinhar_esquerda", "esquerda", "Alinhar bordas esquerdas entre si"),
+            ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente entre si"),
+            ("alinhar_direita", "direita", "Alinhar bordas direitas entre si"),
+            ("alinhar_topo", "topo", "Alinhar topos entre si"),
+            ("alinhar_centro_v", "centro_v", "Centralizar verticalmente entre si"),
+            ("alinhar_base", "base", "Alinhar bases entre si"),
+        )
+        for tipo_icone, alinhamento, tooltip in disposicao:
+            botao = self._botao_icone(tipo_icone, tooltip)
+            botao.clicked.connect(
+                lambda _c=False, a=alinhamento: self.alinhar_multiplos_solicitado and self.alinhar_multiplos_solicitado(a)
+            )
 
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_campos_geometria(self, elemento: ElementoMockup) -> None:
