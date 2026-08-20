@@ -118,6 +118,13 @@ class ElementoTexto(ElementoMockup):
         escala = self._altura / altura_ref if altura_ref else 1.0
         self.definir_tamanho(largura_ref * escala, self._altura)
 
+    def clonar(self) -> "ElementoTexto":
+        novo = ElementoTexto(
+            texto=self._texto, fonte_familia=self._fonte_familia, negrito=self._negrito, cor_tinta=self._cor_tinta
+        )
+        self._copiar_geometria_para(novo)
+        return novo
+
     # ── Edição direto no canvas (clique duplo, ou logo após criar com a
     # ferramenta Texto — ver `main_window.py::_criar_texto_por_clique`) ──
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802

@@ -155,3 +155,10 @@ class ElementoChecklistCores(ElementoMockup):
             y += _ALTURA_LINHA_MM + espaco_linhas
 
         painter.restore()
+
+    def clonar(self) -> "ElementoChecklistCores":
+        novo = ElementoChecklistCores(
+            variantes=self._variantes, fonte_familia=self._fonte_familia, cor_tinta=self._cor_tinta
+        )
+        self._copiar_geometria_para(novo)
+        return novo

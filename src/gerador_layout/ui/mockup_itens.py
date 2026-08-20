@@ -131,6 +131,19 @@ class ElementoMockup(QGraphicsObject):
         # pelos campos do painel de propriedades (`definir_tamanho`).
         self._proporcao_travada = False
 
+        # Callback opcional (ver `definir_calculador_snap`) que o canvas
+        # liga em todo elemento que cria/duplica/desagrupa — o elemento
+        # não sabe nada de grade/outros elementos/guias sozinho, só pede
+        # "essa posição que eu larguei, tem uma melhor bem pertinho?" ao
+        # SOLTAR o botão depois de arrastar o CORPO (não durante
+        # redimensionar/rotacionar, nem em `setPos()` programático tipo
+        # nudge/alinhar/colar — ver `_arrastando_corpo` e
+        # `mouseReleaseEvent` abaixo. Corrigir só no soltar, não durante o
+        # arrasto: mudar a posição por baixo do arrasto NATIVO do Qt
+        # confunde a conta interna dele — ver comentário lá).
+        self._calculador_snap = None
+        self._arrastando_corpo = False
+
         self._alca_ativa = Alca.NENHUMA
         self._arrastando = False
         # Estado congelado no início do arrasto (mousePressEvent) — o
@@ -165,6 +178,12 @@ class ElementoMockup(QGraphicsObject):
 
     def definir_proporcao_travada(self, travada: bool) -> None:
         self._proporcao_travada = travada
+
+    def definir_calculador_snap(self, calculador) -> None:
+        """`calculador(elemento, ponto_proposto) -> ponto_ajustado` —
+        chamado pelo canvas (ver `preview_canvas.py::_calcular_snap`)
+        toda vez que o elemento tenta se mover arrastando o corpo."""
+        self._calculador_snap = calculador
 
     def definir_largura(self, largura: float) -> None:
         """Muda só a largura — se a proporção estiver travada, a altura
@@ -202,6 +221,22 @@ class ElementoMockup(QGraphicsObject):
         self.setTransformOriginPoint(self._largura / 2, self._altura / 2)
         self.update()
         self.geometria_alterada.emit()
+
+    def clonar(self) -> "ElementoMockup":
+        """Duplica o elemento (Ctrl+D/Ctrl+C+V, ver `preview_canvas.py`)
+        — cada subclasse implementa reconstruindo com o MESMO conteúdo
+        (texto, cor, arquivo...) via seu próprio construtor, depois chama
+        `_copiar_geometria_para` (abaixo) pra igualar tamanho/posição/
+        rotação/painel/trava de proporção, que é sempre a mesma receita
+        não importa o tipo."""
+        raise NotImplementedError
+
+    def _copiar_geometria_para(self, novo: "ElementoMockup") -> None:
+        novo.definir_tamanho(self._largura, self._altura)
+        novo.setPos(self.pos())
+        novo.setRotation(self.rotation())
+        novo.definir_painel(self.painel_id)
+        novo.definir_proporcao_travada(self.proporcao_travada)
 
     def retangulo_conteudo_cena(self) -> QRectF:
         """Retângulo de conteúdo de verdade — sem a margem das alças de
@@ -288,6 +323,7 @@ class ElementoMockup(QGraphicsObject):
             return
 
         if alca == Alca.CORPO:
+            self._arrastando_corpo = True
             super().mousePressEvent(event)  # seleção + mover: comportamento nativo do Qt (flags já habilitam)
             return
 
@@ -320,12 +356,26 @@ class ElementoMockup(QGraphicsObject):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        estava_arrastando_corpo = self._arrastando_corpo
+        self._arrastando_corpo = False
         if self._arrastando:
             self._arrastando = False
             self._alca_ativa = Alca.NENHUMA
             self.geometria_alterada.emit()
             return
         super().mouseReleaseEvent(event)
+        if estava_arrastando_corpo and self._calculador_snap is not None:
+            # Encaixe só ao SOLTAR o botão, não durante o arrasto — Qt
+            # calcula o próximo passo de um arrasto nativo (`ItemIsMovable`)
+            # a partir da posição LOCAL do evento anterior; se a gente
+            # muda a posição por baixo dele no meio do gesto (via
+            # `itemChange`), essa conta interna desincroniza e o item
+            # "trava" depois do primeiro encaixe (confirmado testando —
+            # não é só teoria). Corrigir só depois que o gesto termina
+            # evita mexer no que o Qt já processou.
+            nova_pos = self._calculador_snap(self, self.pos())
+            if nova_pos != self.pos():
+                self.setPos(nova_pos)
 
     # ── Redimensionar ────────────────────────────────────────────────
     def _redimensionar_para(self, ponto_cena: QPointF) -> None:
@@ -456,3 +506,18 @@ class GrupoMockup(ElementoMockup):
 
     def _pintar_conteudo(self, painter: QPainter) -> None:
         pass  # o conteúdo visível são os próprios filhos — o Qt já desenha eles
+
+    def clonar(self) -> "GrupoMockup":
+        # Não passa pelo `_agrupar` normal (ele calcula a geometria a
+        # partir de `sceneBoundingRect()` dos filhos, que exige que já
+        # estejam na cena) — aqui já sabemos a geometria de sobra (a do
+        # próprio grupo original), só falta clonar cada filho preservando
+        # a posição/rotação LOCAL dele (que `clonar()` de cada um já
+        # copia certo, ver `_copiar_geometria_para`) e reparentar.
+        novo = GrupoMockup([])
+        self._copiar_geometria_para(novo)
+        for el in self._elementos:
+            clone = el.clonar()
+            clone.setParentItem(novo)
+            novo._elementos.append(clone)
+        return novo

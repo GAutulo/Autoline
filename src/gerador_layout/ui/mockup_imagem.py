@@ -35,6 +35,11 @@ class ElementoImagem(ElementoMockup):
     def _pintar_conteudo(self, painter: QPainter) -> None:
         painter.drawPixmap(QRectF(0, 0, self._largura, self._altura), self._pixmap, QRectF(self._pixmap.rect()))
 
+    def clonar(self) -> "ElementoImagem":
+        novo = ElementoImagem(self._caminho_arquivo)
+        self._copiar_geometria_para(novo)
+        return novo
+
 
 def _tamanho_inicial_mm(pixmap: QPixmap) -> tuple[float, float]:
     """Sempre abre numa largura padrão, mantendo a proporção real do

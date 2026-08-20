@@ -102,6 +102,13 @@ class ElementoLogoVetorial(ElementoMockup):
     def _pintar_conteudo(self, painter: QPainter) -> None:
         self._renderer.render(painter, QRectF(0, 0, self._largura, self._altura))
 
+    def clonar(self) -> "ElementoLogoVetorial":
+        novo = ElementoLogoVetorial(self._caminho_arquivo)
+        if self._mapa_cores:
+            novo.definir_mapa_cores(self._mapa_cores)
+        self._copiar_geometria_para(novo)
+        return novo
+
 
 def _tamanho_inicial_mm(renderer: QSvgRenderer) -> tuple[float, float]:
     """Mesma lógica/motivo do PNG (ver `mockup_imagem.py`): largura

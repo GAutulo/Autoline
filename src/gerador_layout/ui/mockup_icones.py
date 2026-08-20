@@ -209,6 +209,46 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setPen(QPen(cor, 1.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(caminho)
+    elif tipo == "ferramenta_elipse":
+        painter.drawEllipse(QRectF(2.5, 4, 13, 10))
+    elif tipo == "ferramenta_poligono":
+        caminho = QPainterPath()
+        pontos_hexagono = _pontos_poligono(QPointF(c, c), 7.2, lados=6)
+        caminho.moveTo(pontos_hexagono[0])
+        for ponto in pontos_hexagono[1:]:
+            caminho.lineTo(ponto)
+        caminho.closeSubpath()
+        painter.drawPath(caminho)
+    elif tipo == "ferramenta_tabela":
+        painter.drawRect(QRectF(3, 4, 12, 10))
+        painter.drawLine(QPointF(3, 8), QPointF(15, 8))  # linha de cabeçalho
+        painter.drawLine(QPointF(7.5, 4), QPointF(7.5, 14))
+        painter.drawLine(QPointF(11.5, 4), QPointF(11.5, 14))
+    elif tipo == "ferramenta_callout":
+        # Ponto de referência no objeto (círculo vazado) + linha de
+        # chamada tracejada até a caixa de anotação com 2 traços de
+        # "texto" dentro — distingue de um retângulo genérico e evita
+        # ler como lupa/alfinete.
+        painter.drawEllipse(QPointF(3.8, 14.2), 1.5, 1.5)
+        linha_pen = QPen(cor, 1.0)
+        linha_pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(linha_pen)
+        painter.drawLine(QPointF(5.1, 13.0), QPointF(8, 9.6))
+        painter.setPen(caneta)
+        painter.drawRoundedRect(QRectF(8, 2.5, 8, 7.5), 1.3, 1.3)
+        painter.drawLine(QPointF(9.5, 5.2), QPointF(14.5, 5.2))
+        painter.drawLine(QPointF(9.5, 7.5), QPointF(13, 7.5))
+    elif tipo == "ferramenta_transparencia":
+        # Tabuleiro de xadrez — convenção universal de "transparência" em
+        # qualquer editor gráfico (Corel, Illustrator, Photoshop etc.).
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(cor))
+        quadro = QRectF(3, 3, 12, 12)
+        painter.drawRect(QRectF(quadro.left(), quadro.top(), 6, 6))
+        painter.drawRect(QRectF(quadro.left() + 6, quadro.top() + 6, 6, 6))
+        painter.setPen(caneta)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(quadro)
     elif tipo == "agrupar":
         painter.drawRect(QRectF(3, 3, 8, 8))
         painter.drawRect(QRectF(7, 7, 8, 8))
@@ -231,6 +271,18 @@ def construir_icone(tipo: str) -> QIcon:
             _seta(painter, QPointF(15.5, 9), QPointF(15.5, 3.5))
         else:
             _seta(painter, QPointF(15.5, 3.5), QPointF(15.5, 9))
+    elif tipo == "conta_gotas":
+        # Pipeta na diagonal — bulbo (círculo vazado) na ponta de cima,
+        # gota preenchida (a cor "capturada") na ponta de baixo.
+        painter.drawLine(QPointF(12, 4), QPointF(5.5, 10.5))
+        painter.drawEllipse(QPointF(13.3, 2.7), 2.0, 2.0)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(cor))
+        caminho = QPainterPath()
+        caminho.moveTo(5.5, 10.5)
+        caminho.cubicTo(3, 13, 3, 16, 5.5, 16)
+        caminho.cubicTo(8, 16, 8, 13, 5.5, 10.5)
+        painter.drawPath(caminho)
 
     painter.end()
     return QIcon(pixmap)
@@ -243,6 +295,16 @@ def _pontos_estrela(centro: QPointF, raio_externo: float, raio_interno: float) -
         angulo = math.radians(-90 + i * 36)
         pontos.append(QPointF(centro.x() + raio * math.cos(angulo), centro.y() + raio * math.sin(angulo)))
     return pontos
+
+
+def _pontos_poligono(centro: QPointF, raio: float, lados: int) -> list[QPointF]:
+    return [
+        QPointF(
+            centro.x() + raio * math.cos(math.radians(-90 + i * (360 / lados))),
+            centro.y() + raio * math.sin(math.radians(-90 + i * (360 / lados))),
+        )
+        for i in range(lados)
+    ]
 
 
 def _desenhar_alinhar(painter: QPainter, tipo: str, cor: QColor, lado: float) -> None:
