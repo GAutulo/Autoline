@@ -28,6 +28,8 @@ from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, Elem
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
+from .mockup_simbolos import ElementoSimbolo
+from .mockup_simbolos import _ESPACO_REFERENCIA as _SIMBOLO_ESPACO_REFERENCIA
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 
@@ -244,6 +246,8 @@ def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total
         _desenhar_tabela_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoAcabamento):
         _desenhar_acabamento_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoSimbolo):
+        _desenhar_simbolo_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, (ElementoImagem, ElementoLogoVetorial)):
         _desenhar_imagem_cdr(app, layer, elemento, altura_total)
     # Tipo desconhecido: ignora silenciosamente — não é motivo pra falhar
@@ -320,6 +324,32 @@ def _desenhar_poligono_cdr(app, layer, elemento: "ElementoPoligono", altura_tota
         for aresta in arestas:
             intervalo.Add(aresta)
         intervalo.Rotate(angulo)
+
+
+def _desenhar_simbolo_cdr(app, layer, elemento: "ElementoSimbolo", altura_total: float) -> None:
+    """Achata o `QPainterPath` do pictograma (que tem curva — `cubicTo`/
+    `arcTo`, ver `mockup_simbolos.py`) em segmentos de reta via
+    `toSubpathPolygons()`, mesma técnica/motivo de `_desenhar_poligono_cdr`
+    (evita apostar num método de curva nativo do Corel sem testar ao
+    vivo). Diferente de lá, cada vértice já sai direto na posição de CENA
+    certa via `elemento.mapToScene()` — que já embute rotação/posição do
+    próprio elemento (e de qualquer grupo pai) sozinho, sem precisar de
+    um `Rotate()` em separado depois de desenhar tudo "reto"."""
+    escala_x = elemento.largura / _SIMBOLO_ESPACO_REFERENCIA
+    escala_y = elemento.altura / _SIMBOLO_ESPACO_REFERENCIA
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    for poligono in elemento.caminho_normalizado().toSubpathPolygons():
+        pontos_cdr = []
+        for ponto_ref in poligono:
+            local = QPointF(ponto_ref.x() * escala_x, ponto_ref.y() * escala_y)
+            cena = elemento.mapToScene(local)
+            pontos_cdr.append((cena.x(), altura_total - cena.y()))
+        for i in range(len(pontos_cdr) - 1):
+            x0, y0 = pontos_cdr[i]
+            x1, y1 = pontos_cdr[i + 1]
+            shape = layer.CreateLineSegment(x0, y0, x1, y1)
+            shape.Outline.Color = cor
+            shape.Outline.Width = 0.25
 
 
 def _desenhar_linha_mockup_cdr(app, layer, elemento: ElementoLinha, altura_total: float) -> None:

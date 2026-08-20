@@ -249,6 +249,17 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setPen(caneta)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(quadro)
+    elif tipo == "ferramenta_simbolo":
+        # Triângulo de alerta com exclamação — leitura universal de
+        # "símbolo/pictograma de instrução" (mesma família visual dos
+        # ícones de manuseio que este elemento desenha no mockup).
+        painter.drawPolygon(
+            [QPointF(9, 2.5), QPointF(16, 15), QPointF(2, 15)]
+        )
+        painter.drawLine(QPointF(9, 6.5), QPointF(9, 11))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(cor))
+        painter.drawEllipse(QPointF(9, 13), 0.9, 0.9)
     elif tipo == "agrupar":
         painter.drawRect(QRectF(3, 3, 8, 8))
         painter.drawRect(QRectF(7, 7, 8, 8))
