@@ -43,6 +43,7 @@ from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from ..paineis import Painel
 from .estilo import Cor
 from .mockup_itens import ElementoMockup, GrupoMockup
+from .mockup_reguas import GuiaCanvas
 
 
 class FerramentaMockup(Enum):
@@ -58,6 +59,8 @@ class FerramentaMockup(Enum):
     TEXTO = auto()
     RETANGULO = auto()
     LINHA = auto()
+    CONTA_GOTAS = auto()
+    MEDIR = auto()
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
@@ -74,6 +77,13 @@ _ESTILO_POR_TIPO: dict[TipoLinha, tuple[QColor, Qt.PenStyle, float]] = {
 
 _ZOOM_MINIMO = 0.05
 _ZOOM_MAXIMO = 40.0
+
+_DELTA_SETA_NUDGE: dict[Qt.Key, QPointF] = {
+    Qt.Key.Key_Left: QPointF(-1, 0),
+    Qt.Key.Key_Right: QPointF(1, 0),
+    Qt.Key.Key_Up: QPointF(0, -1),
+    Qt.Key.Key_Down: QPointF(0, 1),
+}
 
 # Fundo do canvas: um branco liso incomoda a vista numa área grande (era
 # a reclamação) e não lê como área de desenho técnico. Uma grade bem sutil
@@ -118,6 +128,7 @@ class PreviewCanvas(QGraphicsView):
     retangulo_desenhado = Signal(QRectF)
     linha_desenhada = Signal(QPointF, QPointF)
     texto_solicitado = Signal(QPointF)
+    cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
     ferramenta_alterada = Signal(object)  # FerramentaMockup
 
     def __init__(self, parent=None) -> None:
@@ -164,6 +175,19 @@ class PreviewCanvas(QGraphicsView):
         self._ponto_inicial_criacao = QPointF()
         self._item_preview_criacao: QGraphicsItem | None = None
 
+        # Área de transferência interna do app (Ctrl+C/Ctrl+V) — guarda
+        # clones desconectados da cena, não referências aos itens de
+        # verdade (ver `copiar_selecionados`).
+        self._area_transferencia: list[ElementoMockup] = []
+
+        # Encaixe (snap) — grade, bordas/centro de outros elementos, da
+        # face e das guias (ver `_calcular_snap`).
+        self._snap_ativo = True
+        # Guias de verdade (réguas, ver `mockup_reguas.py`) — cada uma é
+        # um `GuiaCanvas` na cena (arrastável/selecionável/removível como
+        # qualquer item), não só um número numa lista.
+        self._guias: list[GuiaCanvas] = []
+
         # Painel fixo (HUD) por cima da cena — não escala com o zoom, então
         # nunca "explode" de tamanho numa caixa pequena.
         self._painel_dimensao = QLabel(self)
@@ -172,6 +196,14 @@ class PreviewCanvas(QGraphicsView):
             _ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 13px;"
         )
         self._painel_dimensao.hide()
+
+        # Leitura ao vivo da ferramenta de medida (ver `FerramentaMockup.MEDIR`)
+        # — segue o cursor durante o arrasto, mesmo estilo do painel de
+        # dimensão (fonte fixa em tela, não escala com o zoom).
+        self._rotulo_medida = QLabel(self)
+        self._rotulo_medida.setObjectName("rotuloTecnico")
+        self._rotulo_medida.setStyleSheet(_ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 12px;")
+        self._rotulo_medida.hide()
 
     # ── API pública ─────────────────────────────────────────────────
     @property
@@ -301,12 +333,23 @@ class PreviewCanvas(QGraphicsView):
     def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
         if self._criando:
             self._cancelar_criacao()
+        if self._ferramenta == FerramentaMockup.MEDIR and ferramenta != FerramentaMockup.MEDIR:
+            # Sair da ferramenta de medida limpa a última leitura — ela é
+            # uma resposta pontual ("quanto é isso aqui?"), não uma
+            # anotação permanente que devesse sobreviver à troca de
+            # ferramenta.
+            self._rotulo_medida.hide()
+            if self._item_preview_criacao is not None:
+                self._scene.removeItem(self._item_preview_criacao)
+                self._item_preview_criacao = None
         self._ferramenta = ferramenta
         cursores = {
             FerramentaMockup.SELECIONAR: Qt.CursorShape.ArrowCursor,
             FerramentaMockup.TEXTO: Qt.CursorShape.IBeamCursor,
             FerramentaMockup.RETANGULO: Qt.CursorShape.CrossCursor,
             FerramentaMockup.LINHA: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.CONTA_GOTAS: Qt.CursorShape.PointingHandCursor,
+            FerramentaMockup.MEDIR: Qt.CursorShape.CrossCursor,
         }
         self.setCursor(cursores[ferramenta])
         # Enquanto uma ferramenta de criação está ativa, arrastar no
@@ -379,10 +422,22 @@ class PreviewCanvas(QGraphicsView):
             # nascer no lugar certo e entrar direto em edição.
             self.texto_solicitado.emit(self._ponto_inicial_criacao)
             return
+        if self._ferramenta == FerramentaMockup.CONTA_GOTAS:
+            # Também não precisa de arrasto — amostra na hora do clique.
+            cor = self._amostrar_cor(pos_viewport)
+            if cor.isValid():
+                self.cor_amostrada.emit(cor)
+            return
+        if self._ferramenta == FerramentaMockup.MEDIR and self._item_preview_criacao is not None:
+            # Começando uma medida nova por cima de uma anterior ainda
+            # visível — limpa a antiga primeiro.
+            self._scene.removeItem(self._item_preview_criacao)
+            self._item_preview_criacao = None
+
         self._criando = True
         if self._ferramenta == FerramentaMockup.RETANGULO:
             self._item_preview_criacao = QGraphicsRectItem()
-        elif self._ferramenta == FerramentaMockup.LINHA:
+        elif self._ferramenta in (FerramentaMockup.LINHA, FerramentaMockup.MEDIR):
             self._item_preview_criacao = QGraphicsLineItem()
         else:
             self._criando = False
@@ -390,15 +445,31 @@ class PreviewCanvas(QGraphicsView):
         self._item_preview_criacao.setPen(self._caneta_preview())
         self._scene.addItem(self._item_preview_criacao)
 
+        if self._ferramenta == FerramentaMockup.MEDIR:
+            self._rotulo_medida.setText("0,0 mm")
+            self._rotulo_medida.adjustSize()
+            self._rotulo_medida.move(pos_viewport.x() + 14, pos_viewport.y() - self._rotulo_medida.height() - 10)
+            self._rotulo_medida.show()
+
     def _atualizar_criacao(self, pos_viewport) -> None:
         atual = self.mapToScene(pos_viewport)
-        if isinstance(self._item_preview_criacao, QGraphicsRectItem):
+        if self._ferramenta == FerramentaMockup.RETANGULO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
             self._item_preview_criacao.setRect(QRectF(self._ponto_inicial_criacao, atual).normalized())
         elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
-            self._item_preview_criacao.setLine(QLineF(self._ponto_inicial_criacao, atual))
+            linha = QLineF(self._ponto_inicial_criacao, atual)
+            self._item_preview_criacao.setLine(linha)
+            if self._ferramenta == FerramentaMockup.MEDIR:
+                self._rotulo_medida.setText(f"{linha.length():.1f} mm")
+                self._rotulo_medida.adjustSize()
+                self._rotulo_medida.move(pos_viewport.x() + 14, pos_viewport.y() - self._rotulo_medida.height() - 10)
 
     def _finalizar_criacao(self, pos_viewport) -> None:
         self._criando = False
+        if self._ferramenta == FerramentaMockup.MEDIR:
+            # Fica visível como leitura até a próxima medida ou trocar de
+            # ferramenta (ver `definir_ferramenta`) — não é um elemento
+            # criado, só uma resposta pontual, não precisa confirmação.
+            return
         if self._item_preview_criacao is not None:
             self._scene.removeItem(self._item_preview_criacao)
             self._item_preview_criacao = None
@@ -420,6 +491,18 @@ class PreviewCanvas(QGraphicsView):
         if self._item_preview_criacao is not None:
             self._scene.removeItem(self._item_preview_criacao)
             self._item_preview_criacao = None
+        self._rotulo_medida.hide()
+
+    def _amostrar_cor(self, pos_viewport) -> QColor:
+        """Cor de verdade sob o cursor, lida do que está renderizado na
+        tela (não do modelo/dado) — inclui imagem/logo importado, texto,
+        qualquer coisa visível. `viewport().grab()` é exatamente o mesmo
+        pixel que a pessoa está olhando, então a coordenada do clique bate
+        direto sem nenhuma conta de transform."""
+        imagem = self.viewport().grab().toImage()
+        if 0 <= pos_viewport.x() < imagem.width() and 0 <= pos_viewport.y() < imagem.height():
+            return imagem.pixelColor(pos_viewport.x(), pos_viewport.y())
+        return QColor()
 
     # ── Painel fixo (HUD) ───────────────────────────────────────────
     def _reposicionar_paineis(self) -> None:
@@ -496,7 +579,98 @@ class PreviewCanvas(QGraphicsView):
         self._scene.addItem(elemento)
         if pos is not None:
             elemento.setPos(pos)
+        self._registrar_elemento_mockup(elemento)
+
+    def _registrar_elemento_mockup(self, elemento: ElementoMockup) -> None:
+        """Cadastra o elemento em `_elementos_mockup` E liga o snap nele
+        — ponto único pra isso, senão é fácil esquecer de ligar o snap
+        num caminho de criação novo (duplicar, colar, desagrupar...) e o
+        elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
+        elemento.definir_calculador_snap(self._calcular_snap)
+
+    def definir_snap_ativo(self, ativo: bool) -> None:
+        self._snap_ativo = ativo
+
+    def adicionar_guia(self, orientacao: str, posicao_mm: float) -> GuiaCanvas:
+        guia = GuiaCanvas(orientacao, posicao_mm)
+        self._scene.addItem(guia)
+        self._guias.append(guia)
+        return guia
+
+    def remover_guia(self, guia: GuiaCanvas) -> None:
+        if guia in self._guias:
+            self._guias.remove(guia)
+        self._scene.removeItem(guia)
+
+    _LIMIAR_SNAP_MM = 3.0
+
+    def _calcular_snap(self, elemento: ElementoMockup, pos_proposta: QPointF) -> QPointF:
+        """Chamado pelo `mouseReleaseEvent` do elemento (ver
+        `mockup_itens.py`) assim que um arrasto pelo corpo termina — testa
+        a borda esquerda, o centro e a borda direita do elemento (na
+        posição onde ele acabou de ser largado) contra grade/outros
+        elementos/face/guias, e "gruda" no alvo mais próximo dentro do
+        limiar; fora do limiar, a posição passa sem alteração. Eixos X e Y
+        são independentes — pode grudar só num, só no outro, nos dois, ou
+        em nenhum. Só no soltar (não durante o arrasto) de propósito — ver
+        o comentário em `ElementoMockup.mouseReleaseEvent`."""
+        if not self._snap_ativo:
+            return pos_proposta
+
+        largura, altura = elemento.largura, elemento.altura
+        bordas_x = (pos_proposta.x(), pos_proposta.x() + largura / 2, pos_proposta.x() + largura)
+        bordas_y = (pos_proposta.y(), pos_proposta.y() + altura / 2, pos_proposta.y() + altura)
+
+        ajuste_x = self._melhor_ajuste_snap(bordas_x, self._alvos_snap_x(elemento))
+        ajuste_y = self._melhor_ajuste_snap(bordas_y, self._alvos_snap_y(elemento))
+        return QPointF(pos_proposta.x() + ajuste_x, pos_proposta.y() + ajuste_y)
+
+    def _melhor_ajuste_snap(self, bordas: tuple[float, float, float], alvos: list[float]) -> float:
+        candidatos = list(alvos)
+        if self._grade_visivel:
+            # Grade só participa do encaixe se estiver visível — senão a
+            # peça "gruda" numa referência que a pessoa nem está vendo,
+            # o que pareceria um bug ("por que não solta exatamente onde
+            # eu larguei o mouse?").
+            candidatos.extend(round(borda / _PASSO_GRADE_MM) * _PASSO_GRADE_MM for borda in bordas)
+
+        melhor_ajuste = 0.0
+        menor_distancia = self._LIMIAR_SNAP_MM
+        for borda in bordas:
+            for alvo in candidatos:
+                distancia = abs(borda - alvo)
+                if distancia < menor_distancia:
+                    menor_distancia = distancia
+                    melhor_ajuste = alvo - borda
+        return melhor_ajuste
+
+    def _alvos_snap_x(self, elemento: ElementoMockup) -> list[float]:
+        alvos = [g.posicao for g in self._guias if g.orientacao == "v"]
+        for outro in self._elementos_mockup:
+            if outro is elemento:
+                continue
+            alvos.extend((outro.pos().x(), outro.pos().x() + outro.largura / 2, outro.pos().x() + outro.largura))
+        painel = self._painel_do_elemento(elemento)
+        if painel is not None:
+            alvos.extend((painel.x1, (painel.x1 + painel.x2) / 2, painel.x2))
+        return alvos
+
+    def _alvos_snap_y(self, elemento: ElementoMockup) -> list[float]:
+        alvos = [g.posicao for g in self._guias if g.orientacao == "h"]
+        for outro in self._elementos_mockup:
+            if outro is elemento:
+                continue
+            alvos.extend((outro.pos().y(), outro.pos().y() + outro.altura / 2, outro.pos().y() + outro.altura))
+        painel = self._painel_do_elemento(elemento)
+        if painel is not None:
+            alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
+        return alvos
+
+    def _painel_do_elemento(self, elemento: ElementoMockup) -> Painel | None:
+        if elemento.painel_id is None:
+            return None
+        return next((p for p in self._paineis if p.id == elemento.painel_id), None)
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -507,7 +681,7 @@ class PreviewCanvas(QGraphicsView):
                 self._elementos_mockup.remove(el)
         grupo = GrupoMockup(selecionados)
         grupo.setSelected(True)
-        self._elementos_mockup.append(grupo)
+        self._registrar_elemento_mockup(grupo)
         return grupo
 
     def desagrupar_selecionados(self) -> None:
@@ -515,7 +689,8 @@ class PreviewCanvas(QGraphicsView):
         for grupo in grupos:
             if grupo in self._elementos_mockup:
                 self._elementos_mockup.remove(grupo)
-            self._elementos_mockup.extend(grupo.desagrupar())
+            for filho in grupo.desagrupar():
+                self._registrar_elemento_mockup(filho)
 
     def remover_selecionados(self) -> None:
         for item in list(self._scene.selectedItems()):
@@ -523,6 +698,61 @@ class PreviewCanvas(QGraphicsView):
                 self._scene.removeItem(item)
                 if item in self._elementos_mockup:
                     self._elementos_mockup.remove(item)
+            elif isinstance(item, GuiaCanvas):
+                self.remover_guia(item)
+
+    # ── Duplicar / copiar-colar (Ctrl+D, Ctrl+C, Ctrl+V) ────────────────
+    _PASSO_DUPLICAR_MM = 6.0
+
+    def duplicar_selecionados(self) -> list[ElementoMockup]:
+        """Ctrl+D — clona e desloca na hora, já selecionando o clone (não
+        o original), pra continuar arrastando/ajustando ele direto. Sem
+        passar pela área de transferência: Ctrl+D é "mais um igual, aqui
+        do lado", não "guardar pra colar depois em outro lugar/momento"
+        (isso é o que Ctrl+C/V fazem, ver abaixo)."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if not selecionados:
+            return []
+        clones = []
+        for it in selecionados:
+            it.setSelected(False)
+            clone = it.clonar()
+            clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
+            self._scene.addItem(clone)
+            self._registrar_elemento_mockup(clone)
+            clone.setSelected(True)
+            clones.append(clone)
+        return clones
+
+    def copiar_selecionados(self) -> None:
+        """Ctrl+C — tira uma "foto" (clone desconectado da cena) de cada
+        selecionado agora; Ctrl+V mais tarde parte sempre desse instante,
+        não do que aconteceu com o elemento original depois (mesmo
+        princípio de copiar/colar de qualquer editor: colar não deveria
+        refletir edições feitas DEPOIS da cópia)."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if selecionados:
+            self._area_transferencia = [it.clonar() for it in selecionados]
+
+    def colar(self) -> list[ElementoMockup]:
+        if not self._area_transferencia:
+            return []
+        for it in self._scene.selectedItems():
+            it.setSelected(False)
+        clones = []
+        for original in self._area_transferencia:
+            clone = original.clonar()
+            clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
+            self._scene.addItem(clone)
+            self._registrar_elemento_mockup(clone)
+            clone.setSelected(True)
+            clones.append(clone)
+        # Um Ctrl+V repetido parte do último colado, não sempre do mesmo
+        # ponto — cada colagem em cascata fica um pouco mais deslocada da
+        # anterior, igual Word/Illustrator, em vez de empilhar tudo exatamente
+        # no mesmo lugar toda vez que aperta de novo.
+        self._area_transferencia = clones
+        return clones
 
     def trazer_para_frente(self) -> None:
         """Ordem de empilhamento — só entre elementos de mockup no nível
@@ -572,6 +802,29 @@ class PreviewCanvas(QGraphicsView):
             if eh_ctrl and event.key() == Qt.Key.Key_End:
                 self.enviar_para_tras()
                 return
+            if eh_ctrl and event.key() == Qt.Key.Key_D:
+                self.duplicar_selecionados()
+                return
+            if eh_ctrl and event.key() == Qt.Key.Key_C:
+                self.copiar_selecionados()
+                return
+            if eh_ctrl and event.key() == Qt.Key.Key_V:
+                self.colar()
+                return
+            if not eh_ctrl and event.key() in _DELTA_SETA_NUDGE:
+                # Mover fino pelo teclado — 1mm por toque, 10mm com Shift
+                # (mesmo padrão de qualquer CAD: mouse pro grosso, seta
+                # pro ajuste fino de precisão). Só intercepta a seta
+                # quando tem elemento selecionado — sem seleção, a seta
+                # continua rolando a view (comportamento nativo de
+                # QGraphicsView, não mexi nisso).
+                selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+                if selecionados:
+                    passo = 10.0 if eh_shift else 1.0
+                    delta = _DELTA_SETA_NUDGE[event.key()] * passo
+                    for item in selecionados:
+                        item.setPos(item.pos() + delta)
+                    return
         super().keyPressEvent(event)
 
 

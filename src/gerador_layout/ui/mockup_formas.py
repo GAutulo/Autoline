@@ -74,6 +74,13 @@ class ElementoRetangulo(ElementoMockup):
             margem, margem, max(0.01, self._largura - self._largura_traco), max(0.01, self._altura - self._largura_traco)
         )
 
+    def clonar(self) -> "ElementoRetangulo":
+        novo = ElementoRetangulo(
+            cor_tinta=self._cor_tinta, preenchido=self._preenchido, largura_traco=self._largura_traco
+        )
+        self._copiar_geometria_para(novo)
+        return novo
+
 
 class ElementoLinha(ElementoMockup):
     def __init__(
@@ -112,3 +119,8 @@ class ElementoLinha(ElementoMockup):
         painter.setPen(pen)
         meio = self._altura / 2
         painter.drawLine(QPointF(0, meio), QPointF(self._largura, meio))
+
+    def clonar(self) -> "ElementoLinha":
+        novo = ElementoLinha(cor_tinta=self._cor_tinta, largura_traco=self._largura_traco)
+        self._copiar_geometria_para(novo)
+        return novo

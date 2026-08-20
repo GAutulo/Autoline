@@ -6,7 +6,7 @@ import math
 from contextlib import contextmanager
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction, QActionGroup, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -37,10 +37,11 @@ from .dialogo_logo import DialogoSepararCoresLogo
 from .estilo import Cor
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_formas import ElementoLinha, ElementoRetangulo
-from .mockup_imagem import ElementoImagem
 from .mockup_icones import construir_icone
+from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup
 from .mockup_logo import ElementoLogoVetorial
+from .mockup_reguas import ReguaHorizontal, ReguaVertical
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import PainelPropriedadesMockup
 from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
@@ -187,7 +188,28 @@ class JanelaPrincipal(QMainWindow):
         vbox_legenda_canvas.addWidget(self.painel_legenda_cores)
 
         self.canvas = PreviewCanvas()
-        vbox_legenda_canvas.addWidget(self.canvas, 1)
+
+        # Réguas nas bordas do canvas (mesmo lugar/formato de qualquer
+        # CAD/vetorial de verdade) — arrastar a partir delas solta uma
+        # guia (ver `mockup_reguas.py`). Canto vazio (0,0) fecha a grade
+        # visualmente, senão sobra um buraco quadrado onde as duas réguas
+        # se encontrariam.
+        self.regua_horizontal = ReguaHorizontal(self.canvas)
+        self.regua_vertical = ReguaVertical(self.canvas)
+        self._canto_reguas = QWidget()
+        self._canto_reguas.setFixedSize(self.regua_vertical.width(), self.regua_horizontal.height())
+        self._canto_reguas.setStyleSheet(
+            f"background: {Cor.CARTAO}; border-right: 1px solid {Cor.BORDA}; border-bottom: 1px solid {Cor.BORDA};"
+        )
+
+        grade_canvas = QGridLayout()
+        grade_canvas.setContentsMargins(0, 0, 0, 0)
+        grade_canvas.setSpacing(0)
+        grade_canvas.addWidget(self._canto_reguas, 0, 0)
+        grade_canvas.addWidget(self.regua_horizontal, 0, 1)
+        grade_canvas.addWidget(self.regua_vertical, 1, 0)
+        grade_canvas.addWidget(self.canvas, 1, 1)
+        vbox_legenda_canvas.addLayout(grade_canvas, 1)
         vbox.addWidget(legenda_e_canvas, 1)
 
         # Trechos (Impressora/Riscador) embaixo da pré-visualização — mais
@@ -396,6 +418,17 @@ class JanelaPrincipal(QMainWindow):
         acao_grade.setChecked(True)
         acao_grade.toggled.connect(self.canvas.definir_grade_visivel)
 
+        acao_snap = menu_exibir.addAction("Encaixe (snap) ao arrastar")
+        acao_snap.setCheckable(True)
+        acao_snap.setChecked(True)
+        acao_snap.setToolTip("Gruda automaticamente na grade, nas bordas de outros elementos, na face e nas guias")
+        acao_snap.toggled.connect(self.canvas.definir_snap_ativo)
+
+        acao_reguas = menu_exibir.addAction("Réguas")
+        acao_reguas.setCheckable(True)
+        acao_reguas.setChecked(True)
+        acao_reguas.toggled.connect(self._definir_reguas_visiveis)
+
         acao_medidas = menu_exibir.addAction("Medidas geradas / ajustáveis")
         acao_medidas.setCheckable(True)
         acao_medidas.setChecked(True)
@@ -516,6 +549,10 @@ class JanelaPrincipal(QMainWindow):
         acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
         acao_ferramenta("ferramenta_retangulo", "Retângulo — clique e arraste pra desenhar", FerramentaMockup.RETANGULO)
         acao_ferramenta("ferramenta_linha", "Linha — clique e arraste pra desenhar", FerramentaMockup.LINHA)
+        acao_ferramenta(
+            "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
+        )
+        acao_ferramenta("medida", "Medida — clique e arraste pra ver a distância entre 2 pontos", FerramentaMockup.MEDIR)
         self._acoes_ferramenta[FerramentaMockup.SELECIONAR].setChecked(True)
 
         barra.addSeparator()
@@ -537,6 +574,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
         self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
+        self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
 
         barra.hide()
 
@@ -613,6 +651,42 @@ class JanelaPrincipal(QMainWindow):
         self._selecionar_e_voltar_ao_ponteiro(elemento)
         elemento.iniciar_edicao_inline()
 
+    _TIPOS_COM_COR_TINTA = (ElementoTexto, ElementoRetangulo, ElementoLinha, ElementoChecklistCores)
+
+    def _ao_cor_amostrada(self, cor: QColor) -> None:
+        """Conta-gotas: aplica a cor mais PRÓXIMA entre as tintas
+        marcadas na legenda ao(s) elemento(s) selecionado(s) — a caixa só
+        imprime nas cores de tinta reais (ver docstring de `estilo.py`),
+        então não faz sentido aplicar o RGB exato de um pixel amostrado
+        (isso ia gerar uma "3ª tinta" fora do que a legenda permite)."""
+        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, self._TIPOS_COM_COR_TINTA)]
+        if not selecionados:
+            self.statusBar().showMessage(
+                "Selecione um elemento com cor de tinta antes de usar o conta-gotas.", 6000
+            )
+            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
+            return
+
+        cores_ativas = self._cores_impressao_ativas()
+        if not cores_ativas:
+            self.statusBar().showMessage("Marque uma cor na legenda pra poder aplicar aqui.", 6000)
+            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
+            return
+
+        def distancia(tinta: CorImpressao) -> int:
+            return (tinta.r - cor.red()) ** 2 + (tinta.g - cor.green()) ** 2 + (tinta.b - cor.blue()) ** 2
+
+        cor_mais_proxima = min(cores_ativas, key=distancia)
+        for elemento in selecionados:
+            elemento.definir_cor_tinta(cor_mais_proxima)
+        if len(selecionados) == 1:
+            # Reconstrói a barra de propriedades pra refletir a nova cor
+            # no combo — `definir_cor_tinta` só repinta o elemento, não
+            # avisa o combo sozinho.
+            self.painel_propriedades_mockup.definir_elemento(selecionados[0])
+        self.statusBar().showMessage(f"Cor aplicada: {cor_mais_proxima.nome}", 6000)
+        self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
+
     def _adicionar_checklist(self) -> None:
         self._adicionar_elemento_mockup_e_selecionar(
             ElementoChecklistCores(variantes=["Cor 1", "Cor 2"], cor_tinta=self._cor_tinta_padrao())
@@ -660,6 +734,11 @@ class JanelaPrincipal(QMainWindow):
     def _remover_elemento_mockup_selecionado(self) -> None:
         self.canvas.remover_selecionados()
         self.painel_propriedades_mockup.definir_elemento(None)
+
+    def _definir_reguas_visiveis(self, visivel: bool) -> None:
+        self.regua_horizontal.setVisible(visivel)
+        self.regua_vertical.setVisible(visivel)
+        self._canto_reguas.setVisible(visivel)
 
     def _abrir_configuracoes(self) -> None:
         dialogo = DialogoConfiguracoes(self)
