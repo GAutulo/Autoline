@@ -21,14 +21,26 @@ vez só, porque o tamanho da caixa pode mudar a qualquer momento.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen
+from PySide6.QtWidgets import QGraphicsProxyWidget, QLineEdit
 
 from ..models import CorImpressao
 from .mockup_itens import ElementoMockup
 
 _TAMANHO_FONTE_REFERENCIA_PT = 200.0
 _ALTURA_PADRAO_MM = 8.0
+
+# Tamanho NATIVO (pixels reais) do campo de edição embutido no canvas —
+# não tem relação com largura/altura do elemento em mm. Dar um tamanho
+# generoso aqui (em vez de tentar forçar o QLineEdit pro tamanho em mm
+# do elemento, que pode ser menor que a altura mínima de um campo nativo
+# do Qt e sair cortado/ilegível) e depois ESCALAR o widget inteiro pra
+# caber no elemento é o mesmo truque de fonte-de-referência-grande já
+# usado no resto do módulo (`_TAMANHO_FONTE_REFERENCIA_PT`), só que
+# aplicado ao widget, não ao `QPainter.scale()`.
+_LARGURA_EDICAO_PX = 320
+_ALTURA_EDICAO_PX = 64
 
 
 class ElementoTexto(ElementoMockup):
@@ -46,6 +58,8 @@ class ElementoTexto(ElementoMockup):
         self._negrito = negrito
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
         self._reajustar_largura()
+        self._proxy_edicao: QGraphicsProxyWidget | None = None
+        self._campo_edicao: QLineEdit | None = None
 
     # ── Propriedades ────────────────────────────────────────────────
     @property
@@ -103,6 +117,67 @@ class ElementoTexto(ElementoMockup):
         altura_ref, largura_ref = self._metrica_referencia()
         escala = self._altura / altura_ref if altura_ref else 1.0
         self.definir_tamanho(largura_ref * escala, self._altura)
+
+    # ── Edição direto no canvas (clique duplo, ou logo após criar com a
+    # ferramenta Texto — ver `main_window.py::_criar_texto_por_clique`) ──
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        self.iniciar_edicao_inline()
+        super().mouseDoubleClickEvent(event)
+
+    def iniciar_edicao_inline(self) -> None:
+        """Sobrepõe um `QLineEdit` de verdade em cima do texto pintado —
+        digitar vai direto pro canvas, no lugar onde o texto vai ficar,
+        em vez de precisar editar pelo campo da barra de propriedades
+        (pedido explícito do usuário). Não tenta casar a métrica exata
+        da fonte pintada (ver docstring do módulo — o texto real usa o
+        truque de fonte-de-referência-grande); o campo de edição é só
+        uma aproximação visual suficiente pra digitar no lugar certo — o
+        tamanho final de verdade vem de `definir_texto` ao confirmar."""
+        if self._proxy_edicao is not None or self.scene() is None:
+            return
+
+        campo = QLineEdit(self._texto.strip())
+        fonte = QFont(self._fonte_familia)
+        fonte.setPixelSize(40)
+        fonte.setBold(self._negrito)
+        campo.setFont(fonte)
+        cor = self._cor_tinta
+        campo.setStyleSheet(
+            "QLineEdit { background: white; border: 2px dashed rgb(%d,%d,%d); color: rgb(%d,%d,%d); padding: 2px 6px; }"
+            % (cor.r, cor.g, cor.b, cor.r, cor.g, cor.b)
+        )
+        campo.setFixedSize(_LARGURA_EDICAO_PX, _ALTURA_EDICAO_PX)
+
+        proxy = QGraphicsProxyWidget(self)
+        proxy.setWidget(campo)
+        # Escala uniforme baseada na ALTURA (mesmo eixo que define
+        # "tamanho de fonte" no resto do app) — a largura do campo pode
+        # sobrar/faltar um pouco em relação ao texto final, sem problema,
+        # já que `definir_texto` recalcula a largura real ao confirmar.
+        escala = self._altura / _ALTURA_EDICAO_PX if self._altura else 1.0
+        proxy.setScale(escala)
+        proxy.setPos(0, 0)
+        proxy.setZValue(1000)
+
+        self._proxy_edicao = proxy
+        self._campo_edicao = campo
+        self.setOpacity(0.0)  # esconde o texto pintado normal enquanto edita, evita duplicar
+
+        campo.selectAll()
+        campo.setFocus(Qt.FocusReason.MouseFocusReason)
+        campo.editingFinished.connect(self._confirmar_edicao_inline)
+
+    def _confirmar_edicao_inline(self) -> None:
+        if self._proxy_edicao is None:
+            return
+        novo_texto = self._campo_edicao.text() if self._campo_edicao else self._texto
+        proxy = self._proxy_edicao
+        self._proxy_edicao = None
+        self._campo_edicao = None
+        self.setOpacity(1.0)
+        self.definir_texto(novo_texto)
+        if self.scene() is not None:
+            self.scene().removeItem(proxy)
 
     # ── Pintura ──────────────────────────────────────────────────────
     def _pintar_conteudo(self, painter: QPainter) -> None:

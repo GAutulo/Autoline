@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -38,6 +36,7 @@ from ..paineis import Painel
 from .estilo import Cor
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_formas import ElementoLinha, ElementoRetangulo
+from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
@@ -56,191 +55,6 @@ _NOME_TIPO: dict[type, str] = {
     ElementoChecklistCores: "Checklist de cores",
     GrupoMockup: "Grupo",
 }
-
-_TAMANHO_ICONE = 18
-
-
-def _seta(painter: QPainter, inicio: QPointF, fim: QPointF, cabeca: float = 2.3) -> None:
-    """Segmento de reta com cabeça de seta na ponta `fim` — usada em
-    quase todo ícone de eixo/medida/ângulo abaixo."""
-    painter.drawLine(inicio, fim)
-    direcao = fim - inicio
-    norma = (direcao.x() ** 2 + direcao.y() ** 2) ** 0.5 or 1.0
-    unidade = QPointF(direcao.x() / norma, direcao.y() / norma)
-    perp = QPointF(-unidade.y(), unidade.x())
-    base = fim - QPointF(unidade.x() * cabeca, unidade.y() * cabeca)
-    lado_a = base + QPointF(perp.x() * cabeca * 0.7, perp.y() * cabeca * 0.7)
-    lado_b = base - QPointF(perp.x() * cabeca * 0.7, perp.y() * cabeca * 0.7)
-    painter.drawLine(fim, lado_a)
-    painter.drawLine(fim, lado_b)
-
-
-def _construir_icone(tipo: str) -> QIcon:
-    """Ícone mono, desenhado na hora com QPainter (não bitmap importado)
-    — o app não tem um pacote de ícones ainda, e um glyph vetorial
-    simples acompanha o tema (claro/escuro) de graça, sem precisar de 2
-    arquivos por ícone. Um "tipo" por controle da barra — ver chamadas
-    mais abaixo pra saber o que cada um representa."""
-    escala = 2  # pixmap em 2x + devicePixelRatio = nítido em tela HiDPI
-    lado = _TAMANHO_ICONE
-    pixmap = QPixmap(lado * escala, lado * escala)
-    pixmap.setDevicePixelRatio(escala)
-    pixmap.fill(Qt.GlobalColor.transparent)
-
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    cor = QColor(Cor.TEXTO_SECUNDARIO)
-    caneta = QPen(cor, 1.4)
-    caneta.setCapStyle(Qt.PenCapStyle.RoundCap)
-    painter.setPen(caneta)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    c = lado / 2
-
-    if tipo in ("x", "y"):
-        # Seta a partir de uma marca de origem — a mesma leitura de uma
-        # cota técnica ("medido a partir daqui até aqui").
-        if tipo == "x":
-            painter.drawLine(QPointF(3, 5), QPointF(3, 13))  # marca de origem
-            _seta(painter, QPointF(3, 9), QPointF(15, 9))
-        else:
-            painter.drawLine(QPointF(5, 3), QPointF(13, 3))
-            _seta(painter, QPointF(9, 3), QPointF(9, 15))
-    elif tipo in ("largura", "altura"):
-        # Cota de dimensão com seta nas 2 pontas + travessões nas
-        # extremidades — igual a uma linha de cota de desenho técnico.
-        if tipo == "largura":
-            painter.drawLine(QPointF(3, 5), QPointF(3, 13))
-            painter.drawLine(QPointF(15, 5), QPointF(15, 13))
-            _seta(painter, QPointF(9, 9), QPointF(15, 9))
-            _seta(painter, QPointF(9, 9), QPointF(3, 9))
-        else:
-            painter.drawLine(QPointF(5, 3), QPointF(13, 3))
-            painter.drawLine(QPointF(5, 15), QPointF(13, 15))
-            _seta(painter, QPointF(9, 9), QPointF(9, 15))
-            _seta(painter, QPointF(9, 9), QPointF(9, 3))
-    elif tipo == "angulo":
-        painter.drawArc(QRectF(3, 3, 12, 12), 20 * 16, 220 * 16)
-        fim = QPointF(c + 6 * 0.35, c - 6 * 0.93)
-        _seta(painter, QPointF(c + 6 * 0.7, c - 6 * 0.6), fim, cabeca=2.0)
-    elif tipo == "trava":
-        painter.drawRoundedRect(QRectF(4, 8, 10, 7), 1.5, 1.5)
-        painter.drawArc(QRectF(6, 2, 6, 8), 0, 180 * 16)
-    elif tipo == "face":
-        margem = 2.5
-        painter.drawRect(QRectF(margem, margem, lado - 2 * margem, lado - 2 * margem))
-        painter.setBrush(QBrush(cor))
-        painter.drawEllipse(QPointF(c, c), 1.3, 1.3)
-    elif tipo == "medida":
-        painter.drawRect(QRectF(3, 6, 12, 6))
-        for x in (6, 9, 12):
-            painter.drawLine(QPointF(x, 6), QPointF(x, 8.5))
-    elif tipo.startswith("alinhar_"):
-        _desenhar_alinhar(painter, tipo, cor, lado)
-    elif tipo in ("letra_a", "negrito"):
-        fonte = QFont()
-        fonte.setPixelSize(12)
-        fonte.setBold(True)
-        painter.setFont(fonte)
-        painter.setPen(QPen(cor, 1.0))
-        painter.drawText(QRectF(0, 0, lado, lado), Qt.AlignmentFlag.AlignCenter, "A" if tipo == "letra_a" else "B")
-    elif tipo == "fonte_aa":
-        fonte = QFont()
-        fonte.setPixelSize(9)
-        fonte.setBold(True)
-        painter.setFont(fonte)
-        painter.drawText(QRectF(0, 0, lado, lado), Qt.AlignmentFlag.AlignCenter, "Aa")
-    elif tipo == "tinta":
-        caminho = QPainterPath()
-        caminho.moveTo(c, 2.5)
-        caminho.cubicTo(c + 5, 8, c + 4, 15, c, 15)
-        caminho.cubicTo(c - 4, 15, c - 5, 8, c, 2.5)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(cor))
-        painter.drawPath(caminho)
-    elif tipo == "preenchido":
-        quadrado = QRectF(3.5, 3.5, 11, 11)
-        painter.setBrush(QBrush(cor))
-        painter.setClipRect(QRectF(3.5, 3.5, 5.5, 11))
-        painter.drawRect(quadrado)
-        painter.setClipping(False)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(quadrado)
-    elif tipo == "espessura":
-        pesos = (1.0, 2.0, 3.2)
-        y = 4.5
-        for peso in pesos:
-            caneta_peso = QPen(cor, peso)
-            caneta_peso.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(caneta_peso)
-            painter.drawLine(QPointF(3.5, y), QPointF(14.5, y))
-            y += 4.5
-    elif tipo == "lista":
-        for i, y in enumerate((5, 9, 13)):
-            painter.setBrush(QBrush(cor))
-            painter.drawEllipse(QPointF(4, y), 1.0, 1.0)
-            painter.drawLine(QPointF(7, y), QPointF(15, y))
-    elif tipo == "mais":
-        painter.drawLine(QPointF(c, 4), QPointF(c, 14))
-        painter.drawLine(QPointF(4, c), QPointF(14, c))
-    elif tipo == "remover":
-        painter.drawLine(QPointF(3.5, 5.5), QPointF(14.5, 5.5))
-        painter.drawRect(QRectF(4.5, 3, 9, 2.5))
-        painter.drawRect(QRectF(5, 5.5, 8, 9.5))
-        for x in (7.3, 9, 10.7):
-            painter.drawLine(QPointF(x, 7.5), QPointF(x, 13))
-    elif tipo == "remapear":
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(cor))
-        painter.drawEllipse(QPointF(c - 2.3, c + 1.0), 4.6, 4.6)
-        painter.setBrush(QBrush(QColor(Cor.CARTAO)))
-        painter.setPen(caneta)
-        painter.drawEllipse(QPointF(c + 2.6, c - 2.0), 4.0, 4.0)
-
-    painter.end()
-    return QIcon(pixmap)
-
-
-def _desenhar_alinhar(painter: QPainter, tipo: str, cor: QColor, lado: float) -> None:
-    """Alinhamento = "um objeto encostando numa linha de referência no
-    local que vai alinhar" (pedido explícito do usuário) — desenha a
-    linha de referência (a borda/eixo escolhido) e 2 retângulos de
-    tamanhos diferentes encostados nela, exatamente como o glyph de
-    align-left/center/right de qualquer editor vetorial."""
-    # Linha de referência sempre TRACEJADA e fina — só assim ela lê como
-    # "guia", separada visualmente dos retângulos (sólidos, preenchidos)
-    # que representam os objetos. Sem essa diferença de peso, uma linha
-    # cheia + retângulo fino perpendicular embaixo/do lado lê como um
-    # traço só (literalmente forma a letra "T" no caso vertical) — achado
-    # olhando o ícone renderizado de perto, não só no código.
-    horizontal = tipo in ("alinhar_esquerda", "alinhar_centro_h", "alinhar_direita")
-    linha_pen = QPen(cor, 1.0)
-    linha_pen.setStyle(Qt.PenStyle.DashLine)
-    painter.setPen(linha_pen)
-
-    if horizontal:
-        x = {"alinhar_esquerda": 3.0, "alinhar_centro_h": lado / 2, "alinhar_direita": lado - 3.0}[tipo]
-        painter.drawLine(QPointF(x, 2), QPointF(x, lado - 2))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(cor))
-        for y, comprimento in ((3.5, 5.0), (10.5, 8.0)):
-            if tipo == "alinhar_esquerda":
-                painter.drawRect(QRectF(x + 1, y, comprimento, 3.5))
-            elif tipo == "alinhar_direita":
-                painter.drawRect(QRectF(x - comprimento - 1, y, comprimento, 3.5))
-            else:
-                painter.drawRect(QRectF(x - comprimento / 2, y, comprimento, 3.5))
-    else:
-        y = {"alinhar_topo": 3.0, "alinhar_centro_v": lado / 2, "alinhar_base": lado - 3.0}[tipo]
-        painter.drawLine(QPointF(2, y), QPointF(lado - 2, y))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(cor))
-        for x, comprimento in ((3.5, 5.0), (10.5, 8.0)):
-            if tipo == "alinhar_topo":
-                painter.drawRect(QRectF(x, y + 1, 3.5, comprimento))
-            elif tipo == "alinhar_base":
-                painter.drawRect(QRectF(x, y - comprimento - 1, 3.5, comprimento))
-            else:
-                painter.drawRect(QRectF(x, y - comprimento / 2, 3.5, comprimento))
 
 
 class PainelPropriedadesMockup(QWidget):
@@ -288,7 +102,7 @@ class PainelPropriedadesMockup(QWidget):
 
         self._botao_remover = QToolButton()
         self._botao_remover.setObjectName("botaoIconePropriedade")
-        self._botao_remover.setIcon(_construir_icone("remover"))
+        self._botao_remover.setIcon(construir_icone("remover"))
         self._botao_remover.setToolTip("Remover elemento")
         self._botao_remover.setVisible(False)
         self._botao_remover.clicked.connect(lambda: self.remover_solicitado and self.remover_solicitado())
@@ -302,7 +116,7 @@ class PainelPropriedadesMockup(QWidget):
         layout.setSpacing(2)
         icone = QLabel()
         icone.setObjectName("iconeCampoPropriedade")
-        icone.setPixmap(_construir_icone(tipo_icone).pixmap(_TAMANHO_ICONE, _TAMANHO_ICONE))
+        icone.setPixmap(construir_icone(tipo_icone).pixmap(TAMANHO_ICONE, TAMANHO_ICONE))
         icone.setToolTip(tooltip)
         widget.setToolTip(tooltip)
         layout.addWidget(icone)
@@ -313,7 +127,7 @@ class PainelPropriedadesMockup(QWidget):
     def _botao_icone(self, tipo_icone: str, tooltip: str, checkable: bool = False) -> QToolButton:
         botao = QToolButton()
         botao.setObjectName("botaoIconePropriedade")
-        botao.setIcon(_construir_icone(tipo_icone))
+        botao.setIcon(construir_icone(tipo_icone))
         botao.setToolTip(tooltip)
         botao.setCheckable(checkable)
         self._layout_campos.addWidget(botao)
@@ -493,7 +307,7 @@ class PainelPropriedadesMockup(QWidget):
         # tooltip dinâmico, igual qualquer indicador de status de CAD.
         self._rotulo_posicao_painel = QLabel()
         self._rotulo_posicao_painel.setObjectName("iconeCampoPropriedade")
-        self._rotulo_posicao_painel.setPixmap(_construir_icone("medida").pixmap(_TAMANHO_ICONE, _TAMANHO_ICONE))
+        self._rotulo_posicao_painel.setPixmap(construir_icone("medida").pixmap(TAMANHO_ICONE, TAMANHO_ICONE))
         self._layout_campos.addWidget(self._rotulo_posicao_painel)
         self._atualizar_rotulo_posicao_painel()
 
@@ -715,14 +529,14 @@ class PainelPropriedadesMockup(QWidget):
 
         botao_adicionar = QToolButton()
         botao_adicionar.setObjectName("botaoIconePropriedade")
-        botao_adicionar.setIcon(_construir_icone("mais"))
+        botao_adicionar.setIcon(construir_icone("mais"))
         botao_adicionar.setToolTip("Adicionar variante")
         botao_adicionar.clicked.connect(adicionar)
         layout_linha_nova.addWidget(botao_adicionar)
 
         botao_remover_linha = QToolButton()
         botao_remover_linha.setObjectName("botaoIconePropriedade")
-        botao_remover_linha.setIcon(_construir_icone("remover"))
+        botao_remover_linha.setIcon(construir_icone("remover"))
         botao_remover_linha.setToolTip("Remover selecionada")
 
         def remover() -> None:
