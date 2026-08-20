@@ -18,7 +18,7 @@ ver `corel_bridge.py`.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QMarginsF, QRectF, QSize, QSizeF
+from PySide6.QtCore import Qt, QMarginsF, QPointF, QRectF, QSize, QSizeF
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -28,6 +28,7 @@ from PySide6.QtGui import (
     QPageLayout,
     QPageSize,
     QPainter,
+    QPainterPath,
     QPen,
 )
 from PySide6.QtPrintSupport import QPrinter
@@ -35,8 +36,8 @@ from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsScene,
-    QGraphicsSimpleTextItem,
 )
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
@@ -166,8 +167,20 @@ class _LegendaExportacao:
         # pequena direto). `setScale` escala em torno da origem local do
         # item (0, 0), que é o mesmo ponto ancorado por `setPos` — a
         # posição (x, y) continua sendo o topo-esquerda de verdade.
-        item = QGraphicsSimpleTextItem(texto)
-        item.setFont(self._fonte)
+        #
+        # Desenhado como `QGraphicsPathItem` (contorno via
+        # `QPainterPath.addText`), não `QGraphicsSimpleTextItem` — o
+        # `QSvgGenerator` posiciona/dimensiona texto nativo errado quando
+        # o item tem `setScale()` (mesmo bug de fundo documentado em
+        # `desenhar_texto_escalado`, em mockup_itens.py; confirmado aqui
+        # via inspeção do SVG exportado no navegador, texto saindo enorme
+        # e fora do lugar). Path vetorial não passa pelo mesmo caminho de
+        # serialização de texto do gerador, então não sofre o bug.
+        metrics = QFontMetricsF(self._fonte)
+        caminho = QPainterPath()
+        caminho.addText(QPointF(0, metrics.ascent()), self._fonte, texto)
+        item = QGraphicsPathItem(caminho)
+        item.setPen(Qt.PenStyle.NoPen)
         item.setBrush(QBrush(cor))
         item.setScale(self._escala)
         item.setPos(x, y)
@@ -294,7 +307,20 @@ def exportar_svg(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
         if not painter.isActive():
             raise RuntimeError(f"Não consegui iniciar a exportação SVG em: {caminho}")
         try:
-            scene.render(painter, source=rect)
+            # `target` explícito é essencial aqui — sem ele, o Qt usa o
+            # viewport do device (painter) como destino padrão, e a
+            # combinação `fator=100`/`setResolution(2540)` acima faz esse
+            # viewport implícito sair com uma escala DUPLICADA (multiplica
+            # de novo o que o mapeamento lógico→viewBox já fazia). Um
+            # elemento de mockup com posição própria (`setPos`, ao
+            # contrário das linhas da dieline, que usam coordenadas
+            # absolutas) saía com a posição inteira multiplicada por
+            # ~100 — confirmado comparando a matriz `transform` gerada no
+            # SVG com/sem `target` explícito. `exportar_pdf` logo abaixo
+            # NÃO tem esse fator manual e já funciona certo sem `target`
+            # (confirmado à parte) — só SVG e JPG (ver `exportar_jpg`)
+            # precisam disso.
+            scene.render(painter, target=rect, source=rect)
         finally:
             painter.end()
     finally:
@@ -374,7 +400,15 @@ def exportar_jpg(
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            scene.render(painter, source=rect)
+            # `target` explícito em PIXELS DO DEVICE (não em mm, ao
+            # contrário do `source`) — sem isso, o posicionamento de
+            # qualquer elemento de mockup (que tem `setPos` próprio, ao
+            # contrário das linhas da dieline em coordenadas absolutas)
+            # saía visivelmente errado: testado com um retângulo em
+            # (30,30)mm saindo desenhado em ~(5,5)mm na imagem final, bem
+            # menor e fora do lugar. Confirmado comparando o resultado
+            # com/sem `target` explícito nessas unidades.
+            scene.render(painter, target=QRectF(0, 0, largura, altura), source=rect)
         finally:
             painter.end()
     finally:

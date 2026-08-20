@@ -34,8 +34,39 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
+
+
+def desenhar_texto_escalado(painter: QPainter, pos: QPointF, fonte: QFont, texto: str) -> None:
+    """Usar no lugar de `painter.drawText(pos, texto)` sempre que o texto
+    estiver sendo pintado dentro de um `painter.scale(...)` pequeno com
+    uma fonte grande (o truque de "fonte de referência grande + escala"
+    usado em todo elemento de mockup com texto, pra evitar rasterização
+    ruim em fonte pequena — ver `mockup_texto.py`/`mockup_checklist.py`).
+
+    `drawText()` nessa combinação (fonte grande + scale + item com
+    `setPos()` próprio) sai com posição/tamanho ERRADOS especificamente
+    na exportação SVG — bug confirmado do próprio
+    `QSvgGenerator`/`QGraphicsScene.render()` do Qt, reproduzido numa
+    cena mínima sem nenhuma lógica deste app (não é algo que dá pra
+    corrigir ajustando parâmetro de exportação). Convertendo o texto num
+    `QPainterPath` (`addText`) e desenhando via `drawPath()` em vez de
+    `drawText()` evita o bug inteiro — confirmado testando a mesma
+    reprodução mínima com as duas abordagens lado a lado.
+
+    ATENÇÃO: `drawPath()` preenche com o BRUSH do painter, não o PEN
+    (diferente de `drawText()`, que usa o pen) — quem chama precisa
+    garantir `painter.setBrush(QBrush(cor_do_texto))` antes de chamar
+    isso, ou o texto sai com o brush que sobrou de outra coisa desenhada
+    antes (ex.: invisível, se o brush anterior era branco/NoBrush)."""
+    caminho = QPainterPath()
+    caminho.addText(pos, fonte, texto)
+    pincel_anterior = painter.pen()
+    painter.setPen(Qt.PenStyle.NoPen)  # só preenchimento, igual drawText() normal (sem contorno)
+    painter.drawPath(caminho)
+    painter.setPen(pincel_anterior)
+
 
 _TAMANHO_ALCA_MM = 3.0
 _TAMANHO_ALCA_ROTACAO_MM = 4.0

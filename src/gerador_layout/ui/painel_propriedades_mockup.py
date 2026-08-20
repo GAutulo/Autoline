@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMenu,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -33,13 +34,17 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao
 from ..paineis import Painel
+from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
+from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
+from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
-from .mockup_formas import ElementoLinha, ElementoRetangulo
+from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
+from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 
 _ROTULO_SEM_PAINEL = "Nenhum"
@@ -49,7 +54,12 @@ _FONTES_DISPONIVEIS = ["Arial", "Arial Black", "Verdana", "Times New Roman", "Im
 _NOME_TIPO: dict[type, str] = {
     ElementoTexto: "Texto",
     ElementoRetangulo: "Retângulo",
+    ElementoElipse: "Elipse",
+    ElementoPoligono: "Polígono",
     ElementoLinha: "Linha",
+    ElementoCallout: "Callout",
+    ElementoTabela: "Tabela",
+    ElementoAcabamento: "Acabamento de produção",
     ElementoImagem: "Imagem",
     ElementoLogoVetorial: "Logotipo vetorial",
     ElementoChecklistCores: "Checklist de cores",
@@ -182,8 +192,18 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_checklist(elemento)
         elif isinstance(elemento, ElementoRetangulo):
             self._montar_campos_retangulo(elemento)
+        elif isinstance(elemento, ElementoElipse):
+            self._montar_campos_elipse(elemento)
+        elif isinstance(elemento, ElementoPoligono):
+            self._montar_campos_poligono(elemento)
         elif isinstance(elemento, ElementoLinha):
             self._montar_campos_linha(elemento)
+        elif isinstance(elemento, ElementoCallout):
+            self._montar_campos_callout(elemento)
+        elif isinstance(elemento, ElementoTabela):
+            self._montar_campos_tabela(elemento)
+        elif isinstance(elemento, ElementoAcabamento):
+            self._montar_campos_acabamento(elemento)
         elif isinstance(elemento, ElementoLogoVetorial):
             self._montar_campos_logo(elemento)
         elif isinstance(elemento, ElementoImagem):
@@ -468,6 +488,63 @@ class PainelPropriedadesMockup(QWidget):
     def _montar_campos_linha(self, el: ElementoLinha) -> None:
         self._campo_espessura_traco(el.largura_traco, el.definir_largura_traco)
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_elipse(self, el: ElementoElipse) -> None:
+        botao_preenchido = self._botao_icone("preenchido", "Preenchido", checkable=True)
+        botao_preenchido.setChecked(el.preenchido)
+        botao_preenchido.toggled.connect(el.definir_preenchido)
+
+        self._campo_espessura_traco(el.largura_traco, el.definir_largura_traco)
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_poligono(self, el: ElementoPoligono) -> None:
+        spin_lados = QSpinBox()
+        spin_lados.setRange(3, 20)
+        spin_lados.setValue(el.lados)
+        spin_lados.setMaximumWidth(56)
+        spin_lados.setKeyboardTracking(False)  # mesmo motivo do campo de geometria — ver comentário lá
+        spin_lados.valueChanged.connect(el.definir_lados)
+        self._grupo("ferramenta_poligono", spin_lados, "Número de lados")
+
+        botao_preenchido = self._botao_icone("preenchido", "Preenchido", checkable=True)
+        botao_preenchido.setChecked(el.preenchido)
+        botao_preenchido.toggled.connect(el.definir_preenchido)
+
+        self._campo_espessura_traco(el.largura_traco, el.definir_largura_traco)
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_callout(self, el: ElementoCallout) -> None:
+        campo_texto = QLineEdit(el.texto)
+        campo_texto.setMaximumWidth(160)
+        campo_texto.textChanged.connect(el.definir_texto)
+        self._grupo("letra_a", campo_texto, "Texto da anotação")
+
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_tabela(self, el: ElementoTabela) -> None:
+        botao_editar = self._botao_icone("ferramenta_tabela", f"Editar tabela ({el.linhas}×{el.colunas})...")
+        botao_editar.clicked.connect(lambda: self._abrir_dialogo_tabela(el, botao_editar))
+
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _abrir_dialogo_tabela(self, el: ElementoTabela, botao: QToolButton) -> None:
+        dialogo = DialogoTabela(el.linhas, el.colunas, el.celulas, parent=self)
+        if dialogo.exec() == DialogoTabela.DialogCode.Accepted:
+            el.definir_dimensoes(dialogo.linhas(), dialogo.colunas())
+            el.definir_celulas(dialogo.celulas())
+            botao.setToolTip(f"Editar tabela ({el.linhas}×{el.colunas})...")
+
+    def _montar_campos_acabamento(self, el: ElementoAcabamento) -> None:
+        # Sem cor de tinta de propósito — acabamento de produção usa
+        # sempre a mesma cor de marcação técnica (ver docstring do
+        # módulo), não uma das tintas do trabalho.
+        combo_tipo = QComboBox()
+        combo_tipo.setMaximumWidth(150)
+        for tipo in TipoAcabamento:
+            combo_tipo.addItem(tipo.value, tipo)
+        combo_tipo.setCurrentIndex(list(TipoAcabamento).index(el.tipo))
+        combo_tipo.currentIndexChanged.connect(lambda _i: el.definir_tipo(combo_tipo.currentData()))
+        self._grupo("ferramenta_transparencia", combo_tipo, "Tipo de acabamento")
 
     def _montar_campos_checklist(self, el: ElementoChecklistCores) -> None:
         # A lista de variantes não cabe numa barra horizontal (precisa de
