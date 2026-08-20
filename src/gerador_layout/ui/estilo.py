@@ -374,6 +374,39 @@ QTabBar::tab:hover:!selected {{
     color: {Cor.PRIMARIA};
 }}
 
+/* ── Barra de propriedades do mockup (property bar estilo CorelDRAW) ──
+   Uma barra horizontal por baixo da barra de criar elemento, com um
+   botão de ícone (sem texto) por controle — o mesmo padrão de qualquer
+   CAD/vetorial de verdade. `QToolBar#barraPropriedadesMockup` é o
+   contêiner (fundo/borda de cartão, como as outras barras do app);
+   `QToolButton#botaoIconePropriedade` é cada botão individual —
+   `:checked` marca estado ligado (negrito ativo, preenchido ativo,
+   proporção travada) do mesmo jeito que `:hover` já sinaliza clique
+   possível, sem precisar de 2 ícones (ligado/desligado) por botão. */
+QToolBar#barraPropriedadesMockup {{
+    background: {Cor.CARTAO};
+    border-bottom: 1px solid {Cor.BORDA};
+    padding: 4px 10px;
+    spacing: 3px;
+}}
+QToolButton#botaoIconePropriedade {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px;
+}}
+QToolButton#botaoIconePropriedade:hover {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+}}
+QToolButton#botaoIconePropriedade:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+}}
+QLabel#iconeCampoPropriedade {{
+    padding: 0 1px;
+}}
+
 /* Marca no canto da barra de ferramentas (ver `_montar_barra_ferramentas`
    em main_window.py) — única fonte que usa a fonte de exibição; o resto
    do app fica no corpo/mono de propósito, pra não virar cartaz. */

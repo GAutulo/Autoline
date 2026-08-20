@@ -8,7 +8,6 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
-    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTabBar,
@@ -86,10 +84,10 @@ class JanelaPrincipal(QMainWindow):
         self._paineis_atuais: list[Painel] = []
 
         self._montar_ui()
-        self._montar_dock_propriedades_mockup()
         self._montar_abas_tela()
         self._montar_barra_ferramentas()
         self._montar_barra_mockup()
+        self._montar_barra_propriedades_mockup()
         self._montar_menu()
         self._conectar_sinais()
         self._ao_trocar_tipo()
@@ -433,7 +431,7 @@ class JanelaPrincipal(QMainWindow):
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
-        self.dock_propriedades_mockup.setVisible(modo_layout)
+        self.barra_propriedades_mockup.setVisible(modo_layout)
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
             self.painel_propriedades_mockup.definir_elemento(None)
@@ -444,47 +442,33 @@ class JanelaPrincipal(QMainWindow):
         # sentido pro novo tamanho de viewport.
         self.canvas.ajustar_a_tela()
 
-    # ── Mockup (Fase 2): dock de propriedades, barra e criação de itens ─
-    def _montar_dock_propriedades_mockup(self) -> None:
+    # ── Mockup (Fase 2): barra de propriedades, barra e criação de itens ─
+    def _montar_barra_propriedades_mockup(self) -> None:
+        """Barra horizontal por baixo de `barra_mockup` — a "property
+        bar" contextual do elemento selecionado, no mesmo lugar/formato
+        que qualquer CAD/vetorial de verdade usa (CorelDRAW, Illustrator),
+        em vez do dock lateral que tinha antes. Ver
+        `painel_propriedades_mockup.py` pro conteúdo em si; aqui só
+        encaixa esse widget dentro de uma QToolBar própria."""
         self.painel_propriedades_mockup = PainelPropriedadesMockup(
             self._cores_impressao_ativas, self._paineis_disponiveis
         )
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
 
-        # QScrollArea entre o dock e o painel: o painel cresce bastante
-        # pra elementos com mais campos (ex.: checklist com várias
-        # variantes) — sem rolagem, numa janela restaurada (não
-        # maximizada, ver `self.resize` no __init__) o botão "Remover
-        # elemento" ficava cortado embaixo, fora da área visível, sem
-        # nenhum jeito de rolar até ele (achado revisando, não reportado
-        # pelo usuário — mas era um bug de verdade).
-        rolagem = QScrollArea()
-        rolagem.setWidget(self.painel_propriedades_mockup)
-        rolagem.setWidgetResizable(True)
-        rolagem.setFrameShape(QScrollArea.Shape.NoFrame)
-        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Sem isso, o `QScrollArea` não repassa a largura preferida do
-        # painel de propriedades pro dock (o `sizeHint` de um QScrollArea
-        # não reflete o do widget lá dentro) — o dock encolhia pra ~140px
-        # e cortava toda label/campo na horizontal. Achado revisando com
-        # a rolagem vertical ligada, não é óbvio olhando só o caso feliz
-        # (janela grande, nada rolando).
-        rolagem.setMinimumWidth(340)
-
-        self.dock_propriedades_mockup = QDockWidget("Propriedades", self)
-        self.dock_propriedades_mockup.setWidget(rolagem)
-        self.dock_propriedades_mockup.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
-        )
-        # Sem botão de fechar de propósito: a visibilidade já é controlada
-        # pela troca de tela (ver `_trocar_tela`) — se o usuário fechasse
-        # pelo X nativo, não ia ter como reabrir sem reiniciar o app.
-        self.dock_propriedades_mockup.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_propriedades_mockup)
-        self.dock_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
+        # Quebra de linha de propósito, mesmo motivo de `_montar_barra_mockup`:
+        # sem isso o Qt tenta encaixar essa barra na mesma linha da barra
+        # de criar elemento, em vez de ficar embaixo dela (a leitura de
+        # cima pra baixo — criar elemento, depois editar propriedade dele
+        # — fica confusa se as duas disputam a mesma linha).
+        self.addToolBarBreak()
+        barra = QToolBar("Propriedades")
+        barra.setObjectName("barraPropriedadesMockup")
+        barra.setMovable(False)
+        self.addToolBar(barra)
+        barra.addWidget(self.painel_propriedades_mockup)
+        self.barra_propriedades_mockup = barra
+        self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _montar_barra_mockup(self) -> None:
         """Barra de ferramentas do mockup — só fica visível dentro do
