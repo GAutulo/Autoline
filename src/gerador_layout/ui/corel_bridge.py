@@ -10,20 +10,25 @@ tiver nenhuma rodando" — não precisa de `GetActiveObject`.
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QFont, QFontMetricsF
 
 from ..models import LayoutCaixa, TipoLinha
 from . import configuracoes
+from .mockup_acabamento import ElementoAcabamento
+from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
 from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
 from .mockup_checklist import _ESPACO_ENTRE_LINHAS_FATOR as _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
 from .mockup_checklist import _ESPESSURA_TRACO_FATOR as _CHECKLIST_ESPESSURA_TRACO_FATOR
-from .mockup_formas import ElementoLinha, ElementoRetangulo
+from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
+from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 
 _CDR_MILLIMETER = 3
@@ -227,8 +232,18 @@ def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total
         _desenhar_checklist_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoRetangulo):
         _desenhar_retangulo_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoElipse):
+        _desenhar_elipse_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoPoligono):
+        _desenhar_poligono_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoLinha):
         _desenhar_linha_mockup_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCallout):
+        _desenhar_callout_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoTabela):
+        _desenhar_tabela_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoAcabamento):
+        _desenhar_acabamento_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, (ElementoImagem, ElementoLogoVetorial)):
         _desenhar_imagem_cdr(app, layer, elemento, altura_total)
     # Tipo desconhecido: ignora silenciosamente — não é motivo pra falhar
@@ -248,6 +263,63 @@ def _desenhar_retangulo_cdr(app, layer, elemento: ElementoRetangulo, altura_tota
     shape.Outline.Width = elemento.largura_traco
     if angulo:
         shape.Rotate(angulo)
+
+
+def _desenhar_elipse_cdr(app, layer, elemento: "ElementoElipse", altura_total: float) -> None:
+    # `Layer.CreateEllipse2(x1, y1, x2, y2)` — mesma família de método
+    # (2 pontos opostos, não centro+raio) de `CreateRectangle2` já usado
+    # acima. NÃO testado ao vivo contra o CorelDRAW nesta sessão (ao
+    # contrário do resto do arquivo) — vale conferir na prática.
+    x, y, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    x1, y1 = x - elemento.largura / 2, y - elemento.altura / 2
+    x2, y2 = x + elemento.largura / 2, y + elemento.altura / 2
+    shape = layer.CreateEllipse2(x1, y1, x2, y2)
+    if elemento.preenchido:
+        _aplicar_cor_preenchimento(app, shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    else:
+        shape.Fill.ApplyNoFill()
+    shape.Outline.Color = _cor_rgb(app, elemento.cor_tinta)
+    shape.Outline.Width = elemento.largura_traco
+    if angulo:
+        shape.Rotate(angulo)
+
+
+def _desenhar_poligono_cdr(app, layer, elemento: "ElementoPoligono", altura_total: float) -> None:
+    """Desenha aresta por aresta com `CreateLineSegment` (método já
+    testado/confirmado nesta sessão, ver nota grande no topo do arquivo)
+    em vez de arriscar um método de polígono nativo do CorelDRAW que não
+    dá pra confirmar sem testar ao vivo — sai como N linhas soltas, não 1
+    shape polígono só; agrupa/preenche manualmente no Corel se precisar
+    de 1 shape única com preenchimento sólido."""
+    x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    raio_x, raio_y = elemento.largura / 2, elemento.altura / 2
+    pontos = []
+    for i in range(elemento.lados):
+        angulo_local = math.radians(-90 + i * 360 / elemento.lados)
+        # `_pintar_conteudo` (Qt, Y cresce pra baixo) usa sin(ângulo) direto
+        # pro deslocamento em Y a partir do centro — o Corel cresce pra
+        # CIMA, então precisa do mesmo espelho `-y` que `_desenhar_checklist_cdr`
+        # já usa (`ponto_cdr` acima) pra qualquer ponto que não seja o
+        # centro do próprio elemento.
+        px = x_centro + math.cos(angulo_local) * raio_x
+        py = y_centro - math.sin(angulo_local) * raio_y
+        pontos.append((px, py))
+
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    arestas = []
+    for i in range(len(pontos)):
+        x0, y0 = pontos[i]
+        x1, y1 = pontos[(i + 1) % len(pontos)]
+        shape = layer.CreateLineSegment(x0, y0, x1, y1)
+        shape.Outline.Color = cor
+        shape.Outline.Width = elemento.largura_traco
+        arestas.append(shape)
+
+    if angulo and arestas:
+        intervalo = app.CreateShapeRange()
+        for aresta in arestas:
+            intervalo.Add(aresta)
+        intervalo.Rotate(angulo)
 
 
 def _desenhar_linha_mockup_cdr(app, layer, elemento: ElementoLinha, altura_total: float) -> None:
@@ -358,6 +430,148 @@ def _desenhar_checklist_cdr(app, layer, elemento: ElementoChecklistCores, altura
         intervalo = app.CreateShapeRange()
         for forma in formas:
             intervalo.Add(forma)
+        intervalo.Rotate(angulo)
+
+
+def _construtor_ponto_cdr(x_centro: float, y_centro: float, largura: float, altura: float):
+    """Mesmo padrão de `ponto_cdr` dentro de `_desenhar_checklist_cdr`
+    acima, só que fatorado pra reuso — converte um ponto LOCAL do
+    elemento (0,0 = canto superior-esquerdo, Y cresce pra baixo, igual
+    `_pintar_conteudo` de qualquer `ElementoMockup`) pra posição real no
+    documento CorelDRAW, sem rotação (aplicada depois, numa ShapeRange)."""
+    origem_x = x_centro - largura / 2
+    origem_y = y_centro + altura / 2
+
+    def ponto_cdr(x_qt: float, y_qt: float) -> tuple[float, float]:
+        return origem_x + x_qt, origem_y - y_qt
+
+    return ponto_cdr
+
+
+def _desenhar_callout_cdr(app, layer, elemento: "ElementoCallout", altura_total: float) -> None:
+    """Composto de retângulo (caixa) + linha (cauda) + texto — reaproveita
+    só métodos já confirmados (`CreateRectangle2`/`CreateLineSegment`/
+    `CreateArtisticText`), mesmo espírito de `_desenhar_checklist_cdr`.
+    Cauda geometricamente igual à de `ElementoCallout._pintar_conteudo`
+    (canto inferior-esquerdo, mesmo ângulo fixo)."""
+    x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    ponto_cdr = _construtor_ponto_cdr(x_centro, y_centro, elemento.largura, elemento.altura)
+    cor = _cor_rgb(app, elemento.cor_tinta)
+
+    x0, y0 = ponto_cdr(0.0, 0.0)
+    x1, y1 = ponto_cdr(elemento.largura, elemento.altura)
+    caixa = layer.CreateRectangle2(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+    caixa.Fill.ApplyNoFill()
+    caixa.Outline.Color = cor
+    caixa.Outline.Width = 0.3
+
+    comprimento_cauda = 9.0
+    base_x_qt, base_y_qt = elemento.largura * 0.18, elemento.altura
+    ponta_x_qt = base_x_qt - comprimento_cauda * 0.75
+    ponta_y_qt = base_y_qt + comprimento_cauda * 0.75
+    bx, by = ponto_cdr(base_x_qt, base_y_qt)
+    px, py = ponto_cdr(ponta_x_qt, ponta_y_qt)
+    cauda = layer.CreateLineSegment(bx, by, px, py)
+    cauda.Outline.Color = cor
+    cauda.Outline.Width = 0.3
+
+    margem = 3.0
+    tx0, ty0 = ponto_cdr(margem, margem)
+    tx1, ty1 = ponto_cdr(elemento.largura - margem, elemento.altura - margem)
+    texto_shape = layer.CreateArtisticText(0, 0, elemento.texto, Size=_TAMANHO_FONTE_REFERENCIA_CDR)
+    _aplicar_cor_preenchimento(app, texto_shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    texto_shape.SetSize(max(0.1, abs(tx1 - tx0)), max(0.1, abs(ty1 - ty0)))
+    texto_shape.SetPosition(min(tx0, tx1), max(ty0, ty1))
+
+    if angulo:
+        intervalo = app.CreateShapeRange()
+        for forma in (caixa, cauda, texto_shape):
+            intervalo.Add(forma)
+        intervalo.Rotate(angulo)
+
+
+def _desenhar_tabela_cdr(app, layer, elemento: "ElementoTabela", altura_total: float) -> None:
+    x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    ponto_cdr = _construtor_ponto_cdr(x_centro, y_centro, elemento.largura, elemento.altura)
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    largura_celula = elemento.largura / elemento.colunas
+    altura_celula = elemento.altura / elemento.linhas
+
+    formas = []
+    x0, y0 = ponto_cdr(0.0, 0.0)
+    x1, y1 = ponto_cdr(elemento.largura, elemento.altura)
+    borda = layer.CreateRectangle2(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+    borda.Fill.ApplyNoFill()
+    borda.Outline.Color = cor
+    borda.Outline.Width = 0.3
+    formas.append(borda)
+
+    for c in range(1, elemento.colunas):
+        lx0, ly0 = ponto_cdr(c * largura_celula, 0.0)
+        lx1, ly1 = ponto_cdr(c * largura_celula, elemento.altura)
+        linha = layer.CreateLineSegment(lx0, ly0, lx1, ly1)
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.3
+        formas.append(linha)
+    for l in range(1, elemento.linhas):
+        lx0, ly0 = ponto_cdr(0.0, l * altura_celula)
+        lx1, ly1 = ponto_cdr(elemento.largura, l * altura_celula)
+        linha = layer.CreateLineSegment(lx0, ly0, lx1, ly1)
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.3
+        formas.append(linha)
+
+    margem = min(largura_celula, altura_celula) * 0.12
+    for l in range(elemento.linhas):
+        for c in range(elemento.colunas):
+            texto = elemento.celulas[l][c]
+            if not texto:
+                continue
+            tx0, ty0 = ponto_cdr(c * largura_celula + margem, l * altura_celula + margem)
+            tx1, ty1 = ponto_cdr(
+                (c + 1) * largura_celula - margem, (l + 1) * altura_celula - margem
+            )
+            texto_shape = layer.CreateArtisticText(0, 0, texto, Size=_TAMANHO_FONTE_REFERENCIA_CDR)
+            texto_shape.Text.Story.Bold = l == 0
+            _aplicar_cor_preenchimento(app, texto_shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+            texto_shape.SetSize(max(0.1, abs(tx1 - tx0)), max(0.1, abs(ty1 - ty0)))
+            texto_shape.SetPosition(min(tx0, tx1), max(ty0, ty1))
+            formas.append(texto_shape)
+
+    if angulo and formas:
+        intervalo = app.CreateShapeRange()
+        for forma in formas:
+            intervalo.Add(forma)
+        intervalo.Rotate(angulo)
+
+
+def _desenhar_acabamento_cdr(app, layer, elemento: "ElementoAcabamento", altura_total: float) -> None:
+    """Só o retângulo de referência + rótulo do processo — a hachura em
+    si (ver `_pintar_conteudo`) é textura de tela, não precisa ir pro
+    arquivo de produção; o que importa pra gráfica é a ÁREA marcada e o
+    tipo de processo escrito, ambos saem aqui. Cor de marcação fixa
+    (magenta), nunca uma tinta do trabalho — ver docstring do módulo."""
+    x, y, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    cor_marcacao = app.CreateRGBColor(236, 0, 140)
+    shape = layer.CreateRectangle2(
+        x - elemento.largura / 2, y - elemento.altura / 2, elemento.largura, elemento.altura
+    )
+    shape.Fill.ApplyNoFill()
+    shape.Outline.Color = cor_marcacao
+    shape.Outline.Width = 0.3
+
+    texto_shape = layer.CreateArtisticText(0, 0, elemento.tipo.value, Size=_TAMANHO_FONTE_REFERENCIA_CDR)
+    texto_shape.Text.Story.Bold = True
+    _aplicar_cor_preenchimento(app, texto_shape, 236, 0, 140)
+    altura_texto = min(elemento.altura * 0.3, 6.0)
+    largura_texto = min(elemento.largura * 0.9, altura_texto * len(elemento.tipo.value) * 0.6)
+    texto_shape.SetSize(max(0.1, largura_texto), max(0.1, altura_texto))
+    texto_shape.SetPosition(x - elemento.largura / 2 + 1.0, y + elemento.altura / 2 - 1.0)
+
+    if angulo:
+        intervalo = app.CreateShapeRange()
+        intervalo.Add(shape)
+        intervalo.Add(texto_shape)
         intervalo.Rotate(angulo)
 
 

@@ -61,6 +61,30 @@ class FerramentaMockup(Enum):
     LINHA = auto()
     CONTA_GOTAS = auto()
     MEDIR = auto()
+    ELIPSE = auto()
+    POLIGONO = auto()
+    CALLOUT = auto()
+    TABELA = auto()
+    ACABAMENTO = auto()
+
+
+# Ferramentas que desenham por clique+arrasto de um retângulo (a forma
+# final varia — elipse, polígono, área de acabamento — mas o GESTO de
+# criação é sempre o mesmo, então tratamos juntas na hora de decidir
+# qual sinal emitir em `_finalizar_criacao`).
+_FERRAMENTAS_RETANGULO_ARRASTO = {
+    FerramentaMockup.RETANGULO,
+    FerramentaMockup.ELIPSE,
+    FerramentaMockup.POLIGONO,
+    FerramentaMockup.ACABAMENTO,
+}
+# Ferramentas que nascem com um clique só, sem arrastar (igual TEXTO).
+_FERRAMENTAS_CLIQUE_UNICO = {
+    FerramentaMockup.TEXTO,
+    FerramentaMockup.CONTA_GOTAS,
+    FerramentaMockup.CALLOUT,
+    FerramentaMockup.TABELA,
+}
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
@@ -129,6 +153,11 @@ class PreviewCanvas(QGraphicsView):
     linha_desenhada = Signal(QPointF, QPointF)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
+    elipse_desenhada = Signal(QRectF)
+    poligono_desenhado = Signal(QRectF)
+    acabamento_desenhado = Signal(QRectF)
+    callout_solicitado = Signal(QPointF)
+    tabela_solicitada = Signal(QPointF)
     ferramenta_alterada = Signal(object)  # FerramentaMockup
 
     def __init__(self, parent=None) -> None:
@@ -350,6 +379,11 @@ class PreviewCanvas(QGraphicsView):
             FerramentaMockup.LINHA: Qt.CursorShape.CrossCursor,
             FerramentaMockup.CONTA_GOTAS: Qt.CursorShape.PointingHandCursor,
             FerramentaMockup.MEDIR: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.ELIPSE: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.POLIGONO: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.ACABAMENTO: Qt.CursorShape.CrossCursor,
+            FerramentaMockup.CALLOUT: Qt.CursorShape.IBeamCursor,
+            FerramentaMockup.TABELA: Qt.CursorShape.CrossCursor,
         }
         self.setCursor(cursores[ferramenta])
         # Enquanto uma ferramenta de criação está ativa, arrastar no
@@ -417,16 +451,21 @@ class PreviewCanvas(QGraphicsView):
 
     def _iniciar_criacao(self, pos_viewport) -> None:
         self._ponto_inicial_criacao = self.mapToScene(pos_viewport)
-        if self._ferramenta == FerramentaMockup.TEXTO:
-            # Texto não precisa de arrasto — um clique já basta pra
-            # nascer no lugar certo e entrar direto em edição.
-            self.texto_solicitado.emit(self._ponto_inicial_criacao)
-            return
         if self._ferramenta == FerramentaMockup.CONTA_GOTAS:
-            # Também não precisa de arrasto — amostra na hora do clique.
+            # Não precisa de arrasto — amostra na hora do clique.
             cor = self._amostrar_cor(pos_viewport)
             if cor.isValid():
                 self.cor_amostrada.emit(cor)
+            return
+        if self._ferramenta in _FERRAMENTAS_CLIQUE_UNICO:
+            # Texto/Callout/Tabela: um clique já basta pra nascer no
+            # lugar certo (Texto/Callout entram direto em edição).
+            sinais_clique_unico = {
+                FerramentaMockup.TEXTO: self.texto_solicitado,
+                FerramentaMockup.CALLOUT: self.callout_solicitado,
+                FerramentaMockup.TABELA: self.tabela_solicitada,
+            }
+            sinais_clique_unico[self._ferramenta].emit(self._ponto_inicial_criacao)
             return
         if self._ferramenta == FerramentaMockup.MEDIR and self._item_preview_criacao is not None:
             # Começando uma medida nova por cima de uma anterior ainda
@@ -435,7 +474,7 @@ class PreviewCanvas(QGraphicsView):
             self._item_preview_criacao = None
 
         self._criando = True
-        if self._ferramenta == FerramentaMockup.RETANGULO:
+        if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
             self._item_preview_criacao = QGraphicsRectItem()
         elif self._ferramenta in (FerramentaMockup.LINHA, FerramentaMockup.MEDIR):
             self._item_preview_criacao = QGraphicsLineItem()
@@ -453,7 +492,7 @@ class PreviewCanvas(QGraphicsView):
 
     def _atualizar_criacao(self, pos_viewport) -> None:
         atual = self.mapToScene(pos_viewport)
-        if self._ferramenta == FerramentaMockup.RETANGULO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
+        if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
             self._item_preview_criacao.setRect(QRectF(self._ponto_inicial_criacao, atual).normalized())
         elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
             linha = QLineF(self._ponto_inicial_criacao, atual)
@@ -478,10 +517,17 @@ class PreviewCanvas(QGraphicsView):
         # Arrasto mínimo pra não criar uma forma de 0×0 num clique seco
         # sem querer arrastar de verdade (o gesto mais comum de quem
         # ainda tá aprendendo a ferramenta).
-        if self._ferramenta == FerramentaMockup.RETANGULO:
+        if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
             rect = QRectF(self._ponto_inicial_criacao, atual).normalized()
-            if rect.width() >= 2.0 and rect.height() >= 2.0:
-                self.retangulo_desenhado.emit(rect)
+            if rect.width() < 2.0 or rect.height() < 2.0:
+                return
+            sinais_arrasto = {
+                FerramentaMockup.RETANGULO: self.retangulo_desenhado,
+                FerramentaMockup.ELIPSE: self.elipse_desenhada,
+                FerramentaMockup.POLIGONO: self.poligono_desenhado,
+                FerramentaMockup.ACABAMENTO: self.acabamento_desenhado,
+            }
+            sinais_arrasto[self._ferramenta].emit(rect)
         elif self._ferramenta == FerramentaMockup.LINHA:
             if QLineF(self._ponto_inicial_criacao, atual).length() >= 2.0:
                 self.linha_desenhada.emit(self._ponto_inicial_criacao, atual)

@@ -15,13 +15,18 @@ qualquer editor vetorial (a régua de seleção nunca é a própria linha).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+import math
+
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 
 from ..models import CorImpressao
 from .mockup_itens import ElementoMockup
 
 _LARGURA_TRACO_PADRAO_MM = 0.5
+_LADOS_POLIGONO_PADRAO = 6
+_LADOS_POLIGONO_MINIMO = 3
+_LADOS_POLIGONO_MAXIMO = 20
 
 
 class ElementoRetangulo(ElementoMockup):
@@ -122,5 +127,156 @@ class ElementoLinha(ElementoMockup):
 
     def clonar(self) -> "ElementoLinha":
         novo = ElementoLinha(cor_tinta=self._cor_tinta, largura_traco=self._largura_traco)
+        self._copiar_geometria_para(novo)
+        return novo
+
+
+class ElementoElipse(ElementoMockup):
+    """Mesmo princípio do `ElementoRetangulo` (cor/preenchido/traço),
+    só troca `drawRect` por `drawEllipse` — "círculo" é só uma elipse
+    com largura == altura, igual "quadrado" já é pro retângulo."""
+
+    def __init__(
+        self,
+        largura: float = 40.0,
+        altura: float = 40.0,
+        cor_tinta: CorImpressao | None = None,
+        preenchido: bool = False,
+        largura_traco: float = _LARGURA_TRACO_PADRAO_MM,
+        parent=None,
+    ) -> None:
+        super().__init__(largura, altura, parent)
+        self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
+        self._preenchido = preenchido
+        self._largura_traco = max(0.05, largura_traco)
+
+    @property
+    def cor_tinta(self) -> CorImpressao:
+        return self._cor_tinta
+
+    def definir_cor_tinta(self, cor: CorImpressao) -> None:
+        self._cor_tinta = cor
+        self.update()
+
+    @property
+    def preenchido(self) -> bool:
+        return self._preenchido
+
+    def definir_preenchido(self, preenchido: bool) -> None:
+        self._preenchido = preenchido
+        self.update()
+
+    @property
+    def largura_traco(self) -> float:
+        return self._largura_traco
+
+    def definir_largura_traco(self, mm: float) -> None:
+        self._largura_traco = max(0.05, mm)
+        self.update()
+
+    def _pintar_conteudo(self, painter: QPainter) -> None:
+        cor = QColor(self._cor_tinta.r, self._cor_tinta.g, self._cor_tinta.b)
+        painter.setPen(QPen(cor, self._largura_traco))
+        painter.setBrush(QBrush(cor) if self._preenchido else QBrush(Qt.BrushStyle.NoBrush))
+        margem = self._largura_traco / 2
+        painter.drawEllipse(
+            QRectF(
+                margem, margem, max(0.01, self._largura - self._largura_traco), max(0.01, self._altura - self._largura_traco)
+            )
+        )
+
+    def clonar(self) -> "ElementoElipse":
+        novo = ElementoElipse(
+            cor_tinta=self._cor_tinta, preenchido=self._preenchido, largura_traco=self._largura_traco
+        )
+        self._copiar_geometria_para(novo)
+        return novo
+
+
+class ElementoPoligono(ElementoMockup):
+    """Polígono regular de N lados (padrão hexágono) — cobre também a
+    ideia de "estrela" como variante (poucos lados = losango/triângulo/
+    pentágono, sem precisar de uma ferramenta de estrela à parte). O
+    polígono é normalizado (-1..1) e escalado por (largura/2, altura/2)
+    ao pintar, então redimensionar largura/altura de forma diferente
+    estica ele — mesmo comportamento de qualquer outra forma aqui."""
+
+    def __init__(
+        self,
+        largura: float = 40.0,
+        altura: float = 40.0,
+        lados: int = _LADOS_POLIGONO_PADRAO,
+        cor_tinta: CorImpressao | None = None,
+        preenchido: bool = False,
+        largura_traco: float = _LARGURA_TRACO_PADRAO_MM,
+        parent=None,
+    ) -> None:
+        super().__init__(largura, altura, parent)
+        self._lados = max(_LADOS_POLIGONO_MINIMO, min(_LADOS_POLIGONO_MAXIMO, lados))
+        self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
+        self._preenchido = preenchido
+        self._largura_traco = max(0.05, largura_traco)
+
+    @property
+    def lados(self) -> int:
+        return self._lados
+
+    def definir_lados(self, lados: int) -> None:
+        self._lados = max(_LADOS_POLIGONO_MINIMO, min(_LADOS_POLIGONO_MAXIMO, lados))
+        self.update()
+
+    @property
+    def cor_tinta(self) -> CorImpressao:
+        return self._cor_tinta
+
+    def definir_cor_tinta(self, cor: CorImpressao) -> None:
+        self._cor_tinta = cor
+        self.update()
+
+    @property
+    def preenchido(self) -> bool:
+        return self._preenchido
+
+    def definir_preenchido(self, preenchido: bool) -> None:
+        self._preenchido = preenchido
+        self.update()
+
+    @property
+    def largura_traco(self) -> float:
+        return self._largura_traco
+
+    def definir_largura_traco(self, mm: float) -> None:
+        self._largura_traco = max(0.05, mm)
+        self.update()
+
+    def _caminho_normalizado(self) -> QPainterPath:
+        caminho = QPainterPath()
+        for i in range(self._lados):
+            angulo = math.radians(-90 + i * 360 / self._lados)  # começa apontando pra cima, igual estrela/logo
+            ponto = QPointF(math.cos(angulo), math.sin(angulo))
+            caminho.moveTo(ponto) if i == 0 else caminho.lineTo(ponto)
+        caminho.closeSubpath()
+        return caminho
+
+    def _pintar_conteudo(self, painter: QPainter) -> None:
+        cor = QColor(self._cor_tinta.r, self._cor_tinta.g, self._cor_tinta.b)
+        margem = self._largura_traco / 2
+        raio_x = max(0.01, self._largura / 2 - margem)
+        raio_y = max(0.01, self._altura / 2 - margem)
+
+        painter.save()
+        painter.translate(self._largura / 2, self._altura / 2)
+        painter.scale(raio_x, raio_y)
+        pen = QPen(cor, self._largura_traco / min(raio_x, raio_y))  # espessura constante apesar do scale não-uniforme
+        pen.setCosmetic(False)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(cor) if self._preenchido else QBrush(Qt.BrushStyle.NoBrush))
+        painter.drawPath(self._caminho_normalizado())
+        painter.restore()
+
+    def clonar(self) -> "ElementoPoligono":
+        novo = ElementoPoligono(
+            lados=self._lados, cor_tinta=self._cor_tinta, preenchido=self._preenchido, largura_traco=self._largura_traco
+        )
         self._copiar_geometria_para(novo)
         return novo

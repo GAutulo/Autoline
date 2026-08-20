@@ -21,7 +21,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen
 
 from ..models import CorImpressao
-from .mockup_itens import ElementoMockup
+from .mockup_itens import ElementoMockup, desenhar_texto_escalado
 
 _TAMANHO_FONTE_REFERENCIA_PT = 200.0
 _ALTURA_LINHA_MM = 6.0  # base de referência — a caixa toda escala a partir daqui
@@ -148,8 +148,7 @@ class ElementoChecklistCores(ElementoMockup):
             painter.setBrush(QBrush(cor))
             painter.translate(_ALTURA_LINHA_MM + espaco_caixa_texto, y)
             painter.scale(escala_fonte, escala_fonte)
-            painter.setFont(self._fonte_referencia())
-            painter.drawText(QPointF(0, altura_ref), variante)
+            desenhar_texto_escalado(painter, QPointF(0, altura_ref), self._fonte_referencia(), variante)
             painter.restore()
 
             y += _ALTURA_LINHA_MM + espaco_linhas

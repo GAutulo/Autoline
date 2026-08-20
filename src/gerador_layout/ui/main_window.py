@@ -34,14 +34,18 @@ from ..paineis import Painel, calcular_paineis
 from . import corel_bridge, exportacao
 from .dialogo_configuracoes import DialogoConfiguracoes
 from .dialogo_logo import DialogoSepararCoresLogo
+from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
+from .mockup_acabamento import ElementoAcabamento
+from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
-from .mockup_formas import ElementoLinha, ElementoRetangulo
+from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
+from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import PainelPropriedadesMockup
 from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
@@ -548,7 +552,20 @@ class JanelaPrincipal(QMainWindow):
         acao_ferramenta("selecionar", "Selecionar (Esc)", FerramentaMockup.SELECIONAR)
         acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
         acao_ferramenta("ferramenta_retangulo", "Retângulo — clique e arraste pra desenhar", FerramentaMockup.RETANGULO)
+        acao_ferramenta("ferramenta_elipse", "Elipse — clique e arraste pra desenhar", FerramentaMockup.ELIPSE)
+        acao_ferramenta(
+            "ferramenta_poligono", "Polígono — clique e arraste pra desenhar (nº de lados ajustável)", FerramentaMockup.POLIGONO
+        )
         acao_ferramenta("ferramenta_linha", "Linha — clique e arraste pra desenhar", FerramentaMockup.LINHA)
+        acao_ferramenta(
+            "ferramenta_callout", "Callout — clique no canvas pra anotar (aponta pra esse lugar)", FerramentaMockup.CALLOUT
+        )
+        acao_ferramenta("ferramenta_tabela", "Tabela — clique no canvas (ficha técnica/nutricional)", FerramentaMockup.TABELA)
+        acao_ferramenta(
+            "ferramenta_transparencia",
+            "Acabamento de produção — clique e arraste (verniz localizado, laminação, hot stamping)",
+            FerramentaMockup.ACABAMENTO,
+        )
         acao_ferramenta(
             "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
         )
@@ -575,6 +592,11 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
+        self.canvas.elipse_desenhada.connect(self._criar_elipse_por_arrasto)
+        self.canvas.poligono_desenhado.connect(self._criar_poligono_por_arrasto)
+        self.canvas.acabamento_desenhado.connect(self._criar_acabamento_por_arrasto)
+        self.canvas.callout_solicitado.connect(self._criar_callout_por_clique)
+        self.canvas.tabela_solicitada.connect(self._criar_tabela_por_clique)
 
         barra.hide()
 
@@ -651,7 +673,42 @@ class JanelaPrincipal(QMainWindow):
         self._selecionar_e_voltar_ao_ponteiro(elemento)
         elemento.iniciar_edicao_inline()
 
-    _TIPOS_COM_COR_TINTA = (ElementoTexto, ElementoRetangulo, ElementoLinha, ElementoChecklistCores)
+    def _criar_elipse_por_arrasto(self, rect: QRectF) -> None:
+        elemento = ElementoElipse(largura=rect.width(), altura=rect.height(), cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, rect.topLeft())
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_poligono_por_arrasto(self, rect: QRectF) -> None:
+        elemento = ElementoPoligono(largura=rect.width(), altura=rect.height(), cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, rect.topLeft())
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_acabamento_por_arrasto(self, rect: QRectF) -> None:
+        elemento = ElementoAcabamento(largura=rect.width(), altura=rect.height())
+        self.canvas.adicionar_elemento_mockup(elemento, rect.topLeft())
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_callout_por_clique(self, pos: QPointF) -> None:
+        elemento = ElementoCallout(texto="Observação", cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, pos)
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+        elemento.iniciar_edicao_inline()
+
+    def _criar_tabela_por_clique(self, pos: QPointF) -> None:
+        elemento = ElementoTabela(cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, pos)
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    _TIPOS_COM_COR_TINTA = (
+        ElementoTexto,
+        ElementoRetangulo,
+        ElementoLinha,
+        ElementoChecklistCores,
+        ElementoElipse,
+        ElementoPoligono,
+        ElementoCallout,
+        ElementoTabela,
+    )
 
     def _ao_cor_amostrada(self, cor: QColor) -> None:
         """Conta-gotas: aplica a cor mais PRÓXIMA entre as tintas

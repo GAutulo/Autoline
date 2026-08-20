@@ -26,7 +26,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsProxyWidget, QLineEdit
 
 from ..models import CorImpressao
-from .mockup_itens import ElementoMockup
+from .mockup_itens import ElementoMockup, desenhar_texto_escalado
 
 _TAMANHO_FONTE_REFERENCIA_PT = 200.0
 _ALTURA_PADRAO_MM = 8.0
@@ -197,6 +197,8 @@ class ElementoTexto(ElementoMockup):
         painter.setPen(QPen(cor))
         painter.setBrush(QBrush(cor))
         painter.scale(escala_x, escala_y)
-        painter.setFont(self._fonte_referencia())
-        painter.drawText(QPointF(0, altura_ref), self._texto)
+        # `desenhar_texto_escalado` (não `painter.drawText` direto) —
+        # ver docstring dela em mockup_itens.py pro bug real de
+        # exportação SVG que essa troca evita.
+        desenhar_texto_escalado(painter, QPointF(0, altura_ref), self._fonte_referencia(), self._texto)
         painter.restore()
