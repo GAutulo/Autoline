@@ -130,10 +130,19 @@ class ElementoMockup(QGraphicsObject):
 
     geometria_alterada = Signal()
 
+    # Mínimo padrão pra qualquer elemento (mantém alças de redimensionar
+    # sempre clicáveis, ver `_TAMANHO_ALCA_MM`) — atributo de CLASSE, não
+    # module-level direto, pra subclasses conseguirem sobrescrever o
+    # próprio mínimo quando o valor não representa "tamanho da forma"
+    # (ex.: `ElementoTexto`, onde altura = tamanho de fonte, e 4mm de
+    # piso impedia texto miúdo tipo letra de rodapé/composição).
+    _largura_minima_mm = _LARGURA_MINIMA_MM
+    _altura_minima_mm = _ALTURA_MINIMA_MM
+
     def __init__(self, largura: float = 40.0, altura: float = 24.0, parent: QGraphicsItem | None = None) -> None:
         super().__init__(parent)
-        self._largura = max(_LARGURA_MINIMA_MM, largura)
-        self._altura = max(_ALTURA_MINIMA_MM, altura)
+        self._largura = max(self._largura_minima_mm, largura)
+        self._altura = max(self._altura_minima_mm, altura)
         self.setTransformOriginPoint(self._largura / 2, self._altura / 2)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -204,6 +213,14 @@ class ElementoMockup(QGraphicsObject):
         self._painel_id = painel_id
 
     @property
+    def em_arrasto_corpo(self) -> bool:
+        """Se está no meio de um arrasto pelo CORPO (mover, não
+        redimensionar/rotacionar) agora mesmo — usado pelo canvas pra
+        saber quando desenhar linhas-guia de encaixe (ver
+        `preview_canvas.py::_atualizar_guia_snap_preview`)."""
+        return self._arrastando_corpo
+
+    @property
     def proporcao_travada(self) -> bool:
         return self._proporcao_travada
 
@@ -247,8 +264,8 @@ class ElementoMockup(QGraphicsObject):
         divergia a cada dígito, resultado final errado. Método explícito
         e sem essa suposição resolve de vez.)"""
         self.prepareGeometryChange()
-        self._largura = max(_LARGURA_MINIMA_MM, largura)
-        self._altura = max(_ALTURA_MINIMA_MM, altura)
+        self._largura = max(self._largura_minima_mm, largura)
+        self._altura = max(self._altura_minima_mm, altura)
         self.setTransformOriginPoint(self._largura / 2, self._altura / 2)
         self.update()
         self.geometria_alterada.emit()
@@ -419,9 +436,9 @@ class ElementoMockup(QGraphicsObject):
         nova_largura = self._arrasto_largura_inicial
         nova_altura = self._arrasto_altura_inicial
         if rel_x != 0.5:
-            nova_largura = max(_LARGURA_MINIMA_MM, abs(diff_local.x()))
+            nova_largura = max(self._largura_minima_mm, abs(diff_local.x()))
         if rel_y != 0.5:
-            nova_altura = max(_ALTURA_MINIMA_MM, abs(diff_local.y()))
+            nova_altura = max(self._altura_minima_mm, abs(diff_local.y()))
 
         if self._proporcao_travada and self._arrasto_largura_inicial and self._arrasto_altura_inicial:
             # Mesmo puxando só uma alça de borda (largura OU altura), com
@@ -435,8 +452,8 @@ class ElementoMockup(QGraphicsObject):
                 if rel_x != 0.5
                 else nova_altura / self._arrasto_altura_inicial
             )
-            nova_largura = max(_LARGURA_MINIMA_MM, self._arrasto_largura_inicial * escala)
-            nova_altura = max(_ALTURA_MINIMA_MM, self._arrasto_altura_inicial * escala)
+            nova_largura = max(self._largura_minima_mm, self._arrasto_largura_inicial * escala)
+            nova_altura = max(self._altura_minima_mm, self._arrasto_altura_inicial * escala)
 
         origem_nova = QPointF(nova_largura / 2, nova_altura / 2)
         ponto_local_novo = QPointF((1 - rel_x) * nova_largura, (1 - rel_y) * nova_altura)

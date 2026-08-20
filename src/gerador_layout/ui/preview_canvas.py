@@ -86,6 +86,23 @@ _FERRAMENTAS_CLIQUE_UNICO = {
     FerramentaMockup.TABELA,
 }
 
+# Cursor por ferramenta — módulo-level (não muda por instância) pra dar
+# pra reusar tanto em `definir_ferramenta` quanto ao restaurar o cursor
+# depois de um pan com o botão do meio (ver `mouseReleaseEvent`).
+_CURSOR_POR_FERRAMENTA = {
+    FerramentaMockup.SELECIONAR: Qt.CursorShape.ArrowCursor,
+    FerramentaMockup.TEXTO: Qt.CursorShape.IBeamCursor,
+    FerramentaMockup.RETANGULO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.LINHA: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.CONTA_GOTAS: Qt.CursorShape.PointingHandCursor,
+    FerramentaMockup.MEDIR: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.ELIPSE: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.POLIGONO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.ACABAMENTO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.CALLOUT: Qt.CursorShape.IBeamCursor,
+    FerramentaMockup.TABELA: Qt.CursorShape.CrossCursor,
+}
+
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
 # desapareceria contra o fundo escuro do canvas. `Cor.TEXTO` já é claro
@@ -176,6 +193,17 @@ class PreviewCanvas(QGraphicsView):
 
         self._zoom_atual = 1.0
         self._layout: LayoutCaixa | None = None
+        # `ajustar_a_tela()` calcula o zoom em cima do tamanho ATUAL do
+        # viewport — chamado logo que a janela abre (`definir_layout`),
+        # antes do Qt terminar de dar o tamanho final pra janela, o
+        # viewport ainda está pequeno/provisório, e o zoom calculado sai
+        # errado (fica "pequeno" dentro da janela real, maior, que só
+        # aparece um instante depois). Fica pendente até o primeiro
+        # `resizeEvent` de verdade acontecer, que reajusta automaticamente
+        # — depois disso, resize normal da janela não reajusta mais
+        # sozinho (senão zoom/pan manual do usuário seria perdido a cada
+        # redimensionamento da janela).
+        self._ajuste_pendente = False
 
         # Itens da dieline (linhas calculadas) ficam à parte dos itens de
         # mockup (adicionados/editados pelo usuário) — `_redesenhar` só
@@ -216,6 +244,13 @@ class PreviewCanvas(QGraphicsView):
         # um `GuiaCanvas` na cena (arrastável/selecionável/removível como
         # qualquer item), não só um número numa lista.
         self._guias: list[GuiaCanvas] = []
+        # Linhas-guia TEMPORÁRIAS de encaixe (ver
+        # `_atualizar_guia_snap_preview`) — só aparecem durante um
+        # arrasto, mostrando pra qual grade/elemento/guia o encaixe vai
+        # grudar se soltar agora (o encaixe em si só é aplicado ao
+        # soltar, ver `_calcular_snap`, mas sem isso não tinha como saber
+        # ANTES de soltar que ia encaixar em algo).
+        self._linhas_guia_snap: list[QGraphicsLineItem] = []
 
         # Painel fixo (HUD) por cima da cena — não escala com o zoom, então
         # nunca "explode" de tamanho numa caixa pequena.
@@ -251,6 +286,7 @@ class PreviewCanvas(QGraphicsView):
     def definir_layout(self, layout: LayoutCaixa | None) -> None:
         self._layout = layout
         self._redesenhar()
+        self._ajuste_pendente = True
         self.ajustar_a_tela()
 
     def ajustar_a_tela(self) -> None:
@@ -260,7 +296,19 @@ class PreviewCanvas(QGraphicsView):
         self._zoom_atual = 1.0
         margem = 20
         rect = self._scene.itemsBoundingRect().adjusted(-margem, -margem, margem, margem)
+        # `fitInView` escala via `scale()` por baixo, que respeita
+        # `transformationAnchor` — com `AnchorUnderMouse` (usado pro zoom
+        # da roda do mouse), o resultado ancora onde o mouse estava da
+        # ÚLTIMA vez (podendo estar fora do canvas, ou num canto), não no
+        # centro do que acabou de ser calculado — era por isso que
+        # "Ajustar à tela" saía descentralizado. Troca temporária pro
+        # centro evita isso, e o `centerOn` depois garante mesmo se algum
+        # resto de scroll sobrar.
+        ancora_original = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        self.setTransformationAnchor(ancora_original)
+        self.centerOn(rect.center())
         self._zoom_atual = self.transform().m11()
         self.zoom_alterado.emit(self._zoom_atual)
 
@@ -353,6 +401,14 @@ class PreviewCanvas(QGraphicsView):
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._reposicionar_paineis()
+        if self._ajuste_pendente:
+            # Primeiro resize de verdade depois de `definir_layout()` —
+            # ver comentário em `__init__` sobre por que o ajuste inicial
+            # (calculado num viewport ainda provisório) precisa ser
+            # refeito aqui. Só essa vez: depois disso, redimensionar a
+            # janela não mexe mais no zoom/posição que o usuário escolheu.
+            self._ajuste_pendente = False
+            self.ajustar_a_tela()
 
     # ── Ferramenta ativa (ver `FerramentaMockup`) ──────────────────────
     @property
@@ -372,20 +428,14 @@ class PreviewCanvas(QGraphicsView):
                 self._scene.removeItem(self._item_preview_criacao)
                 self._item_preview_criacao = None
         self._ferramenta = ferramenta
-        cursores = {
-            FerramentaMockup.SELECIONAR: Qt.CursorShape.ArrowCursor,
-            FerramentaMockup.TEXTO: Qt.CursorShape.IBeamCursor,
-            FerramentaMockup.RETANGULO: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.LINHA: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.CONTA_GOTAS: Qt.CursorShape.PointingHandCursor,
-            FerramentaMockup.MEDIR: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.ELIPSE: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.POLIGONO: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.ACABAMENTO: Qt.CursorShape.CrossCursor,
-            FerramentaMockup.CALLOUT: Qt.CursorShape.IBeamCursor,
-            FerramentaMockup.TABELA: Qt.CursorShape.CrossCursor,
-        }
-        self.setCursor(cursores[ferramenta])
+        # `self.viewport().setCursor()`, não `self.setCursor()` — o
+        # `QGraphicsView` é um `QAbstractScrollArea`, o cursor que aparece
+        # sobre a área de desenho de verdade é o do widget `viewport()`
+        # interno, não o do `QGraphicsView` em si (que só cobriria a
+        # moldura, inexistente aqui — `NoFrame`). Setar no lugar errado é
+        # por isso que o cursor nunca trocava visualmente ao mudar de
+        # ferramenta, mesmo com o valor certo sendo calculado aqui.
+        self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[ferramenta])
         # Enquanto uma ferramenta de criação está ativa, arrastar no
         # canvas vazio desenha a forma nova, não seleciona por retângulo
         # nem move a visão — `NoDrag` evita que o `QGraphicsView` tente
@@ -403,7 +453,7 @@ class PreviewCanvas(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panorama_ativo = True
             self._panorama_ultimo_ponto = event.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if (
@@ -434,7 +484,10 @@ class PreviewCanvas(QGraphicsView):
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton and self._panorama_ativo:
             self._panorama_ativo = False
-            self.unsetCursor()
+            # Restaura o cursor da ferramenta ativa, não `unsetCursor()`
+            # (que voltaria pro cursor padrão da seta, ignorando qual
+            # ferramenta estava ativa antes do pan).
+            self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[self._ferramenta])
             event.accept()
             return
         if self._criando and event.button() == Qt.MouseButton.LeftButton:
@@ -634,6 +687,13 @@ class PreviewCanvas(QGraphicsView):
         elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
         elemento.definir_calculador_snap(self._calcular_snap)
+        # Linha-guia de encaixe (ver `_atualizar_guia_snap_preview`) —
+        # `geometria_alterada` já dispara em TODO arrasto (não só ao
+        # soltar, ver `itemChange` em `mockup_itens.py`), então dá pra
+        # reaproveitar sem precisar de outro sinal novo. O handler mesmo
+        # filtra por `em_arrasto_corpo` pra só desenhar durante um arrasto
+        # de corpo de verdade, não a cada mudança de posição/tamanho.
+        elemento.geometria_alterada.connect(lambda el=elemento: self._atualizar_guia_snap_preview(el))
 
     def definir_snap_ativo(self, ativo: bool) -> None:
         self._snap_ativo = ativo
@@ -691,6 +751,64 @@ class PreviewCanvas(QGraphicsView):
                     melhor_ajuste = alvo - borda
         return melhor_ajuste
 
+    def _alvo_snap_proximo(self, bordas: tuple[float, float, float], alvos: list[float]) -> float | None:
+        """Mesma busca de `_melhor_ajuste_snap`, mas devolve o ALVO em si
+        (não o ajuste a somar) quando tem um dentro do limiar, ou `None` —
+        usado só pra saber ONDE desenhar a linha-guia de preview, nunca
+        pra mover nada (ver `_atualizar_guia_snap_preview`)."""
+        candidatos = list(alvos)
+        if self._grade_visivel:
+            candidatos.extend(round(borda / _PASSO_GRADE_MM) * _PASSO_GRADE_MM for borda in bordas)
+
+        melhor_alvo = None
+        menor_distancia = self._LIMIAR_SNAP_MM
+        for borda in bordas:
+            for alvo in candidatos:
+                distancia = abs(borda - alvo)
+                if distancia < menor_distancia:
+                    menor_distancia = distancia
+                    melhor_alvo = alvo
+        return melhor_alvo
+
+    def _limpar_guias_snap_preview(self) -> None:
+        for linha in self._linhas_guia_snap:
+            self._scene.removeItem(linha)
+        self._linhas_guia_snap = []
+
+    def _atualizar_guia_snap_preview(self, elemento: ElementoMockup) -> None:
+        self._limpar_guias_snap_preview()
+        if not elemento.em_arrasto_corpo or not self._snap_ativo:
+            return
+
+        largura, altura = elemento.largura, elemento.altura
+        pos = elemento.pos()
+        bordas_x = (pos.x(), pos.x() + largura / 2, pos.x() + largura)
+        bordas_y = (pos.y(), pos.y() + altura / 2, pos.y() + altura)
+        alvo_x = self._alvo_snap_proximo(bordas_x, self._alvos_snap_x(elemento))
+        alvo_y = self._alvo_snap_proximo(bordas_y, self._alvos_snap_y(elemento))
+        if alvo_x is None and alvo_y is None:
+            return
+
+        # Span generoso (não só o retângulo dos itens) — a linha-guia
+        # precisa atravessar visualmente a tela toda pra funcionar como
+        # referência de alinhamento, igual guia de qualquer editor
+        # vetorial (Figma/Illustrator), não só marcar um trechinho.
+        rect = self._scene.itemsBoundingRect().adjusted(-200, -200, 200, 200)
+        caneta = QPen(QColor(Cor.PRIMARIA), 0.25, Qt.PenStyle.DashLine)
+        caneta.setCosmetic(True)
+        if alvo_x is not None:
+            linha = QGraphicsLineItem(QLineF(QPointF(alvo_x, rect.top()), QPointF(alvo_x, rect.bottom())))
+            linha.setPen(caneta)
+            linha.setZValue(2000)
+            self._scene.addItem(linha)
+            self._linhas_guia_snap.append(linha)
+        if alvo_y is not None:
+            linha = QGraphicsLineItem(QLineF(QPointF(rect.left(), alvo_y), QPointF(rect.right(), alvo_y)))
+            linha.setPen(caneta)
+            linha.setZValue(2000)
+            self._scene.addItem(linha)
+            self._linhas_guia_snap.append(linha)
+
     def _alvos_snap_x(self, elemento: ElementoMockup) -> list[float]:
         alvos = [g.posicao for g in self._guias if g.orientacao == "v"]
         for outro in self._elementos_mockup:
@@ -717,6 +835,43 @@ class PreviewCanvas(QGraphicsView):
         if elemento.painel_id is None:
             return None
         return next((p for p in self._paineis if p.id == elemento.painel_id), None)
+
+    def alinhar_selecionados(self, alinhamento: str) -> None:
+        """Alinha os elementos selecionados ENTRE SI (bordas/centro da
+        própria seleção, não da face — isso já existe em
+        `painel_propriedades_mockup.py::_alinhar_ao_painel`, pra um
+        elemento só). Mesma simplificação de lá: usa `pos()`/`largura`/
+        `altura` direto, ignorando rotação — alinhar caixa rotacionada
+        por rotação de verdade exigiria decidir qual canto/eixo do
+        retângulo girado conta como "borda", sem resposta óbvia."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        if len(selecionados) < 2:
+            return
+
+        esquerdas = [el.pos().x() for el in selecionados]
+        direitas = [el.pos().x() + el.largura for el in selecionados]
+        topos = [el.pos().y() for el in selecionados]
+        bases = [el.pos().y() + el.altura for el in selecionados]
+        alvo_esquerda, alvo_direita = min(esquerdas), max(direitas)
+        alvo_topo, alvo_base = min(topos), max(bases)
+        centro_h = (alvo_esquerda + alvo_direita) / 2
+        centro_v = (alvo_topo + alvo_base) / 2
+
+        for el in selecionados:
+            x, y = el.pos().x(), el.pos().y()
+            if alinhamento == "esquerda":
+                x = alvo_esquerda
+            elif alinhamento == "direita":
+                x = alvo_direita - el.largura
+            elif alinhamento == "centro_h":
+                x = centro_h - el.largura / 2
+            elif alinhamento == "topo":
+                y = alvo_topo
+            elif alinhamento == "base":
+                y = alvo_base - el.altura
+            elif alinhamento == "centro_v":
+                y = centro_v - el.altura / 2
+            el.setPos(x, y)
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]

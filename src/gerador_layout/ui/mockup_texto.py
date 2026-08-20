@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen
-from PySide6.QtWidgets import QGraphicsProxyWidget, QLineEdit
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QLineEdit
 
 from ..models import CorImpressao
 from .mockup_itens import ElementoMockup, desenhar_texto_escalado
@@ -44,6 +44,13 @@ _ALTURA_EDICAO_PX = 64
 
 
 class ElementoTexto(ElementoMockup):
+    # Altura aqui É o tamanho da fonte (ver docstring do módulo), não o
+    # "tamanho de uma forma" — o mínimo genérico de `ElementoMockup`
+    # (4mm, pensado pra manter alças de redimensionar clicáveis em
+    # qualquer forma) impedia texto miúdo de verdade (legenda, letra de
+    # rodapé/composição), que em embalagem real fica bem abaixo disso.
+    _altura_minima_mm = 0.5
+
     def __init__(
         self,
         texto: str = "Texto",
@@ -157,6 +164,15 @@ class ElementoTexto(ElementoMockup):
 
         proxy = QGraphicsProxyWidget(self)
         proxy.setWidget(campo)
+        # `ItemIgnoresParentOpacity` — sem isso, `self.setOpacity(0.0)`
+        # logo abaixo (que devia só esconder o TEXTO PINTADO por baixo,
+        # evitando duplicar) também apagava o proxy filho junto (opacidade
+        # de item composita com a do pai por padrão em QGraphicsItem) —
+        # o campo de edição ficava lá, recebendo teclado normalmente, só
+        # que 100% invisível: exatamente o bug relatado de "digito e não
+        # aparece nada até clicar em outro lugar" (o clique fora confirma
+        # a edição, que aí sim repinta o texto final visível).
+        proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresParentOpacity, True)
         # Escala uniforme baseada na ALTURA (mesmo eixo que define
         # "tamanho de fonte" no resto do app) — a largura do campo pode
         # sobrar/faltar um pouco em relação ao texto final, sem problema,

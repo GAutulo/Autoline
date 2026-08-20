@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QGraphicsProxyWidget, QLineEdit
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QLineEdit
 
 from ..models import CorImpressao
 from .mockup_itens import ElementoMockup, desenhar_texto_escalado
@@ -80,6 +80,9 @@ class ElementoCallout(ElementoMockup):
 
         proxy = QGraphicsProxyWidget(self)
         proxy.setWidget(campo)
+        # Ver comentário equivalente em `mockup_texto.py::iniciar_edicao_inline`
+        # — sem isso, `self.setOpacity(0.0)` abaixo apaga o proxy junto.
+        proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresParentOpacity, True)
         escala = self._altura / _ALTURA_EDICAO_PX if self._altura else 1.0
         proxy.setScale(escala)
         proxy.setPos(0, 0)
