@@ -184,6 +184,15 @@ class ElementoMockup(QGraphicsObject):
         self._calculador_snap = None
         self._arrastando_corpo = False
 
+        # Callback opcional (ver `definir_solicitador_duplicata`) que o
+        # canvas liga em todo elemento — pedido quando o usuário começa a
+        # arrastar o CORPO segurando Alt (ver `mousePressEvent`): deixa
+        # uma cópia parada exatamente na posição atual (o item que
+        # continua em movimento é sempre `self`, nunca a cópia — mais
+        # simples que tentar "trocar" qual item o Qt está arrastando no
+        # meio do gesto).
+        self._solicitar_duplicata = None
+
         self._alca_ativa = Alca.NENHUMA
         self._arrastando = False
         # Estado congelado no início do arrasto (mousePressEvent) — o
@@ -195,6 +204,18 @@ class ElementoMockup(QGraphicsObject):
         self._arrasto_angulo_inicial = 0.0
         self._arrasto_centro_cena = QPointF()
         self._arrasto_angulo_mouse_inicial = 0.0
+
+        # Arrasto do CORPO (mover) — MANUAL, não nativo (`ItemIsMovable`
+        # continua ligado só pra deixar o Qt tratar seleção por clique
+        # certo; o movimento em si é todo calculado aqui). Motivo: mover
+        # o grupo inteiro numa seleção múltipla E restringir a um eixo
+        # com Shift exigem calcular a posição de cada item a partir de um
+        # delta comum — não dá pra fazer isso em cima do arrasto nativo
+        # do Qt sem cair no mesmo problema já documentado pro snap (mudar
+        # a posição por baixo dele no meio do gesto desincroniza a conta
+        # interna e o item "trava"). Ver `mousePressEvent`/`mouseMoveEvent`.
+        self._arrasto_corpo_ponto_inicial_cena = QPointF()
+        self._arrasto_corpo_posicoes_iniciais: dict[ElementoMockup, QPointF] = {}
 
     # ── Propriedades geométricas ────────────────────────────────────
     @property
@@ -232,6 +253,14 @@ class ElementoMockup(QGraphicsObject):
         chamado pelo canvas (ver `preview_canvas.py::_calcular_snap`)
         toda vez que o elemento tenta se mover arrastando o corpo."""
         self._calculador_snap = calculador
+
+    def definir_solicitador_duplicata(self, solicitador) -> None:
+        """`solicitador(elemento) -> None` — chamado pelo canvas (ver
+        `preview_canvas.py::_duplicar_no_lugar`) assim que o usuário
+        começa a arrastar o corpo segurando Alt: cria e registra um clone
+        exatamente na posição atual, sem selecioná-lo. `self` continua
+        sendo o item que se move dali pra frente."""
+        self._solicitar_duplicata = solicitador
 
     def definir_largura(self, largura: float) -> None:
         """Muda só a largura — se a proporção estiver travada, a altura
@@ -371,8 +400,32 @@ class ElementoMockup(QGraphicsObject):
             return
 
         if alca == Alca.CORPO:
+            # Alt segurado = duplicar e arrastar a cópia (convenção comum
+            # de editor vetorial) — ANTES de resolver a seleção nativa,
+            # senão a cópia nasceria já contando como "o clique de agora"
+            # e a lógica abaixo ficaria confusa sobre qual item é qual.
+            # Usa Alt, não Ctrl (a referência de ArtiosCAD usa Ctrl, ver
+            # `REFERENCIA_FERRAMENTAS_ARTIOSCAD.md`) porque o Qt já usa
+            # Ctrl+clique nativamente pra alternar item dentro/fora de uma
+            # seleção múltipla — os dois brigariam pelo mesmo clique.
+            if event.modifiers() & Qt.KeyboardModifier.AltModifier and self._solicitar_duplicata is not None:
+                self._solicitar_duplicata(self)
+            super().mousePressEvent(event)  # só resolve SELEÇÃO (clique simples/Ctrl/Shift) — mover é manual, ver abaixo
             self._arrastando_corpo = True
-            super().mousePressEvent(event)  # seleção + mover: comportamento nativo do Qt (flags já habilitam)
+            self._arrasto_corpo_ponto_inicial_cena = event.scenePos()
+            # Congela a posição de largada de TODOS os itens selecionados
+            # agora (não só `self`) — arrastar um item de uma seleção
+            # múltipla move o grupo inteiro junto, mesmo comportamento que
+            # o arrasto nativo do Qt já dava de graça e que precisa ser
+            # replicado à mão agora que o movimento é calculado aqui (ver
+            # docstring do `__init__` pro motivo de não ser mais nativo).
+            cena = self.scene()
+            selecionados = cena.selectedItems() if cena is not None else [self]
+            self._arrasto_corpo_posicoes_iniciais = {
+                item: item.pos() for item in selecionados if isinstance(item, ElementoMockup)
+            }
+            if self not in self._arrasto_corpo_posicoes_iniciais:
+                self._arrasto_corpo_posicoes_iniciais[self] = self.pos()
             return
 
         # Alça de redimensionar ou rotação — só aparece quando já
@@ -401,29 +454,47 @@ class ElementoMockup(QGraphicsObject):
         if self._arrastando and self._alca_ativa not in (Alca.NENHUMA, Alca.CORPO):
             self._redimensionar_para(event.scenePos())
             return
+        if self._arrastando_corpo:
+            delta = event.scenePos() - self._arrasto_corpo_ponto_inicial_cena
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Restringe a UM eixo — o que tiver o maior deslocamento
+                # até agora "ganha", trava o outro em zero. Reavaliado a
+                # cada frame (não fixado no primeiro pixel de movimento),
+                # então dá pra "corrigir" qual eixo pretendia sem soltar o
+                # botão, igual Illustrator/CorelDRAW.
+                if abs(delta.x()) >= abs(delta.y()):
+                    delta = QPointF(delta.x(), 0.0)
+                else:
+                    delta = QPointF(0.0, delta.y())
+            for item, pos_inicial in self._arrasto_corpo_posicoes_iniciais.items():
+                item.setPos(pos_inicial + delta)
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        estava_arrastando_corpo = self._arrastando_corpo
-        self._arrastando_corpo = False
+        if self._arrastando_corpo:
+            self._arrastando_corpo = False
+            super().mouseReleaseEvent(event)
+            if self._calculador_snap is not None:
+                # Encaixe só ao SOLTAR o botão, não durante o arrasto —
+                # aplicado a partir de `self` (o item realmente clicado),
+                # o ajuste resultante é então somado a TODO o grupo que se
+                # moveu junto, senão o encaixe de um item sozinho
+                # desalinharia ele em relação aos outros que vieram junto.
+                pos_antes = self.pos()
+                nova_pos = self._calculador_snap(self, pos_antes)
+                delta_snap = nova_pos - pos_antes
+                if delta_snap != QPointF(0.0, 0.0):
+                    for item in self._arrasto_corpo_posicoes_iniciais:
+                        item.setPos(item.pos() + delta_snap)
+            self._arrasto_corpo_posicoes_iniciais = {}
+            return
         if self._arrastando:
             self._arrastando = False
             self._alca_ativa = Alca.NENHUMA
             self.geometria_alterada.emit()
             return
         super().mouseReleaseEvent(event)
-        if estava_arrastando_corpo and self._calculador_snap is not None:
-            # Encaixe só ao SOLTAR o botão, não durante o arrasto — Qt
-            # calcula o próximo passo de um arrasto nativo (`ItemIsMovable`)
-            # a partir da posição LOCAL do evento anterior; se a gente
-            # muda a posição por baixo dele no meio do gesto (via
-            # `itemChange`), essa conta interna desincroniza e o item
-            # "trava" depois do primeiro encaixe (confirmado testando —
-            # não é só teoria). Corrigir só depois que o gesto termina
-            # evita mexer no que o Qt já processou.
-            nova_pos = self._calculador_snap(self, self.pos())
-            if nova_pos != self.pos():
-                self.setPos(nova_pos)
 
     # ── Redimensionar ────────────────────────────────────────────────
     def _redimensionar_para(self, ponto_cena: QPointF) -> None:

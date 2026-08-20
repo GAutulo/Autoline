@@ -45,6 +45,7 @@ from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
+from .mockup_simbolos import ElementoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import PainelPropriedadesMockup
@@ -550,7 +551,11 @@ class JanelaPrincipal(QMainWindow):
             barra.addAction(acao)
             self._acoes_ferramenta[ferramenta] = acao
 
-        acao_ferramenta("selecionar", "Selecionar (Esc)", FerramentaMockup.SELECIONAR)
+        acao_ferramenta(
+            "selecionar",
+            "Selecionar (Esc) — Alt+arrastar duplica, Shift+arrastar restringe a um eixo",
+            FerramentaMockup.SELECIONAR,
+        )
         acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
         acao_ferramenta("ferramenta_retangulo", "Retângulo — clique e arraste pra desenhar", FerramentaMockup.RETANGULO)
         acao_ferramenta("ferramenta_elipse", "Elipse — clique e arraste pra desenhar", FerramentaMockup.ELIPSE)
@@ -566,6 +571,11 @@ class JanelaPrincipal(QMainWindow):
             "ferramenta_transparencia",
             "Acabamento de produção — clique e arraste (verniz localizado, laminação, hot stamping)",
             FerramentaMockup.ACABAMENTO,
+        )
+        acao_ferramenta(
+            "ferramenta_simbolo",
+            "Símbolo de manuseio — clique no canvas (frágil, este lado para cima, reciclável...)",
+            FerramentaMockup.SIMBOLO,
         )
         acao_ferramenta(
             "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
@@ -598,6 +608,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.acabamento_desenhado.connect(self._criar_acabamento_por_arrasto)
         self.canvas.callout_solicitado.connect(self._criar_callout_por_clique)
         self.canvas.tabela_solicitada.connect(self._criar_tabela_por_clique)
+        self.canvas.simbolo_solicitado.connect(self._criar_simbolo_por_clique)
 
         barra.hide()
 
@@ -703,6 +714,11 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
 
+    def _criar_simbolo_por_clique(self, pos: QPointF) -> None:
+        elemento = ElementoSimbolo(cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(elemento, pos)
+        self._selecionar_e_voltar_ao_ponteiro(elemento)
+
     _TIPOS_COM_COR_TINTA = (
         ElementoTexto,
         ElementoRetangulo,
@@ -712,6 +728,7 @@ class JanelaPrincipal(QMainWindow):
         ElementoPoligono,
         ElementoCallout,
         ElementoTabela,
+        ElementoSimbolo,
     )
 
     def _ao_cor_amostrada(self, cor: QColor) -> None:

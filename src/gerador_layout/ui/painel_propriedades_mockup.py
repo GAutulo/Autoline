@@ -44,6 +44,7 @@ from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
+from .mockup_simbolos import ElementoSimbolo, TipoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 
@@ -51,7 +52,7 @@ _ROTULO_SEM_PAINEL = "Nenhum"
 
 _FONTES_DISPONIVEIS = ["Arial", "Arial Black", "Verdana", "Times New Roman", "Impact"]
 
-_NOME_TIPO: dict[type, str] = {
+NOME_TIPO_ELEMENTO: dict[type, str] = {
     ElementoTexto: "Texto",
     ElementoRetangulo: "Retângulo",
     ElementoElipse: "Elipse",
@@ -60,6 +61,7 @@ _NOME_TIPO: dict[type, str] = {
     ElementoCallout: "Callout",
     ElementoTabela: "Tabela",
     ElementoAcabamento: "Acabamento de produção",
+    ElementoSimbolo: "Símbolo de manuseio",
     ElementoImagem: "Imagem",
     ElementoLogoVetorial: "Logotipo vetorial",
     ElementoChecklistCores: "Checklist de cores",
@@ -187,7 +189,7 @@ class PainelPropriedadesMockup(QWidget):
             return
 
         self._rotulo_vazio.setVisible(False)
-        self._rotulo_tipo.setText(_NOME_TIPO.get(type(elemento), "Elemento"))
+        self._rotulo_tipo.setText(NOME_TIPO_ELEMENTO.get(type(elemento), "Elemento"))
         self._rotulo_tipo.setVisible(True)
         self._container_campos.setVisible(True)
         self._botao_remover.setVisible(True)
@@ -215,6 +217,8 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_tabela(elemento)
         elif isinstance(elemento, ElementoAcabamento):
             self._montar_campos_acabamento(elemento)
+        elif isinstance(elemento, ElementoSimbolo):
+            self._montar_campos_simbolo(elemento)
         elif isinstance(elemento, ElementoLogoVetorial):
             self._montar_campos_logo(elemento)
         elif isinstance(elemento, ElementoImagem):
@@ -596,6 +600,17 @@ class PainelPropriedadesMockup(QWidget):
         combo_tipo.setCurrentIndex(list(TipoAcabamento).index(el.tipo))
         combo_tipo.currentIndexChanged.connect(lambda _i: el.definir_tipo(combo_tipo.currentData()))
         self._grupo("ferramenta_transparencia", combo_tipo, "Tipo de acabamento")
+
+    def _montar_campos_simbolo(self, el: ElementoSimbolo) -> None:
+        combo_tipo = QComboBox()
+        combo_tipo.setMaximumWidth(170)
+        for tipo in TipoSimbolo:
+            combo_tipo.addItem(tipo.value, tipo)
+        combo_tipo.setCurrentIndex(list(TipoSimbolo).index(el.tipo))
+        combo_tipo.currentIndexChanged.connect(lambda _i: el.definir_tipo(combo_tipo.currentData()))
+        self._grupo("ferramenta_simbolo", combo_tipo, "Símbolo de manuseio/transporte")
+
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_checklist(self, el: ElementoChecklistCores) -> None:
         # A lista de variantes não cabe numa barra horizontal (precisa de

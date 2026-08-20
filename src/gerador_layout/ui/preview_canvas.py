@@ -44,6 +44,7 @@ from ..paineis import Painel
 from .estilo import Cor
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_reguas import GuiaCanvas
+from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO
 
 
 class FerramentaMockup(Enum):
@@ -66,6 +67,7 @@ class FerramentaMockup(Enum):
     CALLOUT = auto()
     TABELA = auto()
     ACABAMENTO = auto()
+    SIMBOLO = auto()
 
 
 # Ferramentas que desenham por clique+arrasto de um retângulo (a forma
@@ -84,6 +86,7 @@ _FERRAMENTAS_CLIQUE_UNICO = {
     FerramentaMockup.CONTA_GOTAS,
     FerramentaMockup.CALLOUT,
     FerramentaMockup.TABELA,
+    FerramentaMockup.SIMBOLO,
 }
 
 # Cursor por ferramenta — módulo-level (não muda por instância) pra dar
@@ -101,6 +104,7 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.ACABAMENTO: Qt.CursorShape.CrossCursor,
     FerramentaMockup.CALLOUT: Qt.CursorShape.IBeamCursor,
     FerramentaMockup.TABELA: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.SIMBOLO: Qt.CursorShape.CrossCursor,
 }
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
@@ -114,6 +118,16 @@ _ESTILO_POR_TIPO: dict[TipoLinha, tuple[QColor, Qt.PenStyle, float]] = {
     TipoLinha.CORTE_SERRA: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.6),
     TipoLinha.MEIO_CORTE: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.5),
     TipoLinha.DOBRA: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.4),
+}
+
+# Nome amigável de cada tipo de linha técnica — usado só pelo modo
+# "Atributos" da ferramenta Medida (ver `_texto_atributos_sob_cursor`).
+_NOME_TIPO_LINHA: dict[TipoLinha, str] = {
+    TipoLinha.CORTE: "Corte",
+    TipoLinha.VINCO: "Vinco",
+    TipoLinha.CORTE_SERRA: "Corte de serra",
+    TipoLinha.MEIO_CORTE: "Meio corte",
+    TipoLinha.DOBRA: "Dobra (auxiliar)",
 }
 
 _ZOOM_MINIMO = 0.05
@@ -147,6 +161,36 @@ _ESTILO_PAINEL = (
 )
 
 
+class _RotuloMedidaFixado(QLabel):
+    """Uma leitura da ferramenta Medida "fixada" na tela (ver
+    `PreviewCanvas._fixar_leitura_medida`) — igual ArtiosCAD: passar o
+    mouse mostra a leitura só enquanto o cursor fica em cima (rótulo
+    único e reaproveitado, `PreviewCanvas._rotulo_medida`), soltar/clicar
+    fixa ela como uma anotação permanente que fica na tela até o próprio
+    usuário fechar — dá pra deixar várias abertas ao mesmo tempo,
+    cada uma fechável só por ela mesma, sem afetar as outras.
+    Clicar em cima de um rótulo fixado o remove (mesmo princípio de
+    "clicar fecha" que fecha diálogo/popup no resto do app)."""
+
+    def __init__(self, texto: str, ao_fechar, linha_associada=None, parent=None) -> None:
+        super().__init__(texto, parent)
+        self._ao_fechar = ao_fechar
+        # Linha desenhada na cena junto com a leitura (só no sub-modo
+        # Medida — Atributos fixa só o texto, sem linha, ver
+        # `PreviewCanvas._fixar_leitura_medida`) — guardada aqui pra
+        # `_remover_rotulo_fixado` saber o que mais tirar da cena junto
+        # quando o usuário fecha o rótulo.
+        self.linha_associada = linha_associada
+        self.setObjectName("rotuloTecnico")
+        self.setStyleSheet(_ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 12px;")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Clique pra fechar")
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self._ao_fechar(self)
+        event.accept()
+
+
 def _cor_texto_legivel(r: int, g: int, b: int) -> QColor:
     """Usa a própria cor no texto (pedido do usuário: "vermelho" escrito em
     vermelho), mas escurece cores muito claras (ex.: amarelo) o mínimo
@@ -175,6 +219,7 @@ class PreviewCanvas(QGraphicsView):
     acabamento_desenhado = Signal(QRectF)
     callout_solicitado = Signal(QPointF)
     tabela_solicitada = Signal(QPointF)
+    simbolo_solicitado = Signal(QPointF)
     ferramenta_alterada = Signal(object)  # FerramentaMockup
 
     def __init__(self, parent=None) -> None:
@@ -189,6 +234,9 @@ class PreviewCanvas(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setBackgroundBrush(QBrush(_COR_FUNDO_CANVAS))
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
+        # Precisa pra `mouseMoveEvent` disparar sem nenhum botão pressionado
+        # (hover puro) — usado pelo sub-modo Atributos da ferramenta Medida.
+        self.setMouseTracking(True)
         self._grade_visivel = True
 
         self._zoom_atual = 1.0
@@ -268,6 +316,18 @@ class PreviewCanvas(QGraphicsView):
         self._rotulo_medida.setObjectName("rotuloTecnico")
         self._rotulo_medida.setStyleSheet(_ESTILO_PAINEL + f"color: {Cor.TEXTO}; font-weight: 700; font-size: 12px;")
         self._rotulo_medida.hide()
+        # Sub-modo da ferramenta Medida — "medida" (clique-arrasta entre 2
+        # pontos, como uma trena) ou "atributos" (passa o mouse por cima
+        # de uma linha/elemento e mostra o que é). Trocado por Tab (ver
+        # `keyPressEvent`), igual ArtiosCAD.
+        self._modo_medida = "medida"
+        # Leituras "fixadas" na tela (ver `_RotuloMedidaFixado`) — cada
+        # clique/soltar com a ferramenta Medida ativa deixa uma dessas
+        # pra trás, independente das outras, até o usuário clicar nela
+        # pra fechar. Sobrevivem à troca de ferramenta de propósito (são
+        # anotações que o usuário pediu pra guardar, diferente da leitura
+        # ao vivo em `_rotulo_medida`, que é descartável).
+        self._rotulos_fixados: list[_RotuloMedidaFixado] = []
 
     # ── API pública ─────────────────────────────────────────────────
     @property
@@ -479,6 +539,23 @@ class PreviewCanvas(QGraphicsView):
             self._atualizar_criacao(event.pos())
             event.accept()
             return
+        if (
+            self._modo_mockup
+            and self._ferramenta == FerramentaMockup.MEDIR
+            and self._modo_medida == "atributos"
+        ):
+            # Sub-modo Atributos: passar o mouse por cima já mostra a
+            # leitura (não precisa clicar/arrastar) — clicar só FIXA ela
+            # na tela (ver `_iniciar_criacao`).
+            texto = self._texto_atributos_sob_cursor(event.pos())
+            if texto is None:
+                self._rotulo_medida.hide()
+            else:
+                self._rotulo_medida.setText(texto)
+                self._rotulo_medida.adjustSize()
+                pos = event.pos()
+                self._rotulo_medida.move(pos.x() + 14, pos.y() - self._rotulo_medida.height() - 10)
+                self._rotulo_medida.show()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -517,14 +594,19 @@ class PreviewCanvas(QGraphicsView):
                 FerramentaMockup.TEXTO: self.texto_solicitado,
                 FerramentaMockup.CALLOUT: self.callout_solicitado,
                 FerramentaMockup.TABELA: self.tabela_solicitada,
+                FerramentaMockup.SIMBOLO: self.simbolo_solicitado,
             }
             sinais_clique_unico[self._ferramenta].emit(self._ponto_inicial_criacao)
             return
-        if self._ferramenta == FerramentaMockup.MEDIR and self._item_preview_criacao is not None:
-            # Começando uma medida nova por cima de uma anterior ainda
-            # visível — limpa a antiga primeiro.
-            self._scene.removeItem(self._item_preview_criacao)
-            self._item_preview_criacao = None
+        if self._ferramenta == FerramentaMockup.MEDIR and self._modo_medida == "atributos":
+            # Sub-modo Atributos: também não precisa de arrasto — um
+            # clique fixa na tela a leitura que já estava sendo mostrada
+            # ao passar o mouse (ver `mouseMoveEvent`).
+            texto = self._texto_atributos_sob_cursor(pos_viewport)
+            if texto is not None:
+                self._rotulo_medida.hide()
+                self._fixar_leitura_medida(texto, pos_viewport)
+            return
 
         self._criando = True
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
@@ -558,9 +640,24 @@ class PreviewCanvas(QGraphicsView):
     def _finalizar_criacao(self, pos_viewport) -> None:
         self._criando = False
         if self._ferramenta == FerramentaMockup.MEDIR:
-            # Fica visível como leitura até a próxima medida ou trocar de
-            # ferramenta (ver `definir_ferramenta`) — não é um elemento
-            # criado, só uma resposta pontual, não precisa confirmação.
+            # Só chega aqui no sub-modo Medida (Atributos nem passa por
+            # `_criando`, ver `_iniciar_criacao`) — soltar o botão FIXA a
+            # medida na tela como uma anotação permanente (igual a trena
+            # do ArtiosCAD: clique num ponto, arraste até outro, solta pra
+            # fixar), em vez de só mostrar enquanto arrasta.
+            linha = self._item_preview_criacao
+            self._item_preview_criacao = None
+            self._rotulo_medida.hide()
+            if linha is None:
+                return
+            comprimento = linha.line().length()
+            if comprimento < 2.0:
+                # Clique seco sem arrastar de verdade — descarta, não fixa
+                # uma medida de comprimento ~0 sem querer.
+                self._scene.removeItem(linha)
+                return
+            self._scene.removeItem(linha)
+            self._fixar_leitura_medida(f"{comprimento:.1f} mm", pos_viewport, linha.line())
             return
         if self._item_preview_criacao is not None:
             self._scene.removeItem(self._item_preview_criacao)
@@ -591,6 +688,46 @@ class PreviewCanvas(QGraphicsView):
             self._scene.removeItem(self._item_preview_criacao)
             self._item_preview_criacao = None
         self._rotulo_medida.hide()
+
+    # ── Ferramenta Medida — sub-modo Atributos + leituras fixadas ──────
+    def _texto_atributos_sob_cursor(self, pos_viewport) -> str | None:
+        """O que tem embaixo do cursor, em texto curto — usado pelo
+        sub-modo Atributos (linha técnica da faca: tipo + comprimento;
+        elemento de mockup: tipo + tamanho). `None` quando não há nada
+        reconhecível ali (área vazia do canvas)."""
+        item = self.itemAt(pos_viewport)
+        if isinstance(item, ElementoMockup):
+            nome = NOME_TIPO_ELEMENTO.get(type(item), "Elemento")
+            return f"{nome} — {item.largura:.1f} × {item.altura:.1f} mm"
+        if isinstance(item, QGraphicsLineItem) and item in self._itens_dieline:
+            nome = _NOME_TIPO_LINHA.get(item.data(0), "Linha")
+            return f"{nome} — {item.line().length():.1f} mm"
+        return None
+
+    def _fixar_leitura_medida(self, texto: str, pos_viewport, linha_cena: QLineF | None = None) -> None:
+        """Cria uma leitura permanente na tela (ver `_RotuloMedidaFixado`)
+        — usada tanto pelo sub-modo Medida (com a linha da régua desenhada
+        junto) quanto pelo Atributos (só o texto, sem linha)."""
+        item_linha = None
+        if linha_cena is not None:
+            item_linha = QGraphicsLineItem(linha_cena)
+            caneta = QPen(QColor(Cor.PRIMARIA), 0.4, Qt.PenStyle.DashLine)
+            caneta.setCosmetic(True)
+            item_linha.setPen(caneta)
+            self._scene.addItem(item_linha)
+
+        rotulo = _RotuloMedidaFixado(texto, self._remover_rotulo_fixado, item_linha, self)
+        rotulo.adjustSize()
+        rotulo.move(pos_viewport.x() + 14, pos_viewport.y() - rotulo.height() - 10)
+        rotulo.show()
+        self._rotulos_fixados.append(rotulo)
+
+    def _remover_rotulo_fixado(self, rotulo: "_RotuloMedidaFixado") -> None:
+        if rotulo.linha_associada is not None:
+            self._scene.removeItem(rotulo.linha_associada)
+        if rotulo in self._rotulos_fixados:
+            self._rotulos_fixados.remove(rotulo)
+        rotulo.deleteLater()
 
     def _amostrar_cor(self, pos_viewport) -> QColor:
         """Cor de verdade sob o cursor, lida do que está renderizado na
@@ -687,6 +824,7 @@ class PreviewCanvas(QGraphicsView):
         elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
         elemento.definir_calculador_snap(self._calcular_snap)
+        elemento.definir_solicitador_duplicata(self._duplicar_no_lugar)
         # Linha-guia de encaixe (ver `_atualizar_guia_snap_preview`) —
         # `geometria_alterada` já dispara em TODO arrasto (não só ao
         # soltar, ver `itemChange` em `mockup_itens.py`), então dá pra
@@ -905,6 +1043,16 @@ class PreviewCanvas(QGraphicsView):
     # ── Duplicar / copiar-colar (Ctrl+D, Ctrl+C, Ctrl+V) ────────────────
     _PASSO_DUPLICAR_MM = 6.0
 
+    def _duplicar_no_lugar(self, elemento: ElementoMockup) -> None:
+        """Chamado por `ElementoMockup.mousePressEvent` quando o usuário
+        começa a arrastar o corpo segurando Alt — deixa um clone parado
+        EXATAMENTE na posição atual de `elemento` (sem deslocamento, ao
+        contrário de `duplicar_selecionados`/Ctrl+D), sem selecioná-lo.
+        `elemento` continua sendo o item que se move dali pra frente."""
+        clone = elemento.clonar()
+        self._scene.addItem(clone)
+        self._registrar_elemento_mockup(clone)
+
     def duplicar_selecionados(self) -> list[ElementoMockup]:
         """Ctrl+D — clona e desloca na hora, já selecionando o clone (não
         o original), pra continuar arrastando/ajustando ele direto. Sem
@@ -992,6 +1140,15 @@ class PreviewCanvas(QGraphicsView):
             if event.key() == Qt.Key.Key_Delete:
                 self.remover_selecionados()
                 return
+            if self._ferramenta == FerramentaMockup.MEDIR and event.key() == Qt.Key.Key_Tab:
+                # Troca Medida <-> Atributos, igual ArtiosCAD. Some com
+                # qualquer leitura ao vivo do modo anterior (a fixada, se
+                # já tiver alguma, não é afetada — só a transitória).
+                self._modo_medida = "atributos" if self._modo_medida == "medida" else "medida"
+                self._rotulo_medida.hide()
+                if self._criando:
+                    self._cancelar_criacao()
+                return
             eh_ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             eh_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if eh_ctrl and event.key() == Qt.Key.Key_G:
@@ -1027,6 +1184,14 @@ class PreviewCanvas(QGraphicsView):
                         item.setPos(item.pos() + delta)
                     return
         super().keyPressEvent(event)
+
+    def focusNextPrevChild(self, next: bool) -> bool:  # noqa: N802
+        # Sem isso, o Qt intercepta Tab pra navegação de foco entre
+        # widgets ANTES de `keyPressEvent` — a troca de sub-modo da
+        # ferramenta Medida (ver lá) nunca chegaria a rodar.
+        if self._modo_mockup and self._ferramenta == FerramentaMockup.MEDIR:
+            return False
+        return super().focusNextPrevChild(next)
 
 
 class PainelLegendaCores(QWidget):
