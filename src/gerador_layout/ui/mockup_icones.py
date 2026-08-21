@@ -260,6 +260,33 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(cor))
         painter.drawEllipse(QPointF(9, 13), 0.9, 0.9)
+    elif tipo == "ferramenta_laco":
+        # Laço poligonal tracejado (contorno irregular, não uma forma
+        # geométrica limpa — deixa claro que não é a ferramenta Polígono)
+        # com um "x" no vértice inicial, sugerindo "clique aqui pra
+        # fechar o laço".
+        pen_tracejada = QPen(cor, 1.2, Qt.PenStyle.DashLine)
+        painter.setPen(pen_tracejada)
+        painter.drawPolygon(
+            [QPointF(4, 6), QPointF(8, 3), QPointF(14, 5), QPointF(15, 10), QPointF(10, 14), QPointF(5, 12)]
+        )
+        painter.setPen(caneta)
+        painter.setBrush(QBrush(Qt.GlobalColor.transparent))
+        painter.drawEllipse(QPointF(4, 6), 1.4, 1.4)
+    elif tipo == "ferramenta_mover_preciso":
+        # Ponto de pega (círculo cheio) -> linha tracejada -> ponto de
+        # solta (círculo vazado) com seta — o modelo "pega e solta" de 2
+        # cliques, diferente do cursor de 4 setas de "mover" comum.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(cor))
+        painter.drawEllipse(QPointF(4, 14), 1.6, 1.6)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        pen_tracejada = QPen(cor, 1.2, Qt.PenStyle.DashLine)
+        painter.setPen(pen_tracejada)
+        painter.drawLine(QPointF(5.5, 12.5), QPointF(12, 6))
+        painter.setPen(caneta)
+        _seta(painter, QPointF(9, 9), QPointF(13.5, 4.5), cabeca=2.2)
+        painter.drawEllipse(QPointF(14, 4), 1.6, 1.6)
     elif tipo == "agrupar":
         painter.drawRect(QRectF(3, 3, 8, 8))
         painter.drawRect(QRectF(7, 7, 8, 8))
