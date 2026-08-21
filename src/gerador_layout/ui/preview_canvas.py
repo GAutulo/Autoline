@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from ..paineis import Painel
+from . import configuracoes
 from .estilo import Cor
 from .mockup_itens import ElementoMockup, GrupoMockup, _estado_recursivo
 from .mockup_reguas import GuiaCanvas
@@ -167,7 +168,10 @@ _DELTA_SETA_NUDGE: dict[Qt.Key, QPointF] = {
 # `Cor` (ver estilo.py) pra também inverter certo no tema escuro.
 _COR_FUNDO_CANVAS = QColor(*Cor.CANVAS_FUNDO_RGB)
 _COR_GRADE = QColor(*Cor.CANVAS_GRADE_RGBA)
-_PASSO_GRADE_MM = 10.0
+# Espaçamento da grade agora é preferência do usuário — ver
+# `configuracoes.passo_grade_mm()` (lido ao vivo em cada ponto de uso
+# abaixo, mesmo motivo do traço do vinco: mudar na tela de Configurações
+# já vale na hora, sem reiniciar), não uma constante fixa mais.
 
 # Zona segura: margem de recuo a partir do vinco/corte de cada painel onde
 # não é recomendado colocar conteúdo de mockup (risco de corte/dobra
@@ -464,8 +468,11 @@ class PreviewCanvas(QGraphicsView):
         self._area_transferencia: list[ElementoMockup] = []
 
         # Encaixe (snap) — grade, bordas/centro de outros elementos, da
-        # face e das guias (ver `_calcular_snap`).
-        self._snap_ativo = True
+        # face e das guias (ver `_calcular_snap`). Só o estado INICIAL
+        # vem de `configuracoes.py` (preferência salva) — o usuário ainda
+        # liga/desliga isso pelo menu Exibir durante a sessão, sem mexer
+        # na preferência salva (mesmo espírito da grade, ver lá).
+        self._snap_ativo = configuracoes.snap_ativo_padrao()
         # Guias de verdade (réguas, ver `mockup_reguas.py`) — cada uma é
         # um `GuiaCanvas` na cena (arrastável/selecionável/removível como
         # qualquer item), não só um número numa lista.
@@ -597,15 +604,16 @@ class PreviewCanvas(QGraphicsView):
         """Grade contínua cobrindo todo o canvas — usada só antes de
         calcular qualquer layout (sem painel nenhum ainda pra encaixar
         a grade)."""
-        x = math.floor(rect.left() / _PASSO_GRADE_MM) * _PASSO_GRADE_MM
+        passo = configuracoes.passo_grade_mm()
+        x = math.floor(rect.left() / passo) * passo
         while x < rect.right():
             painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
-            x += _PASSO_GRADE_MM
+            x += passo
 
-        y = math.floor(rect.top() / _PASSO_GRADE_MM) * _PASSO_GRADE_MM
+        y = math.floor(rect.top() / passo) * passo
         while y < rect.bottom():
             painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
-            y += _PASSO_GRADE_MM
+            y += passo
 
     def _desenhar_grade_por_painel(self, painter, rect, pen) -> None:
         """Uma grade por face, começando do canto de CADA painel (não de
@@ -613,6 +621,7 @@ class PreviewCanvas(QGraphicsView):
         borda desta face" em vez de uma origem arbitrária do desenho
         inteiro, que é o que realmente ajuda a posicionar arte numa face
         específica."""
+        passo = configuracoes.passo_grade_mm()
         for painel in self._paineis:
             area = QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
             if not area.intersects(rect):
@@ -623,11 +632,11 @@ class PreviewCanvas(QGraphicsView):
             x = painel.x1
             while x <= painel.x2:
                 painter.drawLine(QLineF(x, painel.y1, x, painel.y2))
-                x += _PASSO_GRADE_MM
+                x += passo
             y = painel.y1
             while y <= painel.y2:
                 painter.drawLine(QLineF(painel.x1, y, painel.x2, y))
-                y += _PASSO_GRADE_MM
+                y += passo
             painter.restore()
 
     def _desenhar_zonas_seguras(self, painter, rect) -> None:
@@ -1263,7 +1272,11 @@ class PreviewCanvas(QGraphicsView):
             self._guias.remove(guia)
         self._scene.removeItem(guia)
 
-    _LIMIAR_SNAP_MM = 3.0
+    # ── Encaixe (snap) — grade/bordas de outros elementos/face/guias ───
+    # Limiar e passo de grade lidos ao vivo de `configuracoes.py` (mesmo
+    # motivo do traço do vinco — mudar na tela de Configurações já vale
+    # na próxima vez que soltar o arrasto, sem reiniciar), não mais
+    # constante fixa.
 
     def _calcular_snap(self, elemento: ElementoMockup, pos_proposta: QPointF) -> QPointF:
         """Chamado pelo `mouseReleaseEvent` do elemento (ver
@@ -1293,10 +1306,11 @@ class PreviewCanvas(QGraphicsView):
             # peça "gruda" numa referência que a pessoa nem está vendo,
             # o que pareceria um bug ("por que não solta exatamente onde
             # eu larguei o mouse?").
-            candidatos.extend(round(borda / _PASSO_GRADE_MM) * _PASSO_GRADE_MM for borda in bordas)
+            passo = configuracoes.passo_grade_mm()
+            candidatos.extend(round(borda / passo) * passo for borda in bordas)
 
         melhor_ajuste = 0.0
-        menor_distancia = self._LIMIAR_SNAP_MM
+        menor_distancia = configuracoes.limiar_snap_mm()
         for borda in bordas:
             for alvo in candidatos:
                 distancia = abs(borda - alvo)
@@ -1312,10 +1326,11 @@ class PreviewCanvas(QGraphicsView):
         pra mover nada (ver `_atualizar_guia_snap_preview`)."""
         candidatos = list(alvos)
         if self._grade_visivel:
-            candidatos.extend(round(borda / _PASSO_GRADE_MM) * _PASSO_GRADE_MM for borda in bordas)
+            passo = configuracoes.passo_grade_mm()
+            candidatos.extend(round(borda / passo) * passo for borda in bordas)
 
         melhor_alvo = None
-        menor_distancia = self._LIMIAR_SNAP_MM
+        menor_distancia = configuracoes.limiar_snap_mm()
         for borda in bordas:
             for alvo in candidatos:
                 distancia = abs(borda - alvo)
@@ -1385,6 +1400,7 @@ class PreviewCanvas(QGraphicsView):
             alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
         return alvos
 
+    # ── Endpoint Offset Mode (Alt+clique numa ferramenta de criação) ───
     _LIMIAR_REFERENCIA_OFFSET_MM = 6.0
 
     def _ponto_referencia_proximo(self, pos_viewport) -> QPointF:
@@ -1420,6 +1436,7 @@ class PreviewCanvas(QGraphicsView):
             return None
         return next((p for p in self._paineis if p.id == elemento.painel_id), None)
 
+    # ── Alinhar / agrupar / desagrupar / remover a seleção atual ───────
     def alinhar_selecionados(self, alinhamento: str) -> None:
         """Alinha os elementos selecionados ENTRE SI (bordas/centro da
         própria seleção, não da face — isso já existe em
@@ -1486,7 +1503,8 @@ class PreviewCanvas(QGraphicsView):
             self._pilha_desfazer.push(_ComandoRemoverElementos(self, elementos))
 
     # ── Duplicar / copiar-colar (Ctrl+D, Ctrl+C, Ctrl+V) ────────────────
-    _PASSO_DUPLICAR_MM = 6.0
+    # `configuracoes.passo_duplicar_mm()` — deslocamento de cada cópia,
+    # lido ao vivo (ver seção de snap acima pro mesmo motivo).
 
     def _duplicar_no_lugar(self, elemento: ElementoMockup) -> None:
         """Chamado por `ElementoMockup.mousePressEvent` quando o usuário
@@ -1508,11 +1526,12 @@ class PreviewCanvas(QGraphicsView):
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
         if not selecionados:
             return []
+        passo = configuracoes.passo_duplicar_mm()
         clones = []
         for it in selecionados:
             it.setSelected(False)
             clone = it.clonar()
-            clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
+            clone.setPos(clone.pos() + QPointF(passo, passo))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
             self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
@@ -1535,10 +1554,11 @@ class PreviewCanvas(QGraphicsView):
             return []
         for it in self._scene.selectedItems():
             it.setSelected(False)
+        passo = configuracoes.passo_duplicar_mm()
         clones = []
         for original in self._area_transferencia:
             clone = original.clonar()
-            clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
+            clone.setPos(clone.pos() + QPointF(passo, passo))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
             self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Colar elemento"))
@@ -1628,15 +1648,17 @@ class PreviewCanvas(QGraphicsView):
                 self.colar()
                 return
             if not eh_ctrl and event.key() in _DELTA_SETA_NUDGE:
-                # Mover fino pelo teclado — 1mm por toque, 10mm com Shift
-                # (mesmo padrão de qualquer CAD: mouse pro grosso, seta
-                # pro ajuste fino de precisão). Só intercepta a seta
-                # quando tem elemento selecionado — sem seleção, a seta
-                # continua rolando a view (comportamento nativo de
+                # Mover fino pelo teclado — passo configurável em
+                # Configurações > Ferramentas (padrão 1mm por toque, 10mm
+                # com Shift, mesmo padrão de qualquer CAD: mouse pro
+                # grosso, seta pro ajuste fino de precisão). Só intercepta
+                # a seta quando tem elemento selecionado — sem seleção, a
+                # seta continua rolando a view (comportamento nativo de
                 # QGraphicsView, não mexi nisso).
                 selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
                 if selecionados:
-                    passo = 10.0 if eh_shift else 1.0
+                    passo_normal, passo_shift = configuracoes.passo_nudge_mm()
+                    passo = passo_shift if eh_shift else passo_normal
                     delta = _DELTA_SETA_NUDGE[event.key()] * passo
                     antes = {}
                     for item in selecionados:

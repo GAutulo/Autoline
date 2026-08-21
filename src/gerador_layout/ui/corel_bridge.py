@@ -100,6 +100,9 @@ _FATOR_SIZE_CDR_POR_MM = 4.0
 _MARGEM_LEGENDA_MM = 0.6  # relativo à altura da legenda, ver _desenhar_legenda
 
 
+# ── Conexão + ponto de entrada ──────────────────────────────────────────
+
+
 class CorelIndisponivel(RuntimeError):
     """Levantado quando não dá pra conectar ou desenhar no CorelDRAW."""
 
@@ -196,6 +199,8 @@ def desenhar_layout(
 #     depois de girar a range 90°).
 _TAMANHO_FONTE_REFERENCIA_CDR = 200.0
 
+# ── Helpers de geometria/cor compartilhados entre os desenhistas ───────
+
 
 def _rotacao_absoluta_graus(elemento: ElementoMockup) -> float:
     """`elemento.rotation()` sozinho só dá a rotação LOCAL, relativa ao
@@ -221,6 +226,9 @@ def _centro_e_rotacao_cdr(elemento: ElementoMockup, altura_total: float) -> tupl
 
 def _cor_rgb(app, cor_impressao):
     return app.CreateRGBColor(cor_impressao.r, cor_impressao.g, cor_impressao.b)
+
+
+# ── Um desenhista por tipo de ElementoMockup (dispatch abaixo) ─────────
 
 
 def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total: float) -> None:
@@ -603,6 +611,9 @@ def _desenhar_acabamento_cdr(app, layer, elemento: "ElementoAcabamento", altura_
         intervalo.Add(shape)
         intervalo.Add(texto_shape)
         intervalo.Rotate(angulo)
+
+
+# ── Legenda de cores + utilitários genéricos ────────────────────────────
 
 
 def _desenhar_legenda(app, layer, layout: LayoutCaixa) -> None:

@@ -34,6 +34,19 @@ _PADRAO_TRACO_VINCO_MM = 0.71
 _PADRAO_ESPACO_VINCO_MM = 1.06
 _PADRAO_ALTURA_LEGENDA_MM = 1.5
 
+# Parâmetros de ferramenta do modo Layout — todos eram constante fixa no
+# código até virarem preferência (ver `DialogoConfiguracoes`, aba
+# "Ferramentas"); os valores aqui são exatamente os que já estavam
+# hard-coded antes, preservados como padrão pra ninguém sentir a telinha
+# mudar sozinha na primeira vez que abrir a versão nova.
+_PADRAO_SNAP_ATIVO = True
+_PADRAO_LIMIAR_SNAP_MM = 3.0
+_PADRAO_PASSO_GRADE_MM = 10.0
+_PADRAO_PASSO_NUDGE_MM = 1.0
+_PADRAO_PASSO_NUDGE_SHIFT_MM = 10.0
+_PADRAO_PASSO_DUPLICAR_MM = 6.0
+_PADRAO_FONTE_TEXTO = "Arial"
+
 
 def _settings() -> QSettings:
     return QSettings(_ORGANIZACAO, _APLICATIVO)
@@ -77,9 +90,93 @@ def definir_altura_legenda_mm(valor: float) -> None:
     _settings().setValue("altura_legenda_mm", valor)
 
 
+# ── Parâmetros de ferramenta (modo Layout) ─────────────────────────────
+# Mesmo princípio do traço do vinco/legenda acima: lidos ao vivo (sem
+# cache) no ponto de uso — ver `preview_canvas.py` — então uma mudança
+# aqui já vale na próxima vez que a ferramenta for usada, sem reiniciar.
+
+
+def snap_ativo_padrao() -> bool:
+    """Se o encaixe (snap) começa LIGADO quando o app abre — só o estado
+    inicial; o usuário ainda pode ligar/desligar na hora pelo menu Exibir
+    (isso não fica salvo, é por sessão de propósito, igual a grade)."""
+    return bool(_settings().value("snap_ativo_padrao", _PADRAO_SNAP_ATIVO, type=bool))
+
+
+def definir_snap_ativo_padrao(ativo: bool) -> None:
+    _settings().setValue("snap_ativo_padrao", ativo)
+
+
+def limiar_snap_mm() -> float:
+    """Distância (mm) dentro da qual uma borda/centro "gruda" num alvo de
+    encaixe ao soltar o arrasto — maior valor gruda mais fácil (bom pra
+    trabalho rápido/impreciso no mouse), menor valor exige chegar mais
+    perto (bom pra ajuste fino sem grudar à toa)."""
+    return float(_settings().value("limiar_snap_mm", _PADRAO_LIMIAR_SNAP_MM, type=float))
+
+
+def definir_limiar_snap_mm(valor: float) -> None:
+    _settings().setValue("limiar_snap_mm", valor)
+
+
+def passo_grade_mm() -> float:
+    """Espaçamento (mm) da grade de fundo do canvas — também um alvo de
+    encaixe quando a grade está visível (ver menu Exibir)."""
+    return float(_settings().value("passo_grade_mm", _PADRAO_PASSO_GRADE_MM, type=float))
+
+
+def definir_passo_grade_mm(valor: float) -> None:
+    _settings().setValue("passo_grade_mm", valor)
+
+
+def passo_nudge_mm() -> tuple[float, float]:
+    """(passo normal, passo com Shift) pra mover elemento selecionado
+    pelas setas do teclado — o "ajuste fino" de precisão que complementa
+    o arrasto com o mouse."""
+    s = _settings()
+    normal = float(s.value("passo_nudge_mm", _PADRAO_PASSO_NUDGE_MM, type=float))
+    com_shift = float(s.value("passo_nudge_shift_mm", _PADRAO_PASSO_NUDGE_SHIFT_MM, type=float))
+    return normal, com_shift
+
+
+def definir_passo_nudge_mm(normal: float, com_shift: float) -> None:
+    s = _settings()
+    s.setValue("passo_nudge_mm", normal)
+    s.setValue("passo_nudge_shift_mm", com_shift)
+
+
+def passo_duplicar_mm() -> float:
+    """Deslocamento (mm, nos 2 eixos) de cada cópia feita com Ctrl+D —
+    efeito "cascata" pra não empilhar as cópias exatamente uma em cima
+    da outra."""
+    return float(_settings().value("passo_duplicar_mm", _PADRAO_PASSO_DUPLICAR_MM, type=float))
+
+
+def definir_passo_duplicar_mm(valor: float) -> None:
+    _settings().setValue("passo_duplicar_mm", valor)
+
+
+def fonte_padrao_texto() -> str:
+    """Família de fonte usada quando um elemento de Texto/Callout novo é
+    criado — o usuário ainda troca por elemento depois, na barra de
+    propriedades; isso só define o ponto de partida."""
+    return str(_settings().value("fonte_padrao_texto", _PADRAO_FONTE_TEXTO, type=str))
+
+
+def definir_fonte_padrao_texto(nome: str) -> None:
+    _settings().setValue("fonte_padrao_texto", nome)
+
+
 def restaurar_padroes() -> None:
     s = _settings()
     s.setValue("dpi_exportacao_jpg", _PADRAO_DPI_JPG)
     s.setValue("traco_vinco_mm", _PADRAO_TRACO_VINCO_MM)
     s.setValue("espaco_vinco_mm", _PADRAO_ESPACO_VINCO_MM)
     s.setValue("altura_legenda_mm", _PADRAO_ALTURA_LEGENDA_MM)
+    s.setValue("snap_ativo_padrao", _PADRAO_SNAP_ATIVO)
+    s.setValue("limiar_snap_mm", _PADRAO_LIMIAR_SNAP_MM)
+    s.setValue("passo_grade_mm", _PADRAO_PASSO_GRADE_MM)
+    s.setValue("passo_nudge_mm", _PADRAO_PASSO_NUDGE_MM)
+    s.setValue("passo_nudge_shift_mm", _PADRAO_PASSO_NUDGE_SHIFT_MM)
+    s.setValue("passo_duplicar_mm", _PADRAO_PASSO_DUPLICAR_MM)
+    s.setValue("fonte_padrao_texto", _PADRAO_FONTE_TEXTO)

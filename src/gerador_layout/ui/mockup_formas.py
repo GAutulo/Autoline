@@ -29,6 +29,9 @@ _LADOS_POLIGONO_MINIMO = 3
 _LADOS_POLIGONO_MAXIMO = 20
 
 
+# ── Retângulo ────────────────────────────────────────────────────────
+
+
 class ElementoRetangulo(ElementoMockup):
     def __init__(
         self,
@@ -87,6 +90,9 @@ class ElementoRetangulo(ElementoMockup):
         return novo
 
 
+# ── Linha ────────────────────────────────────────────────────────────
+
+
 class ElementoLinha(ElementoMockup):
     def __init__(
         self,
@@ -129,6 +135,9 @@ class ElementoLinha(ElementoMockup):
         novo = ElementoLinha(cor_tinta=self._cor_tinta, largura_traco=self._largura_traco)
         self._copiar_geometria_para(novo)
         return novo
+
+
+# ── Elipse ───────────────────────────────────────────────────────────
 
 
 class ElementoElipse(ElementoMockup):
@@ -191,6 +200,9 @@ class ElementoElipse(ElementoMockup):
         )
         self._copiar_geometria_para(novo)
         return novo
+
+
+# ── Polígono ─────────────────────────────────────────────────────────
 
 
 class ElementoPoligono(ElementoMockup):

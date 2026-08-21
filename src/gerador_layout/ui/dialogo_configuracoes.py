@@ -1,13 +1,18 @@
-"""Tela de Configurações — tema, DPI de exportação JPG, traço do vinco e
-tamanho da legenda de cores. Tudo persistido via `configuracoes.py`.
+"""Tela de Configurações — tema, DPI de exportação JPG, traço do vinco,
+tamanho da legenda de cores, e os parâmetros de ferramenta do modo Layout
+(encaixe, grade, mover fino pela seta, duplicar, fonte padrão de texto).
+Tudo persistido via `configuracoes.py`.
 
-Os valores de traço/legenda são lidos ao vivo por `exportacao.py` e
-`corel_bridge.py` (sem cache) — mudam já na próxima exportação, sem
-precisar reiniciar. O tema é a única exceção (ver `estilo.py`)."""
+Todo valor numérico/combo aqui é lido ao vivo no ponto de uso (ver
+`exportacao.py`/`corel_bridge.py` pro traço/legenda, `preview_canvas.py`
+pros parâmetros de ferramenta) — sem cache, então muda já na próxima vez
+que a ferramenta for usada, sem precisar reiniciar. O tema é a única
+exceção (ver `estilo.py`)."""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -15,11 +20,14 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from . import configuracoes
+from .painel_propriedades_mockup import _FONTES_DISPONIVEIS as _FONTES_TEXTO
 
 _ROTULO_TEMA = {
     configuracoes.TEMA_CLARO: "Claro (atual)",
@@ -31,9 +39,24 @@ class DialogoConfiguracoes(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Configurações")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(440)
+        # Conteúdo cresceu bastante com a aba "Ferramentas" — mais alto
+        # que os ~768px úteis de um notebook comum (mesma preocupação já
+        # documentada em `main.py::main`) sem rolagem. Um tamanho inicial
+        # que cabe de sobra em qualquer tela, com `QScrollArea` pra quem
+        # tiver uma ainda menor — os botões (OK/Cancelar) ficam FORA da
+        # área rolável, sempre visíveis.
+        self.resize(460, 640)
 
         vbox = QVBoxLayout(self)
+        area_rolavel = QScrollArea()
+        area_rolavel.setWidgetResizable(True)
+        area_rolavel.setFrameShape(QScrollArea.Shape.NoFrame)
+        vbox.addWidget(area_rolavel, 1)
+
+        conteudo = QWidget()
+        area_rolavel.setWidget(conteudo)
+        vbox_conteudo = QVBoxLayout(conteudo)
 
         grupo_aparencia = QGroupBox("Aparência")
         form_aparencia = QFormLayout(grupo_aparencia)
@@ -47,7 +70,7 @@ class DialogoConfiguracoes(QDialog):
         aviso_tema.setWordWrap(True)
         aviso_tema.setObjectName("legendaMuted")
         form_aparencia.addRow(aviso_tema)
-        vbox.addWidget(grupo_aparencia)
+        vbox_conteudo.addWidget(grupo_aparencia)
 
         grupo_exportacao = QGroupBox("Exportação")
         form_exportacao = QFormLayout(grupo_exportacao)
@@ -56,7 +79,7 @@ class DialogoConfiguracoes(QDialog):
         self.spin_dpi.setSuffix(" dpi")
         self.spin_dpi.setValue(configuracoes.dpi_exportacao_jpg())
         form_exportacao.addRow("Resolução do JPG:", self.spin_dpi)
-        vbox.addWidget(grupo_exportacao)
+        vbox_conteudo.addWidget(grupo_exportacao)
 
         grupo_vinco = QGroupBox("Traço do vinco")
         form_vinco = QFormLayout(grupo_vinco)
@@ -65,13 +88,51 @@ class DialogoConfiguracoes(QDialog):
         self.spin_espaco = self._criar_spin_mm(espaco_mm)
         form_vinco.addRow("Comprimento do traço:", self.spin_traco)
         form_vinco.addRow("Comprimento do espaço:", self.spin_espaco)
-        vbox.addWidget(grupo_vinco)
+        vbox_conteudo.addWidget(grupo_vinco)
 
         grupo_legenda = QGroupBox("Legenda de cores")
         form_legenda = QFormLayout(grupo_legenda)
         self.spin_altura_legenda = self._criar_spin_mm(configuracoes.altura_legenda_mm())
         form_legenda.addRow("Altura do texto/bolinha:", self.spin_altura_legenda)
-        vbox.addWidget(grupo_legenda)
+        vbox_conteudo.addWidget(grupo_legenda)
+
+        # Parâmetros de ferramenta do modo Layout — eram tudo constante
+        # fixa no código até virarem preferência (ver `configuracoes.py`).
+        # Lidos ao vivo no ponto de uso, então valem já na próxima vez que
+        # a ferramenta for usada, sem precisar reiniciar (só o tema
+        # precisa — ver aviso lá em cima).
+        grupo_ferramentas = QGroupBox("Ferramentas (modo Layout)")
+        form_ferramentas = QFormLayout(grupo_ferramentas)
+        form_ferramentas.setVerticalSpacing(10)
+
+        self.check_snap_padrao = QCheckBox("Encaixe (snap) já começa ligado")
+        self.check_snap_padrao.setChecked(configuracoes.snap_ativo_padrao())
+        form_ferramentas.addRow(self.check_snap_padrao)
+
+        self.spin_limiar_snap = self._criar_spin_mm(configuracoes.limiar_snap_mm())
+        form_ferramentas.addRow("Distância pra grudar no encaixe:", self.spin_limiar_snap)
+
+        self.spin_passo_grade = self._criar_spin_mm(configuracoes.passo_grade_mm())
+        form_ferramentas.addRow("Espaçamento da grade:", self.spin_passo_grade)
+
+        passo_nudge, passo_nudge_shift = configuracoes.passo_nudge_mm()
+        self.spin_passo_nudge = self._criar_spin_mm(passo_nudge)
+        form_ferramentas.addRow("Mover fino pela seta do teclado:", self.spin_passo_nudge)
+        self.spin_passo_nudge_shift = self._criar_spin_mm(passo_nudge_shift)
+        form_ferramentas.addRow("Mover fino com Shift + seta:", self.spin_passo_nudge_shift)
+
+        self.spin_passo_duplicar = self._criar_spin_mm(configuracoes.passo_duplicar_mm())
+        form_ferramentas.addRow("Deslocamento ao duplicar (Ctrl+D):", self.spin_passo_duplicar)
+
+        self.combo_fonte_texto = QComboBox()
+        self.combo_fonte_texto.addItems(_FONTES_TEXTO)
+        fonte_atual = configuracoes.fonte_padrao_texto()
+        if fonte_atual in _FONTES_TEXTO:
+            self.combo_fonte_texto.setCurrentText(fonte_atual)
+        form_ferramentas.addRow("Fonte padrão de texto novo:", self.combo_fonte_texto)
+
+        vbox_conteudo.addWidget(grupo_ferramentas)
+        vbox_conteudo.addStretch(1)
 
         # Qt não localiza os textos padrão pro português nesta instalação
         # (saem "OK"/"Cancel"/"Restore Defaults" em inglês) — define o
@@ -109,6 +170,14 @@ class DialogoConfiguracoes(QDialog):
         self.spin_traco.setValue(traco_mm)
         self.spin_espaco.setValue(espaco_mm)
         self.spin_altura_legenda.setValue(configuracoes.altura_legenda_mm())
+        self.check_snap_padrao.setChecked(configuracoes.snap_ativo_padrao())
+        self.spin_limiar_snap.setValue(configuracoes.limiar_snap_mm())
+        self.spin_passo_grade.setValue(configuracoes.passo_grade_mm())
+        passo_nudge, passo_nudge_shift = configuracoes.passo_nudge_mm()
+        self.spin_passo_nudge.setValue(passo_nudge)
+        self.spin_passo_nudge_shift.setValue(passo_nudge_shift)
+        self.spin_passo_duplicar.setValue(configuracoes.passo_duplicar_mm())
+        self.combo_fonte_texto.setCurrentText(configuracoes.fonte_padrao_texto())
         # Tema não tem "padrão" salvo em restaurar_padroes (é intencional
         # que o usuário não perca o tema escolhido sem querer) — só reseta
         # os números.
@@ -120,4 +189,10 @@ class DialogoConfiguracoes(QDialog):
         configuracoes.definir_dpi_exportacao_jpg(self.spin_dpi.value())
         configuracoes.definir_traco_vinco_mm(self.spin_traco.value(), self.spin_espaco.value())
         configuracoes.definir_altura_legenda_mm(self.spin_altura_legenda.value())
+        configuracoes.definir_snap_ativo_padrao(self.check_snap_padrao.isChecked())
+        configuracoes.definir_limiar_snap_mm(self.spin_limiar_snap.value())
+        configuracoes.definir_passo_grade_mm(self.spin_passo_grade.value())
+        configuracoes.definir_passo_nudge_mm(self.spin_passo_nudge.value(), self.spin_passo_nudge_shift.value())
+        configuracoes.definir_passo_duplicar_mm(self.spin_passo_duplicar.value())
+        configuracoes.definir_fonte_padrao_texto(self.combo_fonte_texto.currentText())
         self.accept()
