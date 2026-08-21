@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
+# ── Enums ─────────────────────────────────────────────────────────────
+
 
 class TipoLinha(Enum):
     """Tipo de linha técnica no layout de corte."""
@@ -41,6 +43,9 @@ NOME_EXIBICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
     TipoCaixa.MALETA_NORMAL: "Maleta normal",
     TipoCaixa.MALETA_TRANSPASSADA: "Maleta transpassada",
 }
+
+
+# ── Dataclasses ───────────────────────────────────────────────────────
 
 
 @dataclass

@@ -285,6 +285,9 @@ class _PenasExportacao:
             item.setPen(pen_original)
 
 
+# ── API pública — uma função por formato ────────────────────────────────
+
+
 def exportar_svg(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> None:
     rect, legenda = _rect_com_legenda(scene, layout)
     selecao = _SelecaoOculta(scene)

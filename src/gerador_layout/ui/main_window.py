@@ -31,9 +31,10 @@ from PySide6.QtWidgets import (
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
 from ..paineis import Painel, calcular_paineis
-from . import corel_bridge, exportacao
+from . import configuracoes, corel_bridge, exportacao
 from .dialogo_configuracoes import DialogoConfiguracoes
 from .dialogo_logo import DialogoSepararCoresLogo
+from .dialogo_manual import DialogoManual
 from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento
@@ -91,6 +92,7 @@ class JanelaPrincipal(QMainWindow):
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
         self._paineis_atuais: list[Painel] = []
+        self._dialogo_manual: DialogoManual | None = None
 
         self._montar_ui()
         self._montar_abas_tela()
@@ -459,6 +461,9 @@ class JanelaPrincipal(QMainWindow):
         self._grupo_medidas.toggled.connect(acao_medidas.setChecked)
 
         menu_ajuda = self.menuBar().addMenu("A&juda")
+        acao_manual = menu_ajuda.addAction("Manual de uso...", self._abrir_manual)
+        acao_manual.setShortcut("F1")
+        menu_ajuda.addSeparator()
         menu_ajuda.addAction("Sobre...", self._mostrar_sobre)
 
     # ── Duas telas: Dieline (medidas/cores/preview) e Layout (mockup) ──
@@ -726,7 +731,9 @@ class JanelaPrincipal(QMainWindow):
         self._selecionar_e_voltar_ao_ponteiro(elemento)
 
     def _criar_texto_por_clique(self, pos: QPointF) -> None:
-        elemento = ElementoTexto(texto="Texto", cor_tinta=self._cor_tinta_padrao())
+        elemento = ElementoTexto(
+            texto="Texto", fonte_familia=configuracoes.fonte_padrao_texto(), cor_tinta=self._cor_tinta_padrao()
+        )
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
         elemento.iniciar_edicao_inline()
@@ -873,6 +880,17 @@ class JanelaPrincipal(QMainWindow):
                 )
                 if resposta == QMessageBox.StandardButton.Yes:
                     self.close()
+
+    def _abrir_manual(self) -> None:
+        # Não-modal (`show`, não `exec`) de propósito — o usuário
+        # provavelmente quer consultar um tópico E continuar trabalhando
+        # no canvas ao mesmo tempo (ex.: ler sobre uma ferramenta enquanto
+        # testa ela), não travado numa janela até fechar.
+        if self._dialogo_manual is None:
+            self._dialogo_manual = DialogoManual(self)
+        self._dialogo_manual.show()
+        self._dialogo_manual.raise_()
+        self._dialogo_manual.activateWindow()
 
     def _mostrar_sobre(self) -> None:
         QMessageBox.about(
