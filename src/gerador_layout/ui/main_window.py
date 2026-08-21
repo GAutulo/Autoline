@@ -556,11 +556,29 @@ class JanelaPrincipal(QMainWindow):
             "Selecionar (Esc) — Alt+arrastar duplica, Shift+arrastar restringe a um eixo",
             FerramentaMockup.SELECIONAR,
         )
-        acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
-        acao_ferramenta("ferramenta_retangulo", "Retângulo — clique e arraste pra desenhar", FerramentaMockup.RETANGULO)
-        acao_ferramenta("ferramenta_elipse", "Elipse — clique e arraste pra desenhar", FerramentaMockup.ELIPSE)
         acao_ferramenta(
-            "ferramenta_poligono", "Polígono — clique e arraste pra desenhar (nº de lados ajustável)", FerramentaMockup.POLIGONO
+            "ferramenta_laco",
+            "Laço de seleção — clique pra cada vértice, feche perto do primeiro ponto",
+            FerramentaMockup.LACO_SELECAO,
+        )
+        acao_ferramenta(
+            "ferramenta_mover_preciso",
+            "Mover de precisão — clique no ponto de pega, depois no ponto de solta (move a seleção atual)",
+            FerramentaMockup.MOVER_PRECISO,
+        )
+        acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
+        acao_ferramenta(
+            "ferramenta_retangulo",
+            "Retângulo — clique e arraste pra desenhar (Alt = a partir do centro)",
+            FerramentaMockup.RETANGULO,
+        )
+        acao_ferramenta(
+            "ferramenta_elipse", "Elipse — clique e arraste pra desenhar (Alt = a partir do centro)", FerramentaMockup.ELIPSE
+        )
+        acao_ferramenta(
+            "ferramenta_poligono",
+            "Polígono — clique e arraste pra desenhar (nº de lados ajustável, Alt = a partir do centro)",
+            FerramentaMockup.POLIGONO,
         )
         acao_ferramenta("ferramenta_linha", "Linha — clique e arraste pra desenhar", FerramentaMockup.LINHA)
         acao_ferramenta(
@@ -569,7 +587,7 @@ class JanelaPrincipal(QMainWindow):
         acao_ferramenta("ferramenta_tabela", "Tabela — clique no canvas (ficha técnica/nutricional)", FerramentaMockup.TABELA)
         acao_ferramenta(
             "ferramenta_transparencia",
-            "Acabamento de produção — clique e arraste (verniz localizado, laminação, hot stamping)",
+            "Acabamento de produção — clique e arraste (Alt = a partir do centro; verniz localizado, laminação, hot stamping)",
             FerramentaMockup.ACABAMENTO,
         )
         acao_ferramenta(

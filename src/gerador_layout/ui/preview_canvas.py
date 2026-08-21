@@ -26,10 +26,12 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QDoubleSpinBox,
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -68,6 +70,8 @@ class FerramentaMockup(Enum):
     TABELA = auto()
     ACABAMENTO = auto()
     SIMBOLO = auto()
+    LACO_SELECAO = auto()
+    MOVER_PRECISO = auto()
 
 
 # Ferramentas que desenham por clique+arrasto de um retângulo (a forma
@@ -89,6 +93,18 @@ _FERRAMENTAS_CLIQUE_UNICO = {
     FerramentaMockup.SIMBOLO,
 }
 
+# Ferramentas de CRIAÇÃO de geometria (não seleção/leitura/utilidade) —
+# são as que Endpoint Offset Mode (Alt+clique, ver `_PainelOffsetEndpoint`)
+# se aplica. Exclui de propósito CONTA_GOTAS/MEDIR (não criam elemento) e
+# LACO_SELECAO/MOVER_PRECISO (são seleção/utilidade, não geometria).
+_FERRAMENTAS_CRIACAO_GEOMETRIA = _FERRAMENTAS_RETANGULO_ARRASTO | {
+    FerramentaMockup.LINHA,
+    FerramentaMockup.TEXTO,
+    FerramentaMockup.CALLOUT,
+    FerramentaMockup.TABELA,
+    FerramentaMockup.SIMBOLO,
+}
+
 # Cursor por ferramenta — módulo-level (não muda por instância) pra dar
 # pra reusar tanto em `definir_ferramenta` quanto ao restaurar o cursor
 # depois de um pan com o botão do meio (ver `mouseReleaseEvent`).
@@ -105,6 +121,8 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.CALLOUT: Qt.CursorShape.IBeamCursor,
     FerramentaMockup.TABELA: Qt.CursorShape.CrossCursor,
     FerramentaMockup.SIMBOLO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.LACO_SELECAO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.MOVER_PRECISO: Qt.CursorShape.CrossCursor,
 }
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
@@ -159,6 +177,71 @@ _ESTILO_PAINEL = (
     "padding: 4px 8px;"
     "font-size: 12px;"
 )
+
+
+class _PainelOffsetEndpoint(QWidget):
+    """Endpoint Offset Mode (ArtiosCAD) — Alt+clique numa ferramenta de
+    criação de geometria acha o PONTO DE REFERÊNCIA mais próximo (borda/
+    centro de outro elemento, guia, ou o próprio ponto clicado se nada
+    estiver perto) e mostra estes 2 campos (deslocamento X/Y em mm a
+    partir dali) em vez de exigir o clique visual exato — Enter confirma
+    (o ponto final = referência + deslocamento vira o 1º ponto da
+    ferramenta ativa, normalmente), Esc cancela sem criar nada.
+
+    Widget de verdade (não um item de cena) — mesmo motivo de
+    `_rotulo_medida`: fica em coordenadas de TELA (pixel), não de cena,
+    então não precisa reconverter nada com o zoom."""
+
+    confirmado = Signal(float, float)
+    cancelado = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setStyleSheet(_ESTILO_PAINEL + f"background: {Cor.CARTAO};")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
+        self._spin_x = QDoubleSpinBox()
+        self._spin_y = QDoubleSpinBox()
+        for spin, sufixo in ((self._spin_x, " X mm"), (self._spin_y, " Y mm")):
+            spin.setRange(-100000.0, 100000.0)
+            spin.setDecimals(2)
+            spin.setSuffix(sufixo)
+            spin.setMinimumWidth(110)
+            spin.installEventFilter(self)
+            layout.addWidget(spin)
+        self.setFocusProxy(self._spin_x)
+        self.hide()
+
+    def iniciar(self, pos_viewport) -> None:
+        self._spin_x.blockSignals(True)
+        self._spin_y.blockSignals(True)
+        self._spin_x.setValue(0.0)
+        self._spin_y.setValue(0.0)
+        self._spin_x.blockSignals(False)
+        self._spin_y.blockSignals(False)
+        self.adjustSize()
+        self.move(pos_viewport.x() + 14, pos_viewport.y() - self.height() - 10)
+        self.show()
+        self.raise_()
+        self._spin_x.setFocus()
+        self._spin_x.selectAll()
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if event.type() == event.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.hide()
+                self.confirmado.emit(self._spin_x.value(), self._spin_y.value())
+                return True
+            if event.key() == Qt.Key.Key_Escape:
+                self.hide()
+                self.cancelado.emit()
+                return True
+            if event.key() == Qt.Key.Key_Tab and watched is self._spin_x:
+                self._spin_y.setFocus()
+                self._spin_y.selectAll()
+                return True
+        return super().eventFilter(watched, event)
 
 
 class _RotuloMedidaFixado(QLabel):
@@ -280,6 +363,21 @@ class PreviewCanvas(QGraphicsView):
         self._ponto_inicial_criacao = QPointF()
         self._item_preview_criacao: QGraphicsItem | None = None
 
+        # Laço poligonal de seleção (`FerramentaMockup.LACO_SELECAO`) —
+        # gesto de VÁRIOS cliques (não clique-arrasto-solta como o resto
+        # de `_iniciar_criacao`), então tem estado próprio em vez de
+        # reusar `_criando`/`_ponto_inicial_criacao`. Cada clique some um
+        # vértice; clicar perto do primeiro fecha o laço e seleciona.
+        self._pontos_laco: list[QPointF] = []
+        self._item_preview_laco: QGraphicsPathItem | None = None
+
+        # Move tool de precisão (`FerramentaMockup.MOVER_PRECISO`) —
+        # também 2 cliques em sequência (ponto de "pega" + ponto de
+        # "solta"), não um arrasto contínuo — ver docstring de
+        # `_continuar_mover_preciso`.
+        self._ponto_pega_mover_preciso: QPointF | None = None
+        self._elementos_mover_preciso: list[ElementoMockup] = []
+
         # Área de transferência interna do app (Ctrl+C/Ctrl+V) — guarda
         # clones desconectados da cena, não referências aos itens de
         # verdade (ver `copiar_selecionados`).
@@ -328,6 +426,15 @@ class PreviewCanvas(QGraphicsView):
         # anotações que o usuário pediu pra guardar, diferente da leitura
         # ao vivo em `_rotulo_medida`, que é descartável).
         self._rotulos_fixados: list[_RotuloMedidaFixado] = []
+
+        # Endpoint Offset Mode (ver `_PainelOffsetEndpoint`) — Alt+clique
+        # numa ferramenta de criação de geometria pausa o gesto e pede um
+        # deslocamento numérico a partir do ponto de referência mais
+        # próximo, em vez de já criar no ponto clicado.
+        self._painel_offset = _PainelOffsetEndpoint(self)
+        self._painel_offset.confirmado.connect(self._ao_confirmar_offset_endpoint)
+        self._painel_offset.cancelado.connect(self._painel_offset.hide)
+        self._offset_referencia_cena = QPointF()
 
     # ── API pública ─────────────────────────────────────────────────
     @property
@@ -454,7 +561,12 @@ class PreviewCanvas(QGraphicsView):
         # E mudar o zoom no mesmo clique).
         item = self.itemAt(event.pos())
         super().mouseDoubleClickEvent(event)
-        if self._modo_mockup and item is not None:
+        if self._modo_mockup and (item is not None or self._pontos_laco or self._ponto_pega_mover_preciso is not None):
+            # Também não deveria "ajustar à tela" no meio de um laço de
+            # seleção ou de um Move tool de precisão em andamento — o
+            # segundo clique de um clique-duplo acidental não passa por
+            # `mousePressEvent` (vira `mouseDoubleClickEvent` direto), e
+            # sem essa guarda o zoom resetava sozinho no meio do gesto.
             return
         self.ajustar_a_tela()
 
@@ -478,6 +590,11 @@ class PreviewCanvas(QGraphicsView):
     def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
         if self._criando:
             self._cancelar_criacao()
+        if self._pontos_laco:
+            self._cancelar_laco_selecao()
+        if self._ponto_pega_mover_preciso is not None:
+            self._cancelar_mover_preciso()
+        self._painel_offset.hide()
         if self._ferramenta == FerramentaMockup.MEDIR and ferramenta != FerramentaMockup.MEDIR:
             # Sair da ferramenta de medida limpa a última leitura — ela é
             # uma resposta pontual ("quanto é isso aqui?"), não uma
@@ -518,6 +635,22 @@ class PreviewCanvas(QGraphicsView):
             return
         if (
             self._modo_mockup
+            and event.button() == Qt.MouseButton.LeftButton
+            and event.modifiers() & Qt.KeyboardModifier.AltModifier
+            and self._ferramenta in _FERRAMENTAS_CRIACAO_GEOMETRIA
+            and not self._criando
+            and not self._painel_offset.isVisible()
+        ):
+            # Endpoint Offset Mode — pausa o gesto de criação pra pedir
+            # um deslocamento numérico a partir do ponto de referência
+            # mais próximo, em vez de já iniciar com o clique visual (ver
+            # `_PainelOffsetEndpoint`/`_ao_confirmar_offset_endpoint`).
+            self._offset_referencia_cena = self._ponto_referencia_proximo(event.pos())
+            self._painel_offset.iniciar(event.pos())
+            event.accept()
+            return
+        if (
+            self._modo_mockup
             and self._ferramenta != FerramentaMockup.SELECIONAR
             and event.button() == Qt.MouseButton.LeftButton
         ):
@@ -536,7 +669,7 @@ class PreviewCanvas(QGraphicsView):
             event.accept()
             return
         if self._criando:
-            self._atualizar_criacao(event.pos())
+            self._atualizar_criacao(event.pos(), event.modifiers())
             event.accept()
             return
         if (
@@ -556,6 +689,10 @@ class PreviewCanvas(QGraphicsView):
                 pos = event.pos()
                 self._rotulo_medida.move(pos.x() + 14, pos.y() - self._rotulo_medida.height() - 10)
                 self._rotulo_medida.show()
+        if self._pontos_laco:
+            self._atualizar_preview_laco(self.mapToScene(event.pos()))
+        if self._ponto_pega_mover_preciso is not None:
+            self._atualizar_preview_mover_preciso(event.pos())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -568,7 +705,7 @@ class PreviewCanvas(QGraphicsView):
             event.accept()
             return
         if self._criando and event.button() == Qt.MouseButton.LeftButton:
-            self._finalizar_criacao(event.pos())
+            self._finalizar_criacao(event.pos(), event.modifiers())
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -607,6 +744,12 @@ class PreviewCanvas(QGraphicsView):
                 self._rotulo_medida.hide()
                 self._fixar_leitura_medida(texto, pos_viewport)
             return
+        if self._ferramenta == FerramentaMockup.LACO_SELECAO:
+            self._continuar_laco_selecao(self._ponto_inicial_criacao, pos_viewport)
+            return
+        if self._ferramenta == FerramentaMockup.MOVER_PRECISO:
+            self._continuar_mover_preciso(self._ponto_inicial_criacao)
+            return
 
         self._criando = True
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
@@ -625,10 +768,24 @@ class PreviewCanvas(QGraphicsView):
             self._rotulo_medida.move(pos_viewport.x() + 14, pos_viewport.y() - self._rotulo_medida.height() - 10)
             self._rotulo_medida.show()
 
-    def _atualizar_criacao(self, pos_viewport) -> None:
+    def _retangulo_de_criacao(self, atual: QPointF, modificadores: Qt.KeyboardModifier) -> QRectF:
+        """Canto-a-canto (padrão) ou "a partir do centro" se Alt estiver
+        segurado durante o arrasto — o primeiro clique vira o CENTRO em
+        vez de um canto, e a forma cresce simétrica dos dois lados
+        (mesma convenção de "From Center" do ArtiosCAD/qualquer editor
+        vetorial). Reavaliado a cada frame (dá pra soltar/segurar Alt no
+        meio do arrasto e ver o efeito na hora, sem precisar recomeçar).
+        Recebe os modificadores do evento (não `QApplication.keyboardModifiers()`
+        global) — mais direto e mais fácil de testar."""
+        if modificadores & Qt.KeyboardModifier.AltModifier:
+            meia_diagonal = atual - self._ponto_inicial_criacao
+            return QRectF(self._ponto_inicial_criacao - meia_diagonal, self._ponto_inicial_criacao + meia_diagonal).normalized()
+        return QRectF(self._ponto_inicial_criacao, atual).normalized()
+
+    def _atualizar_criacao(self, pos_viewport, modificadores: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
         atual = self.mapToScene(pos_viewport)
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
-            self._item_preview_criacao.setRect(QRectF(self._ponto_inicial_criacao, atual).normalized())
+            self._item_preview_criacao.setRect(self._retangulo_de_criacao(atual, modificadores))
         elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
             linha = QLineF(self._ponto_inicial_criacao, atual)
             self._item_preview_criacao.setLine(linha)
@@ -637,7 +794,7 @@ class PreviewCanvas(QGraphicsView):
                 self._rotulo_medida.adjustSize()
                 self._rotulo_medida.move(pos_viewport.x() + 14, pos_viewport.y() - self._rotulo_medida.height() - 10)
 
-    def _finalizar_criacao(self, pos_viewport) -> None:
+    def _finalizar_criacao(self, pos_viewport, modificadores: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
         self._criando = False
         if self._ferramenta == FerramentaMockup.MEDIR:
             # Só chega aqui no sub-modo Medida (Atributos nem passa por
@@ -668,7 +825,7 @@ class PreviewCanvas(QGraphicsView):
         # sem querer arrastar de verdade (o gesto mais comum de quem
         # ainda tá aprendendo a ferramenta).
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
-            rect = QRectF(self._ponto_inicial_criacao, atual).normalized()
+            rect = self._retangulo_de_criacao(atual, modificadores)
             if rect.width() < 2.0 or rect.height() < 2.0:
                 return
             sinais_arrasto = {
@@ -688,6 +845,114 @@ class PreviewCanvas(QGraphicsView):
             self._scene.removeItem(self._item_preview_criacao)
             self._item_preview_criacao = None
         self._rotulo_medida.hide()
+
+    # ── Laço poligonal de seleção ───────────────────────────────────────
+    _LIMIAR_FECHAR_LACO_PX = 10.0
+
+    def _continuar_laco_selecao(self, ponto_cena: QPointF, pos_viewport) -> None:
+        """Cada clique soma um vértice ao laço; clicar perto do primeiro
+        vértice de novo (com pelo menos 3 já colocados — um "polígono" de
+        2 pontos não seleciona nada) fecha e seleciona. O limiar de
+        "perto" é em PIXELS de tela, não mm de cena — senão fechar o laço
+        ficaria cada vez mais difícil de acertar conforme o zoom
+        diminuísse (mesmo espírito do raio de clique nas alças de
+        redimensionar, ver `_MARGEM_CLIQUE_ALCA` em mockup_itens.py)."""
+        if len(self._pontos_laco) >= 3:
+            primeiro_viewport = self.mapFromScene(self._pontos_laco[0])
+            distancia = math.hypot(pos_viewport.x() - primeiro_viewport.x(), pos_viewport.y() - primeiro_viewport.y())
+            if distancia <= self._LIMIAR_FECHAR_LACO_PX:
+                self._fechar_laco_selecao()
+                return
+        self._pontos_laco.append(ponto_cena)
+        self._atualizar_preview_laco(ponto_cena)
+
+    def _atualizar_preview_laco(self, ponto_atual_cena: QPointF | None = None) -> None:
+        if not self._pontos_laco:
+            if self._item_preview_laco is not None:
+                self._scene.removeItem(self._item_preview_laco)
+                self._item_preview_laco = None
+            return
+        caminho = QPainterPath()
+        caminho.moveTo(self._pontos_laco[0])
+        for ponto in self._pontos_laco[1:]:
+            caminho.lineTo(ponto)
+        if ponto_atual_cena is not None:
+            caminho.lineTo(ponto_atual_cena)
+        if self._item_preview_laco is None:
+            self._item_preview_laco = QGraphicsPathItem()
+            self._item_preview_laco.setPen(self._caneta_preview())
+            self._scene.addItem(self._item_preview_laco)
+        self._item_preview_laco.setPath(caminho)
+
+    def _fechar_laco_selecao(self) -> None:
+        """Seleciona todo `ElementoMockup` de nível superior cujo CENTRO
+        (não a forma inteira — testar o polígono do laço contra a forma
+        completa de cada elemento seria bem mais caro e a leitura visual
+        de "cabe dentro do laço" já bate com o centro pra a maioria dos
+        casos práticos) cai dentro do polígono desenhado."""
+        poligono = QPolygonF(self._pontos_laco)
+        self._scene.clearSelection()
+        for elemento in self._elementos_mockup:
+            centro = elemento.mapToScene(QPointF(elemento.largura / 2, elemento.altura / 2))
+            if poligono.containsPoint(centro, Qt.FillRule.OddEvenFill):
+                elemento.setSelected(True)
+        self._cancelar_laco_selecao()
+
+    def _cancelar_laco_selecao(self) -> None:
+        self._pontos_laco = []
+        if self._item_preview_laco is not None:
+            self._scene.removeItem(self._item_preview_laco)
+            self._item_preview_laco = None
+
+    # ── Move tool de precisão (pega + solta) ────────────────────────────
+    def _continuar_mover_preciso(self, ponto_cena: QPointF) -> None:
+        """2 cliques em sequência, não um arrasto contínuo — o 1º define
+        o ponto de "pega" (a referência; não precisa ser um ponto do
+        próprio elemento, pode ser qualquer lugar da cena, igual o Move
+        tool do ArtiosCAD), o 2º o ponto de "solta"; todos os elementos
+        selecionados deslocam pelo delta entre os dois. Fica pronta pra
+        um novo par de cliques em seguida (ferramenta de utilidade
+        repetível, não "usa uma vez e volta pro ponteiro" como
+        Texto/Callout)."""
+        if self._ponto_pega_mover_preciso is None:
+            self._elementos_mover_preciso = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+            if not self._elementos_mover_preciso:
+                return
+            self._ponto_pega_mover_preciso = ponto_cena
+            return
+
+        delta = ponto_cena - self._ponto_pega_mover_preciso
+        elementos = self._elementos_mover_preciso
+        self._ponto_pega_mover_preciso = None
+        self._elementos_mover_preciso = []
+        self._limpar_preview_mover_preciso()
+        for elemento in elementos:
+            elemento.setPos(elemento.pos() + delta)
+
+    def _atualizar_preview_mover_preciso(self, pos_viewport) -> None:
+        if self._ponto_pega_mover_preciso is None:
+            return
+        linha = QLineF(self._ponto_pega_mover_preciso, self.mapToScene(pos_viewport))
+        if self._item_preview_criacao is None:
+            self._item_preview_criacao = QGraphicsLineItem()
+            self._item_preview_criacao.setPen(self._caneta_preview())
+            self._scene.addItem(self._item_preview_criacao)
+        self._item_preview_criacao.setLine(linha)
+        self._rotulo_medida.setText(f"{linha.length():.1f} mm")
+        self._rotulo_medida.adjustSize()
+        self._rotulo_medida.move(pos_viewport.x() + 14, pos_viewport.y() - self._rotulo_medida.height() - 10)
+        self._rotulo_medida.show()
+
+    def _limpar_preview_mover_preciso(self) -> None:
+        if self._item_preview_criacao is not None:
+            self._scene.removeItem(self._item_preview_criacao)
+            self._item_preview_criacao = None
+        self._rotulo_medida.hide()
+
+    def _cancelar_mover_preciso(self) -> None:
+        self._ponto_pega_mover_preciso = None
+        self._elementos_mover_preciso = []
+        self._limpar_preview_mover_preciso()
 
     # ── Ferramenta Medida — sub-modo Atributos + leituras fixadas ──────
     def _texto_atributos_sob_cursor(self, pos_viewport) -> str | None:
@@ -969,6 +1234,36 @@ class PreviewCanvas(QGraphicsView):
             alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
         return alvos
 
+    _LIMIAR_REFERENCIA_OFFSET_MM = 6.0
+
+    def _ponto_referencia_proximo(self, pos_viewport) -> QPointF:
+        """Pro Endpoint Offset Mode (ver `_PainelOffsetEndpoint`) — acha,
+        em cada eixo independentemente (mesmo espírito do snap comum),
+        a borda/centro de elemento ou guia mais próxima do clique; se
+        nada estiver perto o bastante num eixo, usa a posição bruta do
+        clique NAQUELE eixo (não trava esperando achar uma referência
+        "perfeita" — sem nada por perto, o próprio clique já É a
+        referência, exatamente como clicar normal sem Alt)."""
+        ponto_cena = self.mapToScene(pos_viewport)
+        candidatos_x = [g.posicao for g in self._guias if g.orientacao == "v"]
+        candidatos_y = [g.posicao for g in self._guias if g.orientacao == "h"]
+        for outro in self._elementos_mockup:
+            candidatos_x.extend((outro.pos().x(), outro.pos().x() + outro.largura / 2, outro.pos().x() + outro.largura))
+            candidatos_y.extend((outro.pos().y(), outro.pos().y() + outro.altura / 2, outro.pos().y() + outro.altura))
+
+        def _mais_proximo(valor: float, candidatos: list[float]) -> float:
+            if not candidatos:
+                return valor
+            melhor = min(candidatos, key=lambda c: abs(c - valor))
+            return melhor if abs(melhor - valor) <= self._LIMIAR_REFERENCIA_OFFSET_MM else valor
+
+        return QPointF(_mais_proximo(ponto_cena.x(), candidatos_x), _mais_proximo(ponto_cena.y(), candidatos_y))
+
+    def _ao_confirmar_offset_endpoint(self, dx: float, dy: float) -> None:
+        ponto_final_cena = self._offset_referencia_cena + QPointF(dx, dy)
+        pos_viewport_final = self.mapFromScene(ponto_final_cena)
+        self._iniciar_criacao(pos_viewport_final)
+
     def _painel_do_elemento(self, elemento: ElementoMockup) -> Painel | None:
         if elemento.painel_id is None:
             return None
@@ -1134,6 +1429,10 @@ class PreviewCanvas(QGraphicsView):
                 # ponteiro — igual qualquer CAD/vetorial.
                 if self._criando:
                     self._cancelar_criacao()
+                elif self._pontos_laco:
+                    self._cancelar_laco_selecao()
+                elif self._ponto_pega_mover_preciso is not None:
+                    self._cancelar_mover_preciso()
                 else:
                     self.definir_ferramenta(FerramentaMockup.SELECIONAR)
                 return
