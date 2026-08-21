@@ -193,6 +193,14 @@ class ElementoMockup(QGraphicsObject):
         # meio do gesto).
         self._solicitar_duplicata = None
 
+        # Callback opcional (ver `definir_registrador_undo`) — chamado no
+        # FIM de um gesto de mover/redimensionar/girar (nunca por frame,
+        # mesmo espírito do snap) com o estado de geometria de antes e
+        # depois, pra quem quiser empurrar num QUndoStack. Sem isso, o
+        # elemento continua funcionando normalmente, só sem desfazer.
+        self._registrar_geometria_undo = None
+        self._arrasto_geometria_antes: dict[ElementoMockup, tuple] = {}
+
         self._alca_ativa = Alca.NENHUMA
         self._arrastando = False
         # Estado congelado no início do arrasto (mousePressEvent) — o
@@ -261,6 +269,15 @@ class ElementoMockup(QGraphicsObject):
         exatamente na posição atual, sem selecioná-lo. `self` continua
         sendo o item que se move dali pra frente."""
         self._solicitar_duplicata = solicitador
+
+    def definir_registrador_undo(self, registrador) -> None:
+        """`registrador(antes: dict, depois: dict) -> None` — chamado ao
+        FINAL de um gesto de mover/redimensionar/girar que realmente
+        mudou alguma coisa (ver `_estado_recursivo`/`mouseReleaseEvent`)."""
+        self._registrar_geometria_undo = registrador
+
+    def _estado_geometria(self) -> tuple:
+        return (self.pos(), self._largura, self._altura, self.rotation())
 
     def definir_largura(self, largura: float) -> None:
         """Muda só a largura — se a proporção estiver travada, a altura
@@ -426,6 +443,9 @@ class ElementoMockup(QGraphicsObject):
             }
             if self not in self._arrasto_corpo_posicoes_iniciais:
                 self._arrasto_corpo_posicoes_iniciais[self] = self.pos()
+            self._arrasto_geometria_antes = {}
+            for item in self._arrasto_corpo_posicoes_iniciais:
+                self._arrasto_geometria_antes.update(_estado_recursivo(item))
             return
 
         # Alça de redimensionar ou rotação — só aparece quando já
@@ -435,6 +455,7 @@ class ElementoMockup(QGraphicsObject):
         self._arrasto_largura_inicial = self._largura
         self._arrasto_altura_inicial = self._altura
         self._arrasto_angulo_inicial = self.rotation()
+        self._arrasto_geometria_antes = _estado_recursivo(self)
 
         if alca == Alca.ROTACAO:
             self._arrasto_centro_cena = self.mapToScene(QPointF(self._largura / 2, self._altura / 2))
@@ -487,14 +508,31 @@ class ElementoMockup(QGraphicsObject):
                 if delta_snap != QPointF(0.0, 0.0):
                     for item in self._arrasto_corpo_posicoes_iniciais:
                         item.setPos(item.pos() + delta_snap)
+            self._registrar_undo_se_mudou()
             self._arrasto_corpo_posicoes_iniciais = {}
+            self._arrasto_geometria_antes = {}
             return
         if self._arrastando:
             self._arrastando = False
             self._alca_ativa = Alca.NENHUMA
+            self._registrar_undo_se_mudou()
+            self._arrasto_geometria_antes = {}
             self.geometria_alterada.emit()
             return
         super().mouseReleaseEvent(event)
+
+    def _registrar_undo_se_mudou(self) -> None:
+        """Chamado no fim de todo gesto (mover/redimensionar/girar) —
+        compara com o estado congelado no início e só empurra um comando
+        de undo se algo realmente mudou (ex.: um clique sem arrastar de
+        verdade não deveria virar uma entrada de undo vazia)."""
+        if self._registrar_geometria_undo is None or not self._arrasto_geometria_antes:
+            return
+        depois: dict[ElementoMockup, tuple] = {}
+        for item in self._arrasto_geometria_antes:
+            depois.update(_estado_recursivo(item))
+        if depois != self._arrasto_geometria_antes:
+            self._registrar_geometria_undo(dict(self._arrasto_geometria_antes), depois)
 
     # ── Redimensionar ────────────────────────────────────────────────
     def _redimensionar_para(self, ponto_cena: QPointF) -> None:
@@ -640,3 +678,15 @@ class GrupoMockup(ElementoMockup):
             clone.setParentItem(novo)
             novo._elementos.append(clone)
         return novo
+
+
+def _estado_recursivo(item: ElementoMockup) -> dict[ElementoMockup, tuple]:
+    """Estado de geometria de `item` + de todo filho (recursivo) se for um
+    `GrupoMockup` — redimensionar um grupo reescreve a geometria de cada
+    filho (ver `GrupoMockup._redimensionar_para`), então desfazer isso
+    precisa restaurar os filhos também, não só o grupo em si."""
+    estados = {item: item._estado_geometria()}
+    if isinstance(item, GrupoMockup):
+        for filho in item.elementos:
+            estados.update(_estado_recursivo(filho))
+    return estados

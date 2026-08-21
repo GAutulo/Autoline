@@ -209,6 +209,20 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setPen(QPen(cor, 1.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(caminho)
+    elif tipo in ("desfazer", "refazer"):
+        # Seta circular — "desfazer" gira anti-horário (glyph universal de
+        # undo em qualquer editor), "refazer" é o mesmo desenho espelhado
+        # no eixo X (equivalente a girar no sentido oposto).
+        rect = QRectF(3.5, 4, 11, 11)
+        angulo_inicio, angulo_fim = (35, 300) if tipo == "desfazer" else (145, -120)
+        painter.drawArc(rect, angulo_inicio * 16, (angulo_fim - angulo_inicio) * 16)
+        centro = QPointF(c, c + 0.5)
+        raio = 5.5
+        ponta = centro + QPointF(raio * math.cos(math.radians(angulo_fim)), -raio * math.sin(math.radians(angulo_fim)))
+        antes = centro + QPointF(
+            raio * math.cos(math.radians(angulo_fim - 18)), -raio * math.sin(math.radians(angulo_fim - 18))
+        )
+        _seta(painter, antes, ponta, cabeca=2.4)
     elif tipo == "ferramenta_elipse":
         painter.drawEllipse(QRectF(2.5, 4, 13, 10))
     elif tipo == "ferramenta_poligono":

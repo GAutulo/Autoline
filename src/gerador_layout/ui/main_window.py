@@ -434,6 +434,12 @@ class JanelaPrincipal(QMainWindow):
         acao_reguas.setChecked(True)
         acao_reguas.toggled.connect(self._definir_reguas_visiveis)
 
+        acao_zona_segura = menu_exibir.addAction("Zonas seguras (recuo do vinco)")
+        acao_zona_segura.setCheckable(True)
+        acao_zona_segura.setChecked(False)
+        acao_zona_segura.setToolTip("Marca a faixa perto do vinco/corte de cada painel onde não é recomendado colocar conteúdo")
+        acao_zona_segura.toggled.connect(self.canvas.definir_zona_segura_visivel)
+
         acao_medidas = menu_exibir.addAction("Medidas geradas / ajustáveis")
         acao_medidas.setCheckable(True)
         acao_medidas.setChecked(True)
@@ -615,6 +621,15 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "trazer_frente", "Trazer p/ frente (Ctrl+Home)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Enviar p/ trás (Ctrl+End)", lambda: self.canvas.enviar_para_tras())
+
+        barra.addSeparator()
+        pilha = self.canvas.pilha_desfazer
+        acao_desfazer = self._acao_icone(barra, "desfazer", "Desfazer (Ctrl+Z)", pilha.undo)
+        acao_desfazer.setEnabled(False)
+        pilha.canUndoChanged.connect(acao_desfazer.setEnabled)
+        acao_refazer = self._acao_icone(barra, "refazer", "Refazer (Ctrl+Shift+Z)", pilha.redo)
+        acao_refazer.setEnabled(False)
+        pilha.canRedoChanged.connect(acao_refazer.setEnabled)
 
         self.canvas.ferramenta_alterada.connect(self._ao_ferramenta_alterada)
         self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
