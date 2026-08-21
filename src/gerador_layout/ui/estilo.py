@@ -452,6 +452,20 @@ QLabel#rotuloMarca {{
     padding-right: 6px;
 }}
 
+/* Fronteira entre campos universais e campos do tipo selecionado na barra
+   de propriedades horizontal (ver `PainelPropriedadesMockup._separador`,
+   achado numa revisão de UI/UX) — mais grosso que o traço nativo do Qt
+   (fino/cinza, some no meio dos outros separadores), mas em `BORDA_FORTE`
+   (neutro), não `PRIMARIA` — é uma fronteira de leitura, não uma ação, e
+   `PRIMARIA` é reservado a destaque/ação (ver "The One Accent Rule" em
+   DESIGN.md). */
+QFrame#separadorForte {{
+    background: {Cor.BORDA_FORTE};
+    max-width: 2px;
+    min-width: 2px;
+    border: none;
+}}
+
 /* Leituras técnicas (zoom, cota de medida) — ver docstring de FONTE_MONO. */
 QLabel#rotuloTecnico {{
     font-family: "{FONTE_MONO}";
