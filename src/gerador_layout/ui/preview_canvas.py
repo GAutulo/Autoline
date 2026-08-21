@@ -26,7 +26,7 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGraphicsItem,
@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from ..paineis import Painel
 from .estilo import Cor
-from .mockup_itens import ElementoMockup, GrupoMockup
+from .mockup_itens import ElementoMockup, GrupoMockup, _estado_recursivo
 from .mockup_reguas import GuiaCanvas
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO
 
@@ -169,6 +169,16 @@ _COR_FUNDO_CANVAS = QColor(*Cor.CANVAS_FUNDO_RGB)
 _COR_GRADE = QColor(*Cor.CANVAS_GRADE_RGBA)
 _PASSO_GRADE_MM = 10.0
 
+# Zona segura: margem de recuo a partir do vinco/corte de cada painel onde
+# não é recomendado colocar conteúdo de mockup (risco de corte/dobra
+# cortar texto/imagem). Puramente uma referência visual (não afeta
+# exportação nem impede posicionar nada ali) — a mesma ideia de "linha de
+# construção" do ArtiosCAD (ver REFERENCIA_FERRAMENTAS_ARTIOSCAD.md), mas
+# como feature própria: não é apoio de desenho descartável, é aviso de
+# produção que deve continuar visível enquanto o usuário monta o mockup.
+_MARGEM_ZONA_SEGURA_MM = 3.0
+_COR_ZONA_SEGURA = QColor(Cor.ERRO)
+
 _r, _g, _b, _a = Cor.PAINEL_FLUTUANTE_RGBA
 _ESTILO_PAINEL = (
     f"background: rgba({_r}, {_g}, {_b}, {_a});"
@@ -285,6 +295,68 @@ def _cor_texto_legivel(r: int, g: int, b: int) -> QColor:
     return QColor(r, g, b)
 
 
+# ── Comandos de desfazer/refazer (QUndoStack, ver PreviewCanvas.__init__) ──
+# Cobrem as ações mais destrutivas/comuns: adicionar (ferramenta, duplicar,
+# colar), remover, e mover/redimensionar/girar (empurrados só ao FINAL do
+# gesto, ver `ElementoMockup._registrar_undo_se_mudou`). Deliberadamente
+# de fora por ora (escopo conservador, mesmo espírito de `paineis.py`):
+# agrupar/desagrupar, alinhar, e edições feitas pelo painel de propriedades
+# (cor, texto, fonte...) — ficam pra uma rodada futura.
+
+
+class _ComandoAdicionarElemento(QUndoCommand):
+    def __init__(self, canvas: "PreviewCanvas", elemento: ElementoMockup, texto: str = "Adicionar elemento") -> None:
+        super().__init__(texto)
+        self._canvas = canvas
+        self._elemento = elemento
+
+    def redo(self) -> None:  # noqa: N802 (nome exigido pelo Qt)
+        self._canvas._reinserir_elemento(self._elemento)
+
+    def undo(self) -> None:  # noqa: N802
+        self._canvas._retirar_elemento(self._elemento)
+
+
+class _ComandoRemoverElementos(QUndoCommand):
+    def __init__(self, canvas: "PreviewCanvas", elementos: list[ElementoMockup], texto: str = "Remover elementos") -> None:
+        super().__init__(texto)
+        self._canvas = canvas
+        self._elementos = list(elementos)
+
+    def redo(self) -> None:  # noqa: N802
+        for elemento in self._elementos:
+            self._canvas._retirar_elemento(elemento)
+
+    def undo(self) -> None:  # noqa: N802
+        for elemento in self._elementos:
+            self._canvas._reinserir_elemento(elemento)
+
+
+class _ComandoAlterarGeometria(QUndoCommand):
+    """Mover, redimensionar ou girar 1+ elementos — um comando só cobre os
+    três porque todos vêm da mesma fonte (`ElementoMockup.
+    _registrar_undo_se_mudou`, chamado ao soltar o mouse) com o mesmo
+    formato de estado (pos/largura/altura/rotação por elemento)."""
+
+    def __init__(self, antes: dict, depois: dict, texto: str = "Alterar geometria") -> None:
+        super().__init__(texto)
+        self._antes = antes
+        self._depois = depois
+
+    def redo(self) -> None:  # noqa: N802
+        self._aplicar(self._depois)
+
+    def undo(self) -> None:  # noqa: N802
+        self._aplicar(self._antes)
+
+    @staticmethod
+    def _aplicar(estados: dict) -> None:
+        for item, (pos, largura, altura, rotacao) in estados.items():
+            item.definir_tamanho(largura, altura)
+            item.setPos(pos)
+            item.setRotation(rotacao)
+
+
 class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
@@ -321,6 +393,14 @@ class PreviewCanvas(QGraphicsView):
         # (hover puro) — usado pelo sub-modo Atributos da ferramenta Medida.
         self.setMouseTracking(True)
         self._grade_visivel = True
+        # Desligada por padrão — é um aviso de revisão pontual (checar
+        # proximidade do vinco), não um apoio de desenho de uso contínuo
+        # como grade/snap/réguas, que já vêm ligados.
+        self._zona_segura_visivel = False
+        # Desfazer/refazer (ver classes `_Comando*` acima do módulo) — um
+        # QUndoStack só, do documento inteiro (não por elemento), igual
+        # qualquer editor de verdade.
+        self._pilha_desfazer = QUndoStack(self)
 
         self._zoom_atual = 1.0
         self._layout: LayoutCaixa | None = None
@@ -484,6 +564,10 @@ class PreviewCanvas(QGraphicsView):
         self._grade_visivel = visivel
         self.viewport().update()
 
+    def definir_zona_segura_visivel(self, visivel: bool) -> None:
+        self._zona_segura_visivel = visivel
+        self.viewport().update()
+
     def definir_paineis(self, paineis: list[Painel]) -> None:
         """Faces da caixa atual (ver `paineis.py`) — usadas só pra
         encaixar a grade de fundo em cada face (grade própria, alinhada
@@ -505,6 +589,9 @@ class PreviewCanvas(QGraphicsView):
             self._desenhar_grade_por_painel(painter, rect, pen)
         else:
             self._desenhar_grade_continua(painter, rect)
+
+        if self._zona_segura_visivel and self._paineis:
+            self._desenhar_zonas_seguras(painter, rect)
 
     def _desenhar_grade_continua(self, painter, rect) -> None:
         """Grade contínua cobrindo todo o canvas — usada só antes de
@@ -541,6 +628,43 @@ class PreviewCanvas(QGraphicsView):
             while y <= painel.y2:
                 painter.drawLine(QLineF(painel.x1, y, painel.x2, y))
                 y += _PASSO_GRADE_MM
+            painter.restore()
+
+    def _desenhar_zonas_seguras(self, painter, rect) -> None:
+        """Faixa de aviso (recuo de `_MARGEM_ZONA_SEGURA_MM` a partir do
+        vinco/corte de cada painel) + contorno tracejado marcando o limite
+        seguro — não afeta o que é exportado, é só referência visual pra
+        evitar colocar texto/imagem colado demais numa dobra ou corte.
+        Abas (`Painel.eh_aba`, ex.: aba de cola) ficam de fora — não são
+        área de impressão na prática (ver docstring de `paineis.py`)."""
+        m = _MARGEM_ZONA_SEGURA_MM
+        cor_faixa = QColor(_COR_ZONA_SEGURA)
+        cor_faixa.setAlpha(28)
+        pen_contorno = QPen(_COR_ZONA_SEGURA)
+        pen_contorno.setCosmetic(True)
+        pen_contorno.setStyle(Qt.PenStyle.DashLine)
+
+        for painel in self._paineis:
+            if painel.eh_aba:
+                continue
+            area = QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
+            if not area.intersects(rect):
+                continue
+            interna = area.adjusted(m, m, -m, -m)
+            if interna.width() <= 0 or interna.height() <= 0:
+                continue  # painel menor que 2x a margem — nada de seguro a marcar
+
+            caminho = QPainterPath()
+            caminho.addRect(area)
+            caminho.addRect(interna)
+            painter.save()
+            painter.setClipRect(area)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(cor_faixa))
+            painter.drawPath(caminho)  # OddEven (padrão) = preenche só a faixa, não o miolo
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen_contorno)
+            painter.drawRect(interna)
             painter.restore()
 
     # ── Zoom com a roda do mouse ───────────────────────────────────
@@ -1076,11 +1200,16 @@ class PreviewCanvas(QGraphicsView):
     def elementos_mockup(self) -> list[ElementoMockup]:
         return list(self._elementos_mockup)
 
+    @property
+    def pilha_desfazer(self) -> QUndoStack:
+        return self._pilha_desfazer
+
     def adicionar_elemento_mockup(self, elemento: ElementoMockup, pos: QPointF | None = None) -> None:
         self._scene.addItem(elemento)
         if pos is not None:
             elemento.setPos(pos)
         self._registrar_elemento_mockup(elemento)
+        self._pilha_desfazer.push(_ComandoAdicionarElemento(self, elemento))
 
     def _registrar_elemento_mockup(self, elemento: ElementoMockup) -> None:
         """Cadastra o elemento em `_elementos_mockup` E liga o snap nele
@@ -1090,6 +1219,7 @@ class PreviewCanvas(QGraphicsView):
         self._elementos_mockup.append(elemento)
         elemento.definir_calculador_snap(self._calcular_snap)
         elemento.definir_solicitador_duplicata(self._duplicar_no_lugar)
+        elemento.definir_registrador_undo(self._registrar_comando_geometria)
         # Linha-guia de encaixe (ver `_atualizar_guia_snap_preview`) —
         # `geometria_alterada` já dispara em TODO arrasto (não só ao
         # soltar, ver `itemChange` em `mockup_itens.py`), então dá pra
@@ -1097,6 +1227,27 @@ class PreviewCanvas(QGraphicsView):
         # filtra por `em_arrasto_corpo` pra só desenhar durante um arrasto
         # de corpo de verdade, não a cada mudança de posição/tamanho.
         elemento.geometria_alterada.connect(lambda el=elemento: self._atualizar_guia_snap_preview(el))
+
+    def _reinserir_elemento(self, elemento: ElementoMockup) -> None:
+        """Devolve um elemento já registrado (callbacks/sinal ligados uma
+        vez na criação, ver `_registrar_elemento_mockup`) de volta à cena
+        e à lista — usado por `_Comando*.redo/undo` acima. Guardado contra
+        chamada redundante: `QUndoStack.push()` já chama `redo()` na hora,
+        e a maioria dos chamadores também já adicionou o elemento antes de
+        empurrar o comando (ver `adicionar_elemento_mockup` etc.)."""
+        if elemento.scene() is None:
+            self._scene.addItem(elemento)
+        if elemento not in self._elementos_mockup:
+            self._elementos_mockup.append(elemento)
+
+    def _retirar_elemento(self, elemento: ElementoMockup) -> None:
+        if elemento.scene() is not None:
+            self._scene.removeItem(elemento)
+        if elemento in self._elementos_mockup:
+            self._elementos_mockup.remove(elemento)
+
+    def _registrar_comando_geometria(self, antes: dict, depois: dict) -> None:
+        self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois))
 
     def definir_snap_ativo(self, ativo: bool) -> None:
         self._snap_ativo = ativo
@@ -1327,13 +1478,12 @@ class PreviewCanvas(QGraphicsView):
                 self._registrar_elemento_mockup(filho)
 
     def remover_selecionados(self) -> None:
+        elementos = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
         for item in list(self._scene.selectedItems()):
-            if isinstance(item, ElementoMockup):
-                self._scene.removeItem(item)
-                if item in self._elementos_mockup:
-                    self._elementos_mockup.remove(item)
-            elif isinstance(item, GuiaCanvas):
-                self.remover_guia(item)
+            if isinstance(item, GuiaCanvas):
+                self.remover_guia(item)  # guias ficam fora do undo por ora — baixo risco, é só uma linha de referência
+        if elementos:
+            self._pilha_desfazer.push(_ComandoRemoverElementos(self, elementos))
 
     # ── Duplicar / copiar-colar (Ctrl+D, Ctrl+C, Ctrl+V) ────────────────
     _PASSO_DUPLICAR_MM = 6.0
@@ -1347,6 +1497,7 @@ class PreviewCanvas(QGraphicsView):
         clone = elemento.clonar()
         self._scene.addItem(clone)
         self._registrar_elemento_mockup(clone)
+        self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
 
     def duplicar_selecionados(self) -> list[ElementoMockup]:
         """Ctrl+D — clona e desloca na hora, já selecionando o clone (não
@@ -1364,6 +1515,7 @@ class PreviewCanvas(QGraphicsView):
             clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
+            self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
             clone.setSelected(True)
             clones.append(clone)
         return clones
@@ -1389,6 +1541,7 @@ class PreviewCanvas(QGraphicsView):
             clone.setPos(clone.pos() + QPointF(self._PASSO_DUPLICAR_MM, self._PASSO_DUPLICAR_MM))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
+            self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Colar elemento"))
             clone.setSelected(True)
             clones.append(clone)
         # Um Ctrl+V repetido parte do último colado, não sempre do mesmo
@@ -1450,6 +1603,12 @@ class PreviewCanvas(QGraphicsView):
                 return
             eh_ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             eh_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if eh_ctrl and event.key() == Qt.Key.Key_Z:
+                self._pilha_desfazer.redo() if eh_shift else self._pilha_desfazer.undo()
+                return
+            if eh_ctrl and event.key() == Qt.Key.Key_Y:
+                self._pilha_desfazer.redo()
+                return
             if eh_ctrl and event.key() == Qt.Key.Key_G:
                 self.desagrupar_selecionados() if eh_shift else self.agrupar_selecionados()
                 return
@@ -1479,8 +1638,14 @@ class PreviewCanvas(QGraphicsView):
                 if selecionados:
                     passo = 10.0 if eh_shift else 1.0
                     delta = _DELTA_SETA_NUDGE[event.key()] * passo
+                    antes = {}
                     for item in selecionados:
+                        antes.update(_estado_recursivo(item))
                         item.setPos(item.pos() + delta)
+                    depois = {}
+                    for item in selecionados:
+                        depois.update(_estado_recursivo(item))
+                    self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois, "Mover com seta"))
                     return
         super().keyPressEvent(event)
 
