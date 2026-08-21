@@ -370,6 +370,14 @@ class JanelaPrincipal(QMainWindow):
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.addToolBar(barra)
 
+        # Respiro antes da marca — sem isso ela fica encostada direto nas
+        # abas Dieline/Layout (toolbars adjacentes sem borda, por causa do
+        # QSS flat do app, ver `estilo.py`), lendo como se fosse só mais
+        # um botão da fileira em vez de uma marca separada (achado numa
+        # revisão de UI/UX).
+        espaco_antes_marca = QWidget()
+        espaco_antes_marca.setFixedWidth(12)
+        barra.addWidget(espaco_antes_marca)
         rotulo_marca = QLabel("AUTOLINE")
         rotulo_marca.setObjectName("rotuloMarca")
         barra.addWidget(rotulo_marca)
@@ -572,6 +580,7 @@ class JanelaPrincipal(QMainWindow):
             "Mover de precisão — clique no ponto de pega, depois no ponto de solta (move a seleção atual)",
             FerramentaMockup.MOVER_PRECISO,
         )
+        barra.addSeparator()  # fim do grupo "seleção" (Selecionar/Laço/Mover-preciso), começa "criar conteúdo"
         acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
         acao_ferramenta(
             "ferramenta_retangulo",
@@ -601,6 +610,7 @@ class JanelaPrincipal(QMainWindow):
             "Símbolo de manuseio — clique no canvas (frágil, este lado para cima, reciclável...)",
             FerramentaMockup.SIMBOLO,
         )
+        barra.addSeparator()  # fim de "criar conteúdo", começa "inspecionar" (não cria nada)
         acao_ferramenta(
             "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
         )

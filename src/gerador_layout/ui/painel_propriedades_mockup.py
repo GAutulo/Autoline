@@ -148,11 +148,24 @@ class PainelPropriedadesMockup(QWidget):
         self._layout_campos.addWidget(botao)
         return botao
 
-    def _separador(self) -> QFrame:
+    def _separador(self, forte: bool = False) -> QFrame:
+        """`forte=True` só na fronteira mais importante de escanear: onde
+        os campos universais (geometria/painel, sempre presentes) acabam e
+        os campos do TIPO selecionado começam (ver `definir_elemento`) —
+        um respiro maior aqui ajuda a olhar "o que muda a cada seleção" de
+        relance, sem precisar virar cards cheios (achado numa revisão de
+        UI/UX: a barra inteira troca de conteúdo a cada seleção, então não
+        dá pra aprender "onde fica cada coisa" com o tempo só de cor)."""
+        if forte:
+            self._layout_campos.addSpacing(4)
         linha = QFrame()
         linha.setFrameShape(QFrame.Shape.VLine)
         linha.setFrameShadow(QFrame.Shadow.Sunken)
+        if forte:
+            linha.setObjectName("separadorForte")
         self._layout_campos.addWidget(linha)
+        if forte:
+            self._layout_campos.addSpacing(4)
         return linha
 
     def _ao_clicar_remover(self) -> None:
@@ -197,7 +210,7 @@ class PainelPropriedadesMockup(QWidget):
         self._montar_campos_geometria(elemento)
         self._separador()
         self._montar_campos_painel(elemento)
-        self._separador()
+        self._separador(forte=True)
 
         if isinstance(elemento, ElementoTexto):
             self._montar_campos_texto(elemento)
