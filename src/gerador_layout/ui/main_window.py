@@ -22,12 +22,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabBar,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
+from ..dobra3d import montar_modelo
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
 from ..paineis import Painel, calcular_paineis
@@ -52,6 +54,7 @@ from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import PainelPropriedadesMockup
 from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
+from .visualizacao_3d import Visualizacao3D, renderizar_arte
 
 _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
     ("Preto", (0, 0, 0)),
@@ -217,7 +220,15 @@ class JanelaPrincipal(QMainWindow):
         grade_canvas.addWidget(self.regua_vertical, 1, 0)
         grade_canvas.addWidget(self.canvas, 1, 1)
         vbox_legenda_canvas.addLayout(grade_canvas, 1)
-        vbox.addWidget(legenda_e_canvas, 1)
+
+        # Aba 3D troca só esta área (canvas 2D ↔ caixa montada); as medidas
+        # à esquerda e os trechos embaixo continuam editáveis e o 3D
+        # acompanha ao vivo (ver `_recalcular`).
+        self.visualizacao_3d = Visualizacao3D()
+        self.pilha_visualizacao = QStackedWidget()
+        self.pilha_visualizacao.addWidget(legenda_e_canvas)
+        self.pilha_visualizacao.addWidget(self.visualizacao_3d)
+        vbox.addWidget(self.pilha_visualizacao, 1)
 
         # Trechos (Impressora/Riscador) embaixo da pré-visualização — mais
         # largura disponível aqui do que na barra lateral esquerda.
@@ -402,11 +413,18 @@ class JanelaPrincipal(QMainWindow):
         self.label_zoom = QLabel("100%")
         self.label_zoom.setObjectName("rotuloTecnico")
         self.label_zoom.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
-        barra.addWidget(self.label_zoom)
+        # Widget dentro de QToolBar só some escondendo a QAction dele.
+        self._acao_label_zoom = barra.addWidget(self.label_zoom)
         botao_ajustar = QPushButton("Ajustar à tela")
-        botao_ajustar.clicked.connect(lambda: self.canvas.ajustar_a_tela())
+        botao_ajustar.clicked.connect(self._ajustar_a_tela)
         barra.addWidget(botao_ajustar)
         self.canvas.zoom_alterado.connect(lambda z: self.label_zoom.setText(f"{z * 100:.0f}%"))
+
+    def _ajustar_a_tela(self) -> None:
+        if self.abas_tela.currentIndex() == 2:
+            self.visualizacao_3d.enquadrar()
+        else:
+            self.canvas.ajustar_a_tela()
 
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
@@ -482,12 +500,19 @@ class JanelaPrincipal(QMainWindow):
         self.abas_tela = QTabBar()
         self.abas_tela.addTab("Dieline")
         self.abas_tela.addTab("Layout")
-        self.abas_tela.setToolTip("Dieline: medidas, cores e a faca de corte. Layout: texto/formas/logotipo sobre a caixa.")
+        self.abas_tela.addTab("3D")
+        self.abas_tela.setToolTip(
+            "Dieline: medidas, cores e a faca de corte. Layout: texto/formas/logotipo sobre a caixa. "
+            "3D: a caixa montada, com animação de planificar e montar."
+        )
         self.abas_tela.currentChanged.connect(self._trocar_tela)
         barra.addWidget(self.abas_tela)
 
     def _trocar_tela(self, indice: int) -> None:
         modo_layout = indice == 1
+        modo_3d = indice == 2
+        self.pilha_visualizacao.setCurrentIndex(1 if modo_3d else 0)
+        self._acao_label_zoom.setVisible(not modo_3d)
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
@@ -501,6 +526,21 @@ class JanelaPrincipal(QMainWindow):
         # superior esquerdo) porque o zoom/posição antigos não fazem mais
         # sentido pro novo tamanho de viewport.
         self.canvas.ajustar_a_tela()
+        if modo_3d:
+            self._atualizar_arte_3d()
+            self.visualizacao_3d.enquadrar()
+
+    def _atualizar_arte_3d(self) -> None:
+        """Leva a arte do Layout pras faces 3D. A arte só muda na aba
+        Layout, então basta refazer ao entrar na aba 3D (e ao recalcular
+        com ela aberta)."""
+        layout = self.canvas.layout_atual
+        if layout is None:
+            self.visualizacao_3d.definir_arte(None)
+            return
+        self.visualizacao_3d.definir_arte(
+            renderizar_arte(self.canvas.cena, self.canvas.elementos_mockup, layout.largura_total, layout.altura_total)
+        )
 
     # ── Mockup (Fase 2): barra de propriedades, barra e criação de itens ─
     def _montar_barra_propriedades_mockup(self) -> None:
@@ -1003,6 +1043,12 @@ class JanelaPrincipal(QMainWindow):
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
         self.canvas.definir_paineis(self._paineis_atuais)
+        self.visualizacao_3d.definir_modelo(
+            montar_modelo(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador),
+            f"{medidas.comprimento:g} × {medidas.largura:g} × {medidas.altura:g} mm",
+        )
+        if self.abas_tela.currentIndex() == 2:
+            self._atualizar_arte_3d()
 
         self.linha_impressora.atualizar_valores_efetivos(layout.segmentos_impressora)
         self.linha_impressora.definir_total(layout.largura_total)
