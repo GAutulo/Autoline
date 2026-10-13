@@ -163,6 +163,28 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Curvas: Bézier, Mão livre e Forma",
+                """
+                <p>Como no CorelDRAW. <b>Bézier</b> (no grupo da Mão livre): cada
+                clique põe um nó de canto; clicar e arrastar põe um nó suave, puxando
+                as alças. Clicar de novo no primeiro nó fecha a forma; duplo clique,
+                Enter ou Espaço terminam a curva aberta; Esc cancela. <b>Mão livre</b>
+                (F5): arraste pra desenhar — o traço é simplificado ao soltar, e
+                terminar perto do começo fecha a forma.</p>
+                <p><b>Forma</b> (F10) edita os nós de uma curva: clique na curva,
+                arraste um nó (ou a alça do nó selecionado); <b>duplo clique</b> na
+                curva adiciona um nó, no nó remove; <b>Delete</b> remove o nó
+                selecionado e <b>S</b> alterna entre canto e suave. Cada edição é um
+                passo de desfazer.</p>
+                <p><b>Converter em curvas</b> (Ctrl+Q) transforma retângulo, elipse,
+                polígono, linha e texto numa curva com o mesmo desenho — depois disso
+                os nós podem ser editados. <b>Combinar</b> (Ctrl+L) junta vários
+                objetos numa curva só (onde se sobrepõem vira furo, como no
+                CorelDRAW) e <b>Separar</b> (Ctrl+K) desfaz em uma curva por
+                contorno. Os três também ficam na barra Organizar do topo.</p>
+                """,
+            ),
+            (
                 "Linha",
                 """
                 <p>Clique e arraste pra desenhar um traço reto entre os 2 pontos. Cor
@@ -426,7 +448,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <b>P</b> — centraliza a seleção na chapa.<br>
                 <b>F4</b> — zoom em tudo; <b>Shift+F4</b> — zoom na chapa;
                 <b>Shift+F2</b> — zoom na seleção.<br>
-                <b>F5</b> Linha, <b>F6</b> Retângulo, <b>F7</b> Elipse, <b>F8</b> Texto,
+                <b>Ctrl+Q</b> — converter em curvas; <b>Ctrl+L</b> / <b>Ctrl+K</b> —
+                combinar / separar.<br>
+                <b>F5</b> Mão livre, <b>F6</b> Retângulo, <b>F7</b> Elipse, <b>F8</b> Texto,
+                <b>F10</b> Forma,
                 <b>Y</b> Polígono; <b>Espaço</b> alterna entre Selecionar e a última
                 ferramenta.<br>
                 <b>Setas do teclado</b> — move a seleção aos poucos (Shift = passo

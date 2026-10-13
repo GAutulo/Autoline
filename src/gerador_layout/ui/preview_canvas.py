@@ -26,7 +26,7 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QUndoCommand, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGraphicsItem,
@@ -46,6 +46,15 @@ from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from ..paineis import Painel
 from . import configuracoes
 from .estilo import Cor
+from .mockup_curva import (
+    ElementoCurva,
+    No,
+    SubCaminho,
+    caminho_de_subcaminhos,
+    caminho_local_de,
+    converter_em_curva,
+    curva_de_caminho_cena,
+)
 from .mockup_itens import ElementoMockup, GrupoMockup, _estado_recursivo
 from .mockup_reguas import GuiaCanvas
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO
@@ -77,6 +86,9 @@ class FerramentaMockup(Enum):
     COTA_PARALELA = auto()
     COTA_HORIZONTAL = auto()
     COTA_VERTICAL = auto()
+    BEZIER = auto()
+    MAO_LIVRE = auto()
+    FORMA = auto()  # editar nós de curva (F10), ver mockup_curva.py
 
 
 # Cotas persistentes (CorelDRAW): mesmo gesto da Linha — clicar no 1º
@@ -140,7 +152,15 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.COTA_PARALELA: Qt.CursorShape.CrossCursor,
     FerramentaMockup.COTA_HORIZONTAL: Qt.CursorShape.CrossCursor,
     FerramentaMockup.COTA_VERTICAL: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.BEZIER: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.MAO_LIVRE: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.FORMA: Qt.CursorShape.ArrowCursor,
 }
+
+# Ferramentas de curva com gesto próprio (não o clique/arrasto genérico de
+# `_iniciar_criacao`) — ver `_curva_mouse_press` e seguintes.
+_FERRAMENTAS_CURVA = {FerramentaMockup.BEZIER, FerramentaMockup.MAO_LIVRE, FerramentaMockup.FORMA}
+_TOLERANCIA_NO_PX = 6.0
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
@@ -199,7 +219,8 @@ _TECLA_ALINHAR_CORELDRAW: dict[Qt.Key, str] = {
 
 # Teclas de ferramenta do CorelDRAW (F5 é a família de curvas; aqui, Linha).
 _TECLA_FERRAMENTA_CORELDRAW: dict[Qt.Key, FerramentaMockup] = {
-    Qt.Key.Key_F5: FerramentaMockup.LINHA,
+    Qt.Key.Key_F5: FerramentaMockup.MAO_LIVRE,
+    Qt.Key.Key_F10: FerramentaMockup.FORMA,
     Qt.Key.Key_F6: FerramentaMockup.RETANGULO,
     Qt.Key.Key_F7: FerramentaMockup.ELIPSE,
     Qt.Key.Key_F8: FerramentaMockup.TEXTO,
@@ -415,6 +436,41 @@ class _ComandoAlterarGeometria(QUndoCommand):
             item.definir_espelho(espelho_h, espelho_v)
 
 
+class _ComandoEditarCurva(QUndoCommand):
+    """Edição de nós pela ferramenta Forma (mover, inserir, remover...)."""
+
+    def __init__(self, curva: ElementoCurva, antes: tuple, depois: tuple, texto: str = "Editar nós") -> None:
+        super().__init__(texto)
+        self._curva, self._antes, self._depois = curva, antes, depois
+
+    def redo(self) -> None:  # noqa: N802
+        self._curva.definir_estado_nos(self._depois)
+
+    def undo(self) -> None:  # noqa: N802
+        self._curva.definir_estado_nos(self._antes)
+
+
+def _simplificar(pontos: list[QPointF], tolerancia: float) -> list[QPointF]:
+    """Ramer–Douglas–Peucker: tira pontos quase em linha do traço à mão livre."""
+    if len(pontos) < 3:
+        return list(pontos)
+    a, b = pontos[0], pontos[-1]
+    linha = QLineF(a, b)
+    comprimento = linha.length()
+    maior, indice = -1.0, 0
+    for i in range(1, len(pontos) - 1):
+        q = pontos[i]
+        if comprimento < 1e-9:
+            d = QLineF(a, q).length()
+        else:
+            d = abs((b.x() - a.x()) * (a.y() - q.y()) - (a.x() - q.x()) * (b.y() - a.y())) / comprimento
+        if d > maior:
+            maior, indice = d, i
+    if maior <= tolerancia:
+        return [a, b]
+    return _simplificar(pontos[: indice + 1], tolerancia)[:-1] + _simplificar(pontos[indice:], tolerancia)
+
+
 class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
@@ -429,7 +485,9 @@ class PreviewCanvas(QGraphicsView):
     # de verdade (cor de tinta padrão etc.) é `main_window.py`.
     retangulo_desenhado = Signal(QRectF)
     linha_desenhada = Signal(QPointF, QPointF)
-    cota_desenhada = Signal(QPointF, QPointF, str)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
+    cota_desenhada = Signal(QPointF, QPointF, str)
+    curva_desenhada = Signal(QPainterPath)  # Bézier / Mão livre terminada (coordenadas da cena)
+    mensagem_status = Signal(str)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
     elipse_desenhada = Signal(QRectF)
@@ -502,6 +560,15 @@ class PreviewCanvas(QGraphicsView):
         # criação em andamento (clique/arrasto pra desenhar um retângulo/
         # linha novos, ou clique único pra texto).
         self._ferramenta = FerramentaMockup.SELECIONAR
+        # Ferramentas de curva (ver `_curva_mouse_press`).
+        self._bezier_nos: list[No] = []
+        self._bezier_arrastando = False
+        self._mao_livre_pontos: list[QPointF] | None = None
+        self._item_preview_curva: QGraphicsPathItem | None = None
+        self._forma_alvo: ElementoCurva | None = None
+        self._forma_no: tuple[int, int] | None = None
+        self._forma_arrasto: tuple[str, int, int] | None = None
+        self._forma_estado_antes: tuple | None = None
         # Barra de espaço alterna entre Selecionar e a última ferramenta usada (CorelDRAW).
         self._ferramenta_anterior = FerramentaMockup.SELECIONAR
         self._criando = False
@@ -759,6 +826,10 @@ class PreviewCanvas(QGraphicsView):
         self.zoom_alterado.emit(self._zoom_atual)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA:
+            self._curva_duplo_clique(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
         # Duplo-clique num elemento (ex.: texto, ver `mockup_texto.py`)
         # tem tratamento próprio no item (editar inline) — só cai pro
         # "ajustar à tela" de conveniência quando o clique foi em área
@@ -809,6 +880,12 @@ class PreviewCanvas(QGraphicsView):
             if self._item_preview_criacao is not None:
                 self._scene.removeItem(self._item_preview_criacao)
                 self._item_preview_criacao = None
+        self._cancelar_curva_em_andamento()
+        if ferramenta == FerramentaMockup.FORMA:
+            selecionadas = [it for it in self._scene.selectedItems() if isinstance(it, ElementoCurva)]
+            self._definir_alvo_forma(selecionadas[0] if len(selecionadas) == 1 else None)
+        else:
+            self._definir_alvo_forma(None)
         if self._ferramenta != ferramenta:
             self._ferramenta_anterior = self._ferramenta
         self._ferramenta = ferramenta
@@ -856,6 +933,10 @@ class PreviewCanvas(QGraphicsView):
             self._painel_offset.iniciar(event.pos())
             event.accept()
             return
+        if self._modo_mockup and event.button() == Qt.MouseButton.LeftButton and self._ferramenta in _FERRAMENTAS_CURVA:
+            self._curva_mouse_press(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
         if (
             self._modo_mockup
             and self._ferramenta != FerramentaMockup.SELECIONAR
@@ -880,6 +961,8 @@ class PreviewCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
             event.accept()
             return
+        if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA:
+            self._curva_mouse_move(self.mapToScene(event.position().toPoint()), event.buttons())
         if self._criando:
             self._atualizar_criacao(event.pos(), event.modifiers())
             event.accept()
@@ -914,6 +997,10 @@ class PreviewCanvas(QGraphicsView):
             # (que voltaria pro cursor padrão da seta, ignorando qual
             # ferramenta estava ativa antes do pan).
             self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[self._ferramenta])
+            event.accept()
+            return
+        if self._modo_mockup and event.button() == Qt.MouseButton.LeftButton and self._ferramenta in _FERRAMENTAS_CURVA:
+            self._curva_mouse_release(self.mapToScene(event.position().toPoint()))
             event.accept()
             return
         if self._criando and event.button() == Qt.MouseButton.LeftButton:
@@ -1795,6 +1882,348 @@ class PreviewCanvas(QGraphicsView):
 
         self._com_undo_geometria("Centralizar na página", aplicar)
 
+    # ── Curvas: Bézier, Mão livre e Forma (ver mockup_curva.py) ─────────
+    def _tolerancia_mm(self) -> float:
+        return _TOLERANCIA_NO_PX / (self.transform().m11() or 1.0)
+
+    def _atualizar_preview_curva(self, caminho: QPainterPath | None) -> None:
+        if caminho is None:
+            if self._item_preview_curva is not None:
+                self._scene.removeItem(self._item_preview_curva)
+                self._item_preview_curva = None
+            return
+        if self._item_preview_curva is None:
+            self._item_preview_curva = QGraphicsPathItem()
+            self._item_preview_curva.setPen(self._caneta_preview())
+            self._item_preview_curva.setZValue(3000)
+            self._scene.addItem(self._item_preview_curva)
+        self._item_preview_curva.setPath(caminho)
+
+    def _cancelar_curva_em_andamento(self) -> None:
+        self._bezier_nos = []
+        self._bezier_arrastando = False
+        self._mao_livre_pontos = None
+        self._atualizar_preview_curva(None)
+
+    def _terminar_bezier(self, fechar: bool) -> None:
+        if len(self._bezier_nos) >= 2:
+            self.curva_desenhada.emit(caminho_de_subcaminhos([SubCaminho(self._bezier_nos, fechar)]))
+        self._cancelar_curva_em_andamento()
+
+    def _definir_alvo_forma(self, curva: ElementoCurva | None) -> None:
+        if curva is not None and (curva.espelho_h or curva.espelho_v):
+            curva._renormalizar(curva._assentar())  # assa o espelho antes de editar nós
+        anterior = self._forma_alvo
+        if anterior is not None and anterior is not curva:
+            try:
+                anterior.definir_alcas_visiveis(True)
+            except RuntimeError:
+                pass  # já destruído
+        if curva is not None:
+            curva.definir_alcas_visiveis(False)
+        self._forma_alvo = curva
+        self._forma_no = None
+        self._forma_arrasto = None
+        self.viewport().update()
+
+    def _nos_cena(self, curva: ElementoCurva) -> list[list[No]]:
+        f = curva.mapToScene
+        return [[no.mapeado(f) for no in sub.nos] for sub in curva.subcaminhos_locais()]
+
+    def _forma_acertar(self, ponto: QPointF) -> tuple[str, int, int] | None:
+        curva = self._forma_alvo
+        if curva is None or curva.scene() is None:
+            return None
+        tol = self._tolerancia_mm()
+        nos = self._nos_cena(curva)
+
+        def perto(q: QPointF) -> bool:
+            return QLineF(q, ponto).length() <= tol
+
+        if self._forma_no is not None:
+            i, j = self._forma_no
+            if i < len(nos) and j < len(nos[i]):
+                no = nos[i][j]
+                for qual in ("entrada", "saida"):
+                    alca = getattr(no, qual)
+                    if QLineF(alca, no.p).length() > 1e-6 and perto(alca):
+                        return (qual, i, j)
+        for i, sub in enumerate(nos):
+            for j, no in enumerate(sub):
+                if perto(no.p):
+                    return ("no", i, j)
+        return None
+
+    def _elemento_raiz_em(self, ponto: QPointF) -> ElementoMockup | None:
+        for item in self._scene.items(ponto):
+            while item is not None and not isinstance(item, ElementoMockup):
+                item = item.parentItem()
+            if item is None:
+                continue
+            while isinstance(item.parentItem(), ElementoMockup):
+                item = item.parentItem()
+            return item
+        return None
+
+    def _curva_mouse_press(self, ponto: QPointF) -> None:
+        if self._ferramenta == FerramentaMockup.BEZIER:
+            ponto = self.encaixar_ponto(ponto)
+            if len(self._bezier_nos) >= 2 and QLineF(ponto, self._bezier_nos[0].p).length() <= self._tolerancia_mm():
+                self._terminar_bezier(fechar=True)
+                return
+            self._bezier_nos.append(No.canto(ponto))
+            self._bezier_arrastando = True
+            self._atualizar_preview_curva(caminho_de_subcaminhos([SubCaminho(self._bezier_nos)]))
+            return
+        if self._ferramenta == FerramentaMockup.MAO_LIVRE:
+            self._mao_livre_pontos = [ponto]
+            return
+        # Forma
+        acerto = self._forma_acertar(ponto)
+        if acerto is not None:
+            qual, i, j = acerto
+            if qual == "no":
+                self._forma_no = (i, j)
+            self._forma_arrasto = acerto
+            self._forma_estado_antes = self._forma_alvo.estado_nos()
+            self.viewport().update()
+            return
+        elemento = self._elemento_raiz_em(ponto)
+        self._scene.clearSelection()
+        if isinstance(elemento, ElementoCurva):
+            elemento.setSelected(True)
+            self._definir_alvo_forma(elemento)
+        else:
+            self._definir_alvo_forma(None)
+            if elemento is not None:
+                elemento.setSelected(True)
+                self.mensagem_status.emit("Converta em curvas (Ctrl+Q) pra editar os nós deste objeto.")
+
+    def _curva_mouse_move(self, ponto: QPointF, botoes) -> None:
+        segurando = bool(botoes & Qt.MouseButton.LeftButton)
+        if self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos:
+            if segurando and self._bezier_arrastando:
+                no = self._bezier_nos[-1]
+                no.saida = QPointF(ponto)
+                no.entrada = no.p * 2 - ponto
+                no.suave = True
+                caminho = caminho_de_subcaminhos([SubCaminho(self._bezier_nos)])
+            else:
+                caminho = caminho_de_subcaminhos([SubCaminho(self._bezier_nos + [No.canto(self.encaixar_ponto(ponto))])])
+            self._atualizar_preview_curva(caminho)
+        elif self._ferramenta == FerramentaMockup.MAO_LIVRE and self._mao_livre_pontos is not None and segurando:
+            if QLineF(self._mao_livre_pontos[-1], ponto).length() >= 0.3:
+                self._mao_livre_pontos.append(QPointF(ponto))
+                caminho = QPainterPath(self._mao_livre_pontos[0])
+                for q in self._mao_livre_pontos[1:]:
+                    caminho.lineTo(q)
+                self._atualizar_preview_curva(caminho)
+        elif self._ferramenta == FerramentaMockup.FORMA and self._forma_arrasto is not None and segurando:
+            qual, i, j = self._forma_arrasto
+            local = self._forma_alvo.mapFromScene(ponto)
+            if qual == "no":
+                self._forma_alvo.mover_no(i, j, local)
+            else:
+                self._forma_alvo.mover_alca(i, j, qual, local)
+            self.viewport().update()
+
+    def _curva_mouse_release(self, ponto: QPointF) -> None:
+        if self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos:
+            self._bezier_arrastando = False
+            no = self._bezier_nos[-1]
+            if QLineF(no.saida, no.p).length() < 0.3:
+                self._bezier_nos[-1] = No.canto(no.p)  # clique seco = nó de canto
+        elif self._ferramenta == FerramentaMockup.MAO_LIVRE and self._mao_livre_pontos is not None:
+            pontos = _simplificar(self._mao_livre_pontos + [QPointF(ponto)], 0.35)
+            self._mao_livre_pontos = None
+            self._atualizar_preview_curva(None)
+            if len(pontos) >= 2 and QLineF(pontos[0], pontos[-1]).length() + len(pontos) > 2.5:
+                fechar = len(pontos) > 2 and QLineF(pontos[0], pontos[-1]).length() <= self._tolerancia_mm()
+                if fechar:
+                    pontos = pontos[:-1]
+                self.curva_desenhada.emit(caminho_de_subcaminhos([SubCaminho([No.canto(q) for q in pontos], fechar)]))
+        elif self._ferramenta == FerramentaMockup.FORMA and self._forma_arrasto is not None:
+            self._forma_arrasto = None
+            depois = self._forma_alvo.estado_nos()
+            if self._forma_estado_antes is not None and depois != self._forma_estado_antes:
+                self._pilha_desfazer.push(_ComandoEditarCurva(self._forma_alvo, self._forma_estado_antes, depois))
+            self._forma_estado_antes = None
+
+    def _editar_curva(self, texto: str, acao) -> None:
+        curva = self._forma_alvo
+        antes = curva.estado_nos()
+        resultado = acao()
+        depois = curva.estado_nos()
+        if depois != antes:
+            self._pilha_desfazer.push(_ComandoEditarCurva(curva, antes, depois, texto))
+        self.viewport().update()
+        return resultado
+
+    def _curva_duplo_clique(self, ponto: QPointF) -> None:
+        if self._ferramenta == FerramentaMockup.BEZIER:
+            self._terminar_bezier(fechar=False)
+            return
+        if self._ferramenta != FerramentaMockup.FORMA or self._forma_alvo is None:
+            return
+        acerto = self._forma_acertar(ponto)
+        if acerto is not None and acerto[0] == "no":
+            # Duplo clique no nó remove (CorelDRAW); na curva, adiciona.
+            _q, i, j = acerto
+            if self._editar_curva("Remover nó", lambda: self._forma_alvo.remover_no(i, j)):
+                self._forma_no = None
+            return
+        # Item sem escala própria: local e cena têm a mesma unidade (mm).
+        local = self._forma_alvo.mapFromScene(ponto)
+        segmento = self._forma_alvo.segmento_mais_proximo(local, self._tolerancia_mm())
+        if segmento is not None:
+            i, k, t = segmento
+            self._editar_curva("Adicionar nó", lambda: self._forma_alvo.inserir_no(i, k, t))
+            self._forma_no = (i, k + 1)
+
+    def _tecla_curva(self, event) -> bool:
+        tecla = event.key()
+        if self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos:
+            if tecla in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                self._terminar_bezier(fechar=False)
+                return True
+            if tecla == Qt.Key.Key_Escape:
+                self._cancelar_curva_em_andamento()
+                return True
+        if self._ferramenta == FerramentaMockup.FORMA and self._forma_alvo is not None and self._forma_no is not None:
+            i, j = self._forma_no
+            if tecla == Qt.Key.Key_Delete:
+                if self._editar_curva("Remover nó", lambda: self._forma_alvo.remover_no(i, j)):
+                    self._forma_no = None
+                return True
+            if tecla == Qt.Key.Key_S and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+                self._editar_curva("Canto/suave", lambda: self._forma_alvo.alternar_suave(i, j))
+                return True
+        return False
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802
+        super().drawForeground(painter, rect)
+        curva = self._forma_alvo
+        if not (self._modo_mockup and self._ferramenta == FerramentaMockup.FORMA and curva is not None and curva.scene()):
+            return
+        escala = self.transform().m11() or 1.0
+        lado = 6.0 / escala
+        caneta = QPen(QColor(Cor.PRIMARIA), 1.0)
+        caneta.setCosmetic(True)
+        painter.save()
+        painter.setPen(caneta)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(curva.caminho_cena())
+        for i, sub in enumerate(self._nos_cena(curva)):
+            for j, no in enumerate(sub):
+                selecionado = self._forma_no == (i, j)
+                if selecionado:
+                    for alca in (no.entrada, no.saida):
+                        if QLineF(alca, no.p).length() > 1e-6:
+                            painter.drawLine(no.p, alca)
+                            painter.setBrush(QBrush(QColor(Cor.PRIMARIA)))
+                            painter.drawEllipse(alca, lado * 0.45, lado * 0.45)
+                painter.setBrush(QBrush(QColor(Cor.PRIMARIA) if selecionado else QColor(255, 255, 255)))
+                painter.drawRect(QRectF(no.p.x() - lado / 2, no.p.y() - lado / 2, lado, lado))
+        painter.restore()
+
+    # ── Converter / combinar / separar (Ctrl+Q / Ctrl+L / Ctrl+K) ──────
+    def _caminho_cena_de(self, elemento: ElementoMockup) -> QPainterPath | None:
+        if isinstance(elemento, ElementoCurva):
+            return elemento.caminho_cena()
+        resultado = caminho_local_de(elemento)
+        if resultado is None:
+            return None
+        caminho = resultado[0]
+        if elemento.espelho_h or elemento.espelho_v:
+            t = QTransform()
+            t.translate(elemento.largura / 2, elemento.altura / 2)
+            t.scale(-1.0 if elemento.espelho_h else 1.0, -1.0 if elemento.espelho_v else 1.0)
+            t.translate(-elemento.largura / 2, -elemento.altura / 2)
+            caminho = t.map(caminho)
+        return elemento.sceneTransform().map(caminho)
+
+    def _trocar_elementos(self, texto: str, removidos: list[ElementoMockup], novos: list[ElementoMockup]) -> None:
+        """Um passo de desfazer: tira `removidos` e põe `novos` (selecionados)."""
+        self._pilha_desfazer.beginMacro(texto)
+        try:
+            self._pilha_desfazer.push(_ComandoRemoverElementos(self, removidos))
+            for novo in novos:
+                if novo.scene() is None:
+                    self._scene.addItem(novo)
+                self._registrar_elemento_mockup(novo)
+                self._pilha_desfazer.push(_ComandoAdicionarElemento(self, novo, texto))
+        finally:
+            self._pilha_desfazer.endMacro()
+        self._scene.clearSelection()
+        for novo in novos:
+            novo.setSelected(True)
+        self.elementos_alterados.emit()
+
+    def converter_selecionados_em_curvas(self) -> int:
+        removidos, novos = [], []
+        for el in self._selecionados_mockup():
+            if isinstance(el, ElementoCurva):
+                continue
+            curva = converter_em_curva(el)
+            if curva is None:
+                continue
+            curva.setZValue(el.zValue())
+            removidos.append(el)
+            novos.append(curva)
+        if novos:
+            self._trocar_elementos("Converter em curvas", removidos, novos)
+        elif self._selecionados_mockup():
+            self.mensagem_status.emit("Este tipo de objeto ainda não converte em curvas.")
+        return len(novos)
+
+    def combinar_selecionados(self) -> ElementoCurva | None:
+        selecionados = [el for el in self._selecionados_mockup() if self._caminho_cena_de(el) is not None]
+        if len(selecionados) < 2:
+            return None
+        base = min(selecionados, key=lambda el: el.zValue())  # aparência do de baixo
+        caminho = QPainterPath()
+        for el in sorted(selecionados, key=lambda el: el.zValue()):
+            caminho.addPath(self._caminho_cena_de(el))
+        resultado = caminho_local_de(base)
+        curva = curva_de_caminho_cena(
+            caminho,
+            cor_tinta=getattr(base, "cor_tinta", None),
+            preenchido=resultado[1] if resultado else False,
+            largura_traco=resultado[2] if resultado else 0.5,
+        )
+        if curva is None:
+            return None
+        curva.setZValue(max(el.zValue() for el in selecionados))
+        self._trocar_elementos("Combinar", selecionados, [curva])
+        return curva
+
+    def separar_selecionados(self) -> list[ElementoCurva]:
+        removidos, novos = [], []
+        for curva in [el for el in self._selecionados_mockup() if isinstance(el, ElementoCurva)]:
+            pedacos = []
+            for sub in curva.subcaminhos_locais():
+                local = caminho_de_subcaminhos([sub])
+                if curva.espelho_h or curva.espelho_v:
+                    t = QTransform()
+                    t.translate(curva.largura / 2, curva.altura / 2)
+                    t.scale(-1.0 if curva.espelho_h else 1.0, -1.0 if curva.espelho_v else 1.0)
+                    t.translate(-curva.largura / 2, -curva.altura / 2)
+                    local = t.map(local)
+                pedacos.append(curva.sceneTransform().map(local))
+            if len(pedacos) < 2:
+                continue
+            removidos.append(curva)
+            for pedaco in pedacos:
+                nova = curva_de_caminho_cena(
+                    pedaco, cor_tinta=curva.cor_tinta, preenchido=curva.preenchido, largura_traco=curva.largura_traco
+                )
+                if nova is not None:
+                    nova.setZValue(curva.zValue())
+                    novos.append(nova)
+        if novos:
+            self._trocar_elementos("Separar", removidos, novos)
+        return novos
+
     def nos_de_encaixe(self) -> list[QPointF]:
         """Pontos onde uma cota gruda: pontas das linhas da faca, cantos e
         centro de cada objeto e cantos da chapa."""
@@ -2006,6 +2435,12 @@ class PreviewCanvas(QGraphicsView):
             self.definir_ajustar_a("objetos", not self._ajustar_a["objetos"])
         elif mods == ctrl and tecla == Qt.Key.Key_Y:
             self.definir_ajustar_a("grade", not self._ajustar_a["grade"])
+        elif mods == ctrl and tecla == Qt.Key.Key_Q:
+            self.converter_selecionados_em_curvas()
+        elif mods == ctrl and tecla == Qt.Key.Key_L:
+            self.combinar_selecionados()
+        elif mods == ctrl and tecla == Qt.Key.Key_K:
+            self.separar_selecionados()
         elif mods == ctrl and tecla == Qt.Key.Key_U:
             self.desagrupar_selecionados()
         elif mods == ctrl and tecla == Qt.Key.Key_A:
@@ -2054,6 +2489,8 @@ class PreviewCanvas(QGraphicsView):
             # toda tecla é do campo — senão L/R/T/B/E/C/P (atalhos de
             # alinhar do CorelDRAW abaixo) roubariam letras digitadas.
             super().keyPressEvent(event)
+            return
+        if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA and self._tecla_curva(event):
             return
         if self._modo_mockup and self._atalho_corel(event):
             return

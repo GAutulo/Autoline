@@ -21,6 +21,7 @@ from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota
+from .mockup_curva import ElementoCurva
 from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
 from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
 from .mockup_checklist import _ESPACO_ENTRE_LINHAS_FATOR as _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
@@ -273,6 +274,8 @@ def _desenhar_elemento_mockup_normal(app, layer, elemento: ElementoMockup, altur
         _desenhar_linha_mockup_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCota):
         _desenhar_cota_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCurva):
+        _desenhar_curva_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCallout):
         _desenhar_callout_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoTabela):
@@ -551,6 +554,49 @@ def _desenhar_callout_cdr(app, layer, elemento: "ElementoCallout", altura_total:
         for forma in (caixa, cauda, texto_shape):
             intervalo.Add(forma)
         intervalo.Rotate(angulo)
+
+
+def _desenhar_curva_cdr(app, layer, elemento: "ElementoCurva", altura_total: float) -> None:
+    """Curva Bézier nativa do CorelDRAW (`Document.CreateCurve` +
+    `SubPath.AppendCurveSegment2`), com os nós já na posição final (com
+    rotação; o espelho é aplicado depois por `_desenhar_elemento_mockup`,
+    igual aos outros tipos). Se a API de curva falhar nessa versão do
+    CorelDRAW, cai pra um polígono de segmentos retos (aproximação fina)."""
+    def cdr(q: QPointF) -> tuple[float, float]:
+        return q.x(), altura_total - q.y()
+
+    cena = elemento.sceneTransform()
+    subs = elemento.subcaminhos_locais()
+    try:
+        curva = app.ActiveDocument.CreateCurve()
+        for sub in subs:
+            nos = [no.mapeado(cena.map) for no in sub.nos]
+            caminho_cdr = curva.CreateSubPath(*cdr(nos[0].p))
+            pares = list(zip(nos, nos[1:]))
+            if sub.fechado:
+                pares.append((nos[-1], nos[0]))
+            for a, b in pares:
+                caminho_cdr.AppendCurveSegment2(*cdr(b.p), *cdr(a.saida), *cdr(b.entrada))
+            if sub.fechado:
+                caminho_cdr.Closed = True
+        forma = layer.CreateCurve(curva)
+        formas = [forma]
+    except Exception:  # noqa: BLE001 — API de curva indisponível: aproximação por segmentos
+        caminho = cena.map(elemento.caminho_local())
+        formas = []
+        for poligono in caminho.toSubpathPolygons():
+            pontos = [cdr(poligono.at(i)) for i in range(poligono.count())]
+            for (xa, ya), (xb, yb) in zip(pontos, pontos[1:]):
+                formas.append(layer.CreateLineSegment(xa, ya, xb, yb))
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    for forma in formas:
+        if elemento.largura_traco > 0:
+            forma.Outline.Color = cor
+            forma.Outline.Width = elemento.largura_traco
+        else:
+            forma.Outline.SetNoOutline()
+    if elemento.preenchido and len(formas) == 1:
+        _aplicar_cor_preenchimento(app, formas[0], elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
 
 
 def _desenhar_cota_cdr(app, layer, elemento: "ElementoCota", altura_total: float) -> None:

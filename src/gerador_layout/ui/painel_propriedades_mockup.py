@@ -42,6 +42,7 @@ from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota
+from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
@@ -70,6 +71,7 @@ NOME_TIPO_ELEMENTO: dict[type, str] = {
     ElementoChecklistCores: "Checklist de cores",
     GrupoMockup: "Grupo",
     ElementoCota: "Cota",
+    ElementoCurva: "Curva",
 }
 
 
@@ -244,6 +246,8 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_linha(elemento)
         elif isinstance(elemento, ElementoCota):
             self._montar_campos_cota(elemento)
+        elif isinstance(elemento, ElementoCurva):
+            self._montar_campos_retangulo(elemento)  # mesmos campos: preenchido, traço e tinta
         elif isinstance(elemento, ElementoCallout):
             self._montar_campos_callout(elemento)
         elif isinstance(elemento, ElementoTabela):
