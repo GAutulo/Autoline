@@ -33,7 +33,12 @@ class ElementoImagem(ElementoMockup):
         return self._caminho_arquivo
 
     def _pintar_conteudo(self, painter: QPainter) -> None:
+        # Interpolação suave ao ampliar/reduzir: sem isso a imagem sai em
+        # "degraus" (vizinho mais próximo) no 3D, no canvas e na exportação.
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(QRectF(0, 0, self._largura, self._altura), self._pixmap, QRectF(self._pixmap.rect()))
+        painter.restore()
 
     def clonar(self) -> "ElementoImagem":
         novo = ElementoImagem(self._caminho_arquivo)
