@@ -465,6 +465,16 @@ class JanelaPrincipal(QMainWindow):
         acao_snap.setToolTip("Gruda automaticamente na grade, nas bordas de outros elementos, na face e nas guias")
         acao_snap.toggled.connect(self.canvas.definir_snap_ativo)
         menu_exibir.addMenu(self._menu_ajustar_a)
+        acao_dinamicas = menu_exibir.addAction("Guias dinâmicas\tAlt+Shift+D")
+        acao_dinamicas.setCheckable(True)
+        acao_dinamicas.setChecked(self.canvas.guias_dinamicas)
+        acao_dinamicas.setToolTip("Ao desenhar, alinha o cursor com os nós da faca, dos objetos e da chapa")
+        acao_dinamicas.toggled.connect(self.canvas.definir_guias_dinamicas)
+        self.canvas.guias_dinamicas_alteradas.connect(
+            lambda ativas: (acao_dinamicas.setChecked(ativas), self.statusBar().showMessage(
+                f"Guias dinâmicas {'ligadas' if ativas else 'desligadas'}", 4000))
+        )
+        self._acao_guias_dinamicas = acao_dinamicas
         menu_dockers = menu_exibir.addMenu("Janelas de encaixe (Layout)")
         for dock in self._docks.values():
             menu_dockers.addAction(dock.toggleViewAction())

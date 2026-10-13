@@ -157,6 +157,20 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.FORMA: Qt.CursorShape.ArrowCursor,
 }
 
+# Ferramentas de desenho em que as guias dinâmicas já aparecem ao pairar.
+_FERRAMENTAS_DESENHO_COM_GUIAS = {
+    FerramentaMockup.RETANGULO,
+    FerramentaMockup.ELIPSE,
+    FerramentaMockup.POLIGONO,
+    FerramentaMockup.LINHA,
+    FerramentaMockup.ACABAMENTO,
+    FerramentaMockup.TEXTO,
+    FerramentaMockup.BEZIER,
+    FerramentaMockup.COTA_PARALELA,
+    FerramentaMockup.COTA_HORIZONTAL,
+    FerramentaMockup.COTA_VERTICAL,
+}
+
 # Ferramentas de curva com gesto próprio (não o clique/arrasto genérico de
 # `_iniciar_criacao`) — ver `_curva_mouse_press` e seguintes.
 _FERRAMENTAS_CURVA = {FerramentaMockup.BEZIER, FerramentaMockup.MAO_LIVRE, FerramentaMockup.FORMA}
@@ -502,7 +516,8 @@ class PreviewCanvas(QGraphicsView):
     zoom_alterado = Signal(float)
     # Lista/ordem/visibilidade dos elementos mudou (docker Objetos).
     elementos_alterados = Signal()
-    ajustar_a_alterado = Signal(str, bool)  # chave de AJUSTAR_A, ligado
+    ajustar_a_alterado = Signal(str, bool)
+    guias_dinamicas_alteradas = Signal(bool)  # chave de AJUSTAR_A, ligado
     cursor_movido = Signal(object)  # QPointF em mm, ou None quando o mouse sai do canvas (barra de status)
     # Emitidos quando uma ferramenta de criação termina um gesto de
     # clique/arrasto no canvas vazio (ver `_finalizar_criacao` abaixo) —
@@ -589,6 +604,11 @@ class PreviewCanvas(QGraphicsView):
         # criação em andamento (clique/arrasto pra desenhar um retângulo/
         # linha novos, ou clique único pra texto).
         self._ferramenta = FerramentaMockup.SELECIONAR
+        # Guias dinâmicas (CorelDRAW, Alt+Shift+D): ao desenhar, o cursor
+        # alinha na horizontal/vertical com os nós da faca, dos objetos, da
+        # chapa e com o 1º ponto do gesto — ver `_ajustar_guias_dinamicas`.
+        self._guias_dinamicas = True
+        self._linhas_dinamicas: list[tuple[QPointF, QPointF]] = []
         # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
         self._linhas_editadas: list[LinhaDesenho] | None = None
         self._editando_faca = False
@@ -930,6 +950,7 @@ class PreviewCanvas(QGraphicsView):
                 self._scene.removeItem(self._item_preview_criacao)
                 self._item_preview_criacao = None
         self._cancelar_curva_em_andamento()
+        self._limpar_guias_dinamicas()
         if ferramenta == FerramentaMockup.FORMA:
             selecionadas = [it for it in self._scene.selectedItems() if isinstance(it, ElementoCurva)]
             self._definir_alvo_forma(selecionadas[0] if len(selecionadas) == 1 else None)
@@ -1002,6 +1023,8 @@ class PreviewCanvas(QGraphicsView):
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self.cursor_movido.emit(None)
+        if self._faca_arrasto is None and not self._criando:
+            self._limpar_guias_dinamicas()
         super().leaveEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
@@ -1014,6 +1037,8 @@ class PreviewCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
             event.accept()
             return
+        if not (event.buttons() & Qt.MouseButton.LeftButton) and self._mostra_guias_ao_pairar():
+            self._ajustar_guias_dinamicas(self.mapToScene(event.position().toPoint()))
         if self._editando_faca and not self._modo_mockup and self._faca_arrasto is not None:
             self._faca_mouse_move(self.mapToScene(event.position().toPoint()), event.modifiers())
             event.accept()
@@ -1077,7 +1102,7 @@ class PreviewCanvas(QGraphicsView):
         return caneta
 
     def _iniciar_criacao(self, pos_viewport) -> None:
-        self._ponto_inicial_criacao = self.mapToScene(pos_viewport)
+        self._ponto_inicial_criacao = self._ajustar_guias_dinamicas(self.mapToScene(pos_viewport))
         if self._ferramenta == FerramentaMockup.CONTA_GOTAS:
             # Não precisa de arrasto — amostra na hora do clique.
             cor = self._amostrar_cor(pos_viewport)
@@ -1164,7 +1189,7 @@ class PreviewCanvas(QGraphicsView):
         return linha.p2()
 
     def _atualizar_criacao(self, pos_viewport, modificadores: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
-        atual = self.mapToScene(pos_viewport)
+        atual = self._ajustar_guias_dinamicas(self.mapToScene(pos_viewport), (self._ponto_inicial_criacao,))
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
             self._item_preview_criacao.setRect(self._retangulo_de_criacao(atual, modificadores))
         elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
@@ -1177,6 +1202,7 @@ class PreviewCanvas(QGraphicsView):
 
     def _finalizar_criacao(self, pos_viewport, modificadores: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
         self._criando = False
+        self._limpar_guias_dinamicas()
         if self._ferramenta == FerramentaMockup.MEDIR:
             # Só chega aqui no sub-modo Medida (Atributos nem passa por
             # `_criando`, ver `_iniciar_criacao`) — soltar o botão FIXA a
@@ -1201,7 +1227,8 @@ class PreviewCanvas(QGraphicsView):
             self._scene.removeItem(self._item_preview_criacao)
             self._item_preview_criacao = None
 
-        atual = self.mapToScene(pos_viewport)
+        atual = self._ajustar_guias_dinamicas(self.mapToScene(pos_viewport), (self._ponto_inicial_criacao,))
+        self._limpar_guias_dinamicas()
         # Arrasto mínimo pra não criar uma forma de 0×0 num clique seco
         # sem querer arrastar de verdade (o gesto mais comum de quem
         # ainda tá aprendendo a ferramenta).
@@ -2080,6 +2107,8 @@ class PreviewCanvas(QGraphicsView):
     def _faca_mouse_press(self, ponto: QPointF, modificadores) -> None:
         if self._faca_ferramenta in ("corte", "vinco"):
             inicio = self._encaixar_na_faca(ponto)
+            if inicio == ponto:
+                inicio = self._ajustar_guias_dinamicas(ponto)
             self._faca_arrasto = ("nova", inicio, inicio)
             self._atualizar_preview_curva(QPainterPath(inicio))
             return
@@ -2120,6 +2149,8 @@ class PreviewCanvas(QGraphicsView):
             return
         if arrasto[0] == "nova":
             fim = self._encaixar_na_faca(ponto)
+            if fim == ponto:
+                fim = self._ajustar_guias_dinamicas(ponto, (arrasto[1],))
             if modificadores & Qt.KeyboardModifier.ControlModifier:
                 linha = QLineF(arrasto[1], ponto)
                 linha.setAngle(round(linha.angle() / 15.0) * 15.0)
@@ -2132,6 +2163,8 @@ class PreviewCanvas(QGraphicsView):
         tipo, pontas, inicio, originais = arrasto
         if tipo == "ponta":
             alvo = self._encaixar_na_faca(ponto, ignorar=set(pontas))
+            if alvo == ponto:
+                alvo = self._ajustar_guias_dinamicas(ponto, (inicio,))
             if modificadores & Qt.KeyboardModifier.ShiftModifier:
                 # Shift: só na horizontal ou na vertical, como no CorelDRAW.
                 d = alvo - inicio
@@ -2153,6 +2186,7 @@ class PreviewCanvas(QGraphicsView):
         self.viewport().update()
 
     def _faca_mouse_release(self) -> None:
+        self._limpar_guias_dinamicas()
         arrasto, self._faca_arrasto = self._faca_arrasto, None
         if arrasto is None:
             return
@@ -2238,6 +2272,7 @@ class PreviewCanvas(QGraphicsView):
         self._item_preview_curva.setPath(caminho)
 
     def _cancelar_curva_em_andamento(self) -> None:
+        self._limpar_guias_dinamicas()
         self._bezier_nos = []
         self._bezier_arrastando = False
         self._mao_livre_pontos = None
@@ -2305,7 +2340,8 @@ class PreviewCanvas(QGraphicsView):
 
     def _curva_mouse_press(self, ponto: QPointF) -> None:
         if self._ferramenta == FerramentaMockup.BEZIER:
-            ponto = self.encaixar_ponto(ponto)
+            encaixado = self.encaixar_ponto(ponto)
+            ponto = encaixado if encaixado != ponto else self._ajustar_guias_dinamicas(ponto, [n.p for n in self._bezier_nos])
             if len(self._bezier_nos) >= 2 and QLineF(ponto, self._bezier_nos[0].p).length() <= self._tolerancia_mm():
                 self._terminar_bezier(fechar=True)
                 return
@@ -2347,7 +2383,10 @@ class PreviewCanvas(QGraphicsView):
                 no.suave = True
                 caminho = caminho_de_subcaminhos([SubCaminho(self._bezier_nos)])
             else:
-                caminho = caminho_de_subcaminhos([SubCaminho(self._bezier_nos + [No.canto(self.encaixar_ponto(ponto))])])
+                encaixado = self.encaixar_ponto(ponto)
+                if encaixado == ponto:
+                    encaixado = self._ajustar_guias_dinamicas(ponto, [n.p for n in self._bezier_nos])
+                caminho = caminho_de_subcaminhos([SubCaminho(self._bezier_nos + [No.canto(encaixado)])])
             self._atualizar_preview_curva(caminho)
         elif self._ferramenta == FerramentaMockup.MAO_LIVRE and self._mao_livre_pontos is not None and segurando:
             if QLineF(self._mao_livre_pontos[-1], ponto).length() >= 0.3:
@@ -2440,6 +2479,8 @@ class PreviewCanvas(QGraphicsView):
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
+        if self._linhas_dinamicas:
+            self._desenhar_guias_dinamicas(painter)
         if self._editando_faca and not self._modo_mockup:
             self._desenhar_overlay_faca(painter)
         curva = self._forma_alvo
@@ -2563,6 +2604,73 @@ class PreviewCanvas(QGraphicsView):
         if novos:
             self._trocar_elementos("Separar", removidos, novos)
         return novos
+
+    # ── Guias dinâmicas ───────────────────────────────────────────────
+    @property
+    def guias_dinamicas(self) -> bool:
+        return self._guias_dinamicas
+
+    def definir_guias_dinamicas(self, ativas: bool) -> None:
+        if self._guias_dinamicas != ativas:
+            self._guias_dinamicas = ativas
+            self._limpar_guias_dinamicas()
+            self.guias_dinamicas_alteradas.emit(ativas)
+
+    def _mostra_guias_ao_pairar(self) -> bool:
+        if self._modo_mockup:
+            return self._ferramenta in _FERRAMENTAS_DESENHO_COM_GUIAS and not (
+                self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos
+            )
+        return self._editando_faca and self._faca_ferramenta in ("corte", "vinco")
+
+    def _limpar_guias_dinamicas(self) -> None:
+        if self._linhas_dinamicas:
+            self._linhas_dinamicas = []
+            self.viewport().update()
+
+    def _ajustar_guias_dinamicas(self, ponto: QPointF, extras: list[QPointF] | tuple = ()) -> QPointF:
+        """Alinha `ponto` na vertical e/ou na horizontal com o nó mais
+        próximo (dentro de alguns pixels) e guarda as guias pra desenhar.
+        Cada eixo é independente — pode alinhar com um nó em X e outro em Y,
+        e aí o ponto cai no cruzamento das duas guias, como no CorelDRAW."""
+        self._linhas_dinamicas = []
+        if not self._guias_dinamicas:
+            return ponto
+        tol = self._tolerancia_mm()
+        melhor_x, menor_x = None, tol
+        melhor_y, menor_y = None, tol
+        for no in list(self.nos_de_encaixe()) + list(extras):
+            dx, dy = abs(no.x() - ponto.x()), abs(no.y() - ponto.y())
+            if dx < 1e-6 and dy < 1e-6:
+                continue  # em cima do próprio nó: isso é encaixe em nó, não guia
+            if dx < menor_x:
+                melhor_x, menor_x = no, dx
+            if dy < menor_y:
+                melhor_y, menor_y = no, dy
+        ajustado = QPointF(melhor_x.x() if melhor_x is not None else ponto.x(), melhor_y.y() if melhor_y is not None else ponto.y())
+        if melhor_x is not None:
+            self._linhas_dinamicas.append((QPointF(melhor_x), ajustado))
+        if melhor_y is not None:
+            self._linhas_dinamicas.append((QPointF(melhor_y), ajustado))
+        self.viewport().update()
+        return ajustado
+
+    def _desenhar_guias_dinamicas(self, painter) -> None:
+        escala = self.transform().m11() or 1.0
+        sobra = 24.0 / escala
+        marca = 4.0 / escala
+        caneta = QPen(QColor(0, 150, 220), 1.0, Qt.PenStyle.DashLine)
+        caneta.setCosmetic(True)
+        painter.save()
+        painter.setPen(caneta)
+        for origem, ponto in self._linhas_dinamicas:
+            linha = QLineF(origem, ponto)
+            if linha.length() > 1e-6:
+                linha.setLength(linha.length() + sobra)  # passa um pouco do cursor
+            painter.drawLine(linha)
+            painter.drawLine(QPointF(origem.x() - marca, origem.y() - marca), QPointF(origem.x() + marca, origem.y() + marca))
+            painter.drawLine(QPointF(origem.x() - marca, origem.y() + marca), QPointF(origem.x() + marca, origem.y() - marca))
+        painter.restore()
 
     def nos_de_encaixe(self) -> list[QPointF]:
         """Pontos onde uma cota gruda: pontas das linhas da faca, cantos e
@@ -2833,6 +2941,9 @@ class PreviewCanvas(QGraphicsView):
         if self._editando_faca and not self._modo_mockup and self._tecla_faca(event):
             return
         if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA and self._tecla_curva(event):
+            return
+        if event.key() == Qt.Key.Key_D and event.modifiers() == (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier):
+            self.definir_guias_dinamicas(not self._guias_dinamicas)
             return
         if self._modo_mockup and self._atalho_corel(event):
             return

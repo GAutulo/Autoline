@@ -355,6 +355,12 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>Liga/desliga pelo menu Exibir &gt; "Encaixe (snap) ao arrastar". O
                 limiar de distância e o espaçamento da grade são preferências em
                 Configurações &gt; Ferramentas.</p>
+                <p><b>Guias dinâmicas</b> (Exibir, <b>Alt+Shift+D</b>, ligadas por
+                padrão): ao desenhar — formas, linhas, Bézier, cotas e linhas novas da
+                faca —, o cursor alinha na vertical e na horizontal com os nós da
+                faca, dos objetos, da chapa e com o 1º ponto do gesto, e aparece uma
+                linha tracejada azul até o nó (marcado com um ×). Alinhando com dois
+                nós ao mesmo tempo, o ponto cai no cruzamento das guias.</p>
                 <p><b>Ajustar a</b> (botão na barra do topo e em Exibir, como no
                 CorelDRAW) escolhe onde grudar: grade do documento (quando visível),
                 guias, objetos (inclui as bordas da face) e página (bordas e centro da
