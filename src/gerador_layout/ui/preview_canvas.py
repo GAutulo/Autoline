@@ -163,6 +163,14 @@ _DELTA_SETA_NUDGE: dict[Qt.Key, QPointF] = {
     Qt.Key.Key_Down: QPointF(0, 1),
 }
 
+# Fontes de encaixe do menu "Ajustar a" (CorelDRAW), na ordem do menu.
+AJUSTAR_A: dict[str, str] = {
+    "grade": "Grade do documento",
+    "guias": "Guias",
+    "objetos": "Objetos (e faces da caixa)",
+    "pagina": "Página (chapa)",
+}
+
 # Atalhos de alinhar do CorelDRAW. C = centros numa linha vertical (mesmo
 # X), E = centros numa linha horizontal (mesmo Y).
 _TECLA_ALINHAR_CORELDRAW: dict[Qt.Key, str] = {
@@ -395,6 +403,7 @@ class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
     zoom_alterado = Signal(float)
+    ajustar_a_alterado = Signal(str, bool)  # chave de AJUSTAR_A, ligado
     cursor_movido = Signal(object)  # QPointF em mm, ou None quando o mouse sai do canvas (barra de status)
     # Emitidos quando uma ferramenta de criação termina um gesto de
     # clique/arrasto no canvas vazio (ver `_finalizar_criacao` abaixo) —
@@ -506,6 +515,9 @@ class PreviewCanvas(QGraphicsView):
         # liga/desliga isso pelo menu Exibir durante a sessão, sem mexer
         # na preferência salva (mesmo espírito da grade, ver lá).
         self._snap_ativo = configuracoes.snap_ativo_padrao()
+        # "Ajustar a" do CorelDRAW: liga/desliga cada fonte de encaixe.
+        # `objetos` inclui as bordas da face do elemento.
+        self._ajustar_a: dict[str, bool] = {chave: True for chave in AJUSTAR_A}
         # Guias de verdade (réguas, ver `mockup_reguas.py`) — cada uma é
         # um `GuiaCanvas` na cena (arrastável/selecionável/removível como
         # qualquer item), não só um número numa lista.
@@ -1324,6 +1336,14 @@ class PreviewCanvas(QGraphicsView):
     def definir_snap_ativo(self, ativo: bool) -> None:
         self._snap_ativo = ativo
 
+    def ajustar_a(self, chave: str) -> bool:
+        return self._ajustar_a[chave]
+
+    def definir_ajustar_a(self, chave: str, ativo: bool) -> None:
+        if self._ajustar_a[chave] != ativo:
+            self._ajustar_a[chave] = ativo
+            self.ajustar_a_alterado.emit(chave, ativo)
+
     def adicionar_guia(self, orientacao: str, posicao_mm: float) -> GuiaCanvas:
         guia = GuiaCanvas(orientacao, posicao_mm)
         self._scene.addItem(guia)
@@ -1364,7 +1384,7 @@ class PreviewCanvas(QGraphicsView):
 
     def _melhor_ajuste_snap(self, bordas: tuple[float, float, float], alvos: list[float]) -> float:
         candidatos = list(alvos)
-        if self._grade_visivel:
+        if self._grade_visivel and self._ajustar_a["grade"]:
             # Grade só participa do encaixe se estiver visível — senão a
             # peça "gruda" numa referência que a pessoa nem está vendo,
             # o que pareceria um bug ("por que não solta exatamente onde
@@ -1388,7 +1408,7 @@ class PreviewCanvas(QGraphicsView):
         usado só pra saber ONDE desenhar a linha-guia de preview, nunca
         pra mover nada (ver `_atualizar_guia_snap_preview`)."""
         candidatos = list(alvos)
-        if self._grade_visivel:
+        if self._grade_visivel and self._ajustar_a["grade"]:
             passo = configuracoes.passo_grade_mm()
             candidatos.extend(round(borda / passo) * passo for borda in bordas)
 
@@ -1442,25 +1462,33 @@ class PreviewCanvas(QGraphicsView):
             self._linhas_guia_snap.append(linha)
 
     def _alvos_snap_x(self, elemento: ElementoMockup) -> list[float]:
-        alvos = [g.posicao for g in self._guias if g.orientacao == "v"]
-        for outro in self._elementos_mockup:
-            if outro is elemento:
-                continue
-            alvos.extend((outro.pos().x(), outro.pos().x() + outro.largura / 2, outro.pos().x() + outro.largura))
-        painel = self._painel_do_elemento(elemento)
-        if painel is not None:
-            alvos.extend((painel.x1, (painel.x1 + painel.x2) / 2, painel.x2))
+        alvos = [g.posicao for g in self._guias if g.orientacao == "v"] if self._ajustar_a["guias"] else []
+        if self._ajustar_a["objetos"]:
+            for outro in self._elementos_mockup:
+                if outro is elemento:
+                    continue
+                alvos.extend((outro.pos().x(), outro.pos().x() + outro.largura / 2, outro.pos().x() + outro.largura))
+            painel = self._painel_do_elemento(elemento)
+            if painel is not None:
+                alvos.extend((painel.x1, (painel.x1 + painel.x2) / 2, painel.x2))
+        pagina = self.retangulo_pagina()
+        if self._ajustar_a["pagina"] and pagina is not None:
+            alvos.extend((pagina.left(), pagina.center().x(), pagina.right()))
         return alvos
 
     def _alvos_snap_y(self, elemento: ElementoMockup) -> list[float]:
-        alvos = [g.posicao for g in self._guias if g.orientacao == "h"]
-        for outro in self._elementos_mockup:
-            if outro is elemento:
-                continue
-            alvos.extend((outro.pos().y(), outro.pos().y() + outro.altura / 2, outro.pos().y() + outro.altura))
-        painel = self._painel_do_elemento(elemento)
-        if painel is not None:
-            alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
+        alvos = [g.posicao for g in self._guias if g.orientacao == "h"] if self._ajustar_a["guias"] else []
+        if self._ajustar_a["objetos"]:
+            for outro in self._elementos_mockup:
+                if outro is elemento:
+                    continue
+                alvos.extend((outro.pos().y(), outro.pos().y() + outro.altura / 2, outro.pos().y() + outro.altura))
+            painel = self._painel_do_elemento(elemento)
+            if painel is not None:
+                alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
+        pagina = self.retangulo_pagina()
+        if self._ajustar_a["pagina"] and pagina is not None:
+            alvos.extend((pagina.top(), pagina.center().y(), pagina.bottom()))
         return alvos
 
     # ── Endpoint Offset Mode (Alt+clique numa ferramenta de criação) ───
@@ -1792,7 +1820,12 @@ class PreviewCanvas(QGraphicsView):
         shift = Qt.KeyboardModifier.ShiftModifier
         nenhum = Qt.KeyboardModifier.NoModifier
 
-        if mods == ctrl and tecla == Qt.Key.Key_U:
+        alt = Qt.KeyboardModifier.AltModifier
+        if mods == alt and tecla == Qt.Key.Key_Z:
+            self.definir_ajustar_a("objetos", not self._ajustar_a["objetos"])
+        elif mods == ctrl and tecla == Qt.Key.Key_Y:
+            self.definir_ajustar_a("grade", not self._ajustar_a["grade"])
+        elif mods == ctrl and tecla == Qt.Key.Key_U:
             self.desagrupar_selecionados()
         elif mods == ctrl and tecla == Qt.Key.Key_A:
             self.selecionar_tudo()
@@ -1874,9 +1907,6 @@ class PreviewCanvas(QGraphicsView):
             eh_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if eh_ctrl and event.key() == Qt.Key.Key_Z:
                 self._pilha_desfazer.redo() if eh_shift else self._pilha_desfazer.undo()
-                return
-            if eh_ctrl and event.key() == Qt.Key.Key_Y:
-                self._pilha_desfazer.redo()
                 return
             if eh_ctrl and event.key() == Qt.Key.Key_G:
                 self.desagrupar_selecionados() if eh_shift else self.agrupar_selecionados()
