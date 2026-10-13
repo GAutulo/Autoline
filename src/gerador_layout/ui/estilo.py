@@ -341,10 +341,23 @@ QToolBar#paletaFerramentasMockup QToolButton:checked {{
     background: {Cor.PRIMARIA_CLARA};
     border-color: {Cor.PRIMARIA};
 }}
-QToolBar#paletaFerramentasMockup::separator {{
+QToolBar#paletaFerramentasMockup QToolButton::menu-indicator {{
+    image: none;  /* o flyout desenha o próprio triângulo no canto (ver BotaoFlyout) */
+}}
+QToolBar#paletaCores {{
+    padding: 4px 2px;
+    border-left: 1px solid {Cor.BORDA};
+}}
+QToolBar#paletaFerramentasMockup::separator:horizontal {{
+    background: {Cor.BORDA};
     width: 1px;
-    height: auto;
     margin: 4px 4px;
+}}
+/* Caixa de ferramentas vertical (borda esquerda, estilo CorelDRAW). */
+QToolBar#paletaFerramentasMockup::separator:vertical {{
+    background: {Cor.BORDA};
+    height: 1px;
+    margin: 4px 6px;
 }}
 
 QMenuBar {{

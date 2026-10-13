@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao
 from ..paineis import Painel
+from . import configuracoes
 from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
@@ -92,6 +93,9 @@ class PainelPropriedadesMockup(QWidget):
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
         self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
+        # Tamanho da página (chapa da dieline) em mm, pro estado "nada
+        # selecionado" da barra — ligado de fora, como os callbacks acima.
+        self.obter_tamanho_pagina: Callable[[], tuple[float, float] | None] | None = None
 
         raiz = QHBoxLayout(self)
         raiz.setContentsMargins(2, 0, 2, 0)
@@ -195,10 +199,11 @@ class PainelPropriedadesMockup(QWidget):
         self._limpar_barra()
 
         if elemento is None:
-            self._rotulo_vazio.setVisible(True)
+            self._rotulo_vazio.setVisible(False)
             self._rotulo_tipo.setVisible(False)
-            self._container_campos.setVisible(False)
             self._botao_remover.setVisible(False)
+            self._montar_estado_sem_selecao()
+            self._container_campos.setVisible(True)
             return
 
         self._rotulo_vazio.setVisible(False)
@@ -246,6 +251,50 @@ class PainelPropriedadesMockup(QWidget):
             self._layout_campos.addWidget(aviso)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
+
+    def _montar_estado_sem_selecao(self) -> None:
+        """Barra de propriedades sem nada selecionado, como no CorelDRAW:
+        tamanho da página, unidade e as distâncias de deslocamento
+        (setas) e de duplicação (Ctrl+D) — que aqui são as mesmas
+        preferências de Configurações > Ferramentas."""
+        tamanho = self.obter_tamanho_pagina() if self.obter_tamanho_pagina is not None else None
+        texto = "Chapa —" if tamanho is None else f"Chapa  {tamanho[0]:.1f} × {tamanho[1]:.1f} mm".replace(".", ",")
+        rotulo = QLabel(texto)
+        rotulo.setObjectName("rotuloPaginaPropriedade")
+        rotulo.setStyleSheet("font-weight: 700;")
+        rotulo.setToolTip("Tamanho da página — a chapa da dieline")
+        self._layout_campos.addWidget(rotulo)
+        unidade = QLabel("Unidade: mm")
+        unidade.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
+        self._layout_campos.addWidget(unidade)
+        self._separador()
+
+        normal, com_shift = configuracoes.passo_nudge_mm()
+
+        def spin(valor: float, maximo: float) -> QDoubleSpinBox:
+            campo = QDoubleSpinBox()
+            campo.setRange(0.01, maximo)
+            campo.setDecimals(2)
+            campo.setSuffix(" mm")
+            campo.setValue(valor)
+            campo.setMaximumWidth(84)
+            campo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            campo.setKeyboardTracking(False)
+            return campo
+
+        spin_nudge = spin(normal, 100.0)
+        spin_nudge.setObjectName("spinDeslocamento")
+        spin_super = spin(com_shift, 1000.0)
+        spin_super.setObjectName("spinSuperDeslocamento")
+        spin_nudge.valueChanged.connect(lambda v: configuracoes.definir_passo_nudge_mm(v, spin_super.value()))
+        spin_super.valueChanged.connect(lambda v: configuracoes.definir_passo_nudge_mm(spin_nudge.value(), v))
+        self._grupo("x", spin_nudge, "Deslocamento com as setas (Ctrl+seta = um décimo)")
+        self._grupo("largura", spin_super, "Super deslocamento (Shift+seta)")
+
+        spin_duplicar = spin(configuracoes.passo_duplicar_mm(), 1000.0)
+        spin_duplicar.setObjectName("spinDistanciaDuplicar")
+        spin_duplicar.valueChanged.connect(configuracoes.definir_passo_duplicar_mm)
+        self._grupo("mais", spin_duplicar, "Distância de duplicação (Ctrl+D e colar)")
 
     def definir_selecao_multipla(self, quantidade: int) -> None:
         """Estado intermediário entre "nada selecionado" (`definir_elemento(None)`)
@@ -301,7 +350,10 @@ class PainelPropriedadesMockup(QWidget):
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setMaximumWidth(78)
+            spin.setMaximumWidth(92)
+            # Campo de texto sem setinhas, como na barra do CorelDRAW — as
+            # setas comiam a largura e cortavam o número ("120,0(").
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             # Sem isso, `valueChanged` dispara a CADA TECLA digitada, não
             # só ao terminar — digitar "20" aplicava primeiro "2" (vira
             # "4" por causa do mínimo de 4mm), a tela atualizava o campo
@@ -314,11 +366,59 @@ class PainelPropriedadesMockup(QWidget):
             self._spins_geometria[chave] = spin
             self._grupo(tipo_icone, spin, tooltip)
 
+        # Fator de escala em %, como na barra do CorelDRAW: digitar 150 e
+        # confirmar escala o objeto em 150% e o campo volta pra 100.
+        for chave, tipo_icone, tooltip in (
+            ("escala_l", "escala_l", "Escala da largura (%)"),
+            ("escala_a", "escala_a", "Escala da altura (%)"),
+        ):
+            spin = QDoubleSpinBox()
+            spin.setRange(1.0, 10000.0)
+            spin.setDecimals(0)
+            spin.setSuffix(" %")
+            spin.setValue(100.0)
+            spin.setMaximumWidth(66)
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            spin.setKeyboardTracking(False)
+            spin.valueChanged.connect(lambda valor, c=chave, s=spin: self._ao_editar_escala(c, valor, s))
+            self._grupo(tipo_icone, spin, tooltip)
+
         botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
         botao_trava.setChecked(elemento.proporcao_travada)
         botao_trava.toggled.connect(elemento.definir_proporcao_travada)
 
+        if not isinstance(elemento, GrupoMockup):
+            botao_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)
+            botao_h.setChecked(elemento.espelho_h)
+            botao_v = self._botao_icone("espelho_v", "Espelhar na vertical", checkable=True)
+            botao_v.setChecked(elemento.espelho_v)
+            botao_h.toggled.connect(lambda marcado: elemento.definir_espelho(marcado, elemento.espelho_v))
+            botao_v.toggled.connect(lambda marcado: elemento.definir_espelho(elemento.espelho_h, marcado))
+
         self._atualizar_campos_geometria()
+
+    def _ao_editar_escala(self, chave: str, valor: float, spin: QDoubleSpinBox) -> None:
+        elemento = self._elemento
+        if elemento is not None and valor != 100.0:
+            fator = valor / 100.0
+            largura, altura = elemento.largura, elemento.altura
+            if elemento.proporcao_travada:
+                nova = (largura * fator, altura * fator)
+            elif chave == "escala_l":
+                nova = (largura * fator, altura)
+            else:
+                nova = (largura, altura * fator)
+            # Escala em torno do centro (ponto de referência padrão do
+            # CorelDRAW): a origem de transformação é o centro, então
+            # basta compensar a meia diferença de tamanho na posição.
+            pos = elemento.pos()
+            elemento.definir_tamanho(*nova)
+            elemento.setPos(
+                pos.x() + (largura - elemento.largura) / 2, pos.y() + (altura - elemento.altura) / 2
+            )
+        spin.blockSignals(True)
+        spin.setValue(100.0)
+        spin.blockSignals(False)
 
     def _atualizar_campos_geometria(self) -> None:
         """Reflete a geometria atual do elemento nos campos — chamado na
@@ -368,11 +468,17 @@ class PainelPropriedadesMockup(QWidget):
             ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
             ("alinhar_base", "base", "Alinhar à base da face"),
         )
-        botoes: list[QToolButton] = []
+        # Um botão só com menu (em vez de 6 botões soltos) — a barra no
+        # padrão CorelDRAW ganhou escala/espelhar e precisa caber.
+        botao_alinhar = self._botao_icone("alinhar_centro_h", "Alinhar na face escolhida")
+        botao_alinhar.setObjectName("botaoAlinharFace")
+        botao_alinhar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu_alinhar = QMenu(botao_alinhar)
         for tipo_icone, alinhamento, tooltip in disposicao:
-            botao = self._botao_icone(tipo_icone, tooltip)
-            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
-            botoes.append(botao)
+            acao = menu_alinhar.addAction(construir_icone(tipo_icone), tooltip)
+            acao.triggered.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
+        botao_alinhar.setMenu(menu_alinhar)
+        botoes: list[QToolButton] = [botao_alinhar]
 
         def atualizar_habilitado() -> None:
             ativo = combo.currentData() is not None

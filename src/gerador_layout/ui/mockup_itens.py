@@ -171,6 +171,12 @@ class ElementoMockup(QGraphicsObject):
         # pelos campos do painel de propriedades (`definir_tamanho`).
         self._proporcao_travada = False
 
+        # Espelhar horizontal/vertical (barra de propriedades, igual ao
+        # CorelDRAW). Só o CONTEÚDO é desenhado espelhado em torno do
+        # centro (ver `paint`) — posição, tamanho e alças não mudam.
+        self._espelho_h = False
+        self._espelho_v = False
+
         # Callback opcional (ver `definir_calculador_snap`) que o canvas
         # liga em todo elemento que cria/duplica/desagrupa — o elemento
         # não sabe nada de grade/outros elementos/guias sozinho, só pede
@@ -259,6 +265,19 @@ class ElementoMockup(QGraphicsObject):
     def definir_proporcao_travada(self, travada: bool) -> None:
         self._proporcao_travada = travada
 
+    @property
+    def espelho_h(self) -> bool:
+        return self._espelho_h
+
+    @property
+    def espelho_v(self) -> bool:
+        return self._espelho_v
+
+    def definir_espelho(self, horizontal: bool, vertical: bool) -> None:
+        self._espelho_h = horizontal
+        self._espelho_v = vertical
+        self.update()
+
     def definir_calculador_snap(self, calculador) -> None:
         """`calculador(elemento, ponto_proposto) -> ponto_ajustado` —
         chamado pelo canvas (ver `preview_canvas.py::_calcular_snap`)
@@ -334,6 +353,7 @@ class ElementoMockup(QGraphicsObject):
         novo.setRotation(self.rotation())
         novo.definir_painel(self.painel_id)
         novo.definir_proporcao_travada(self.proporcao_travada)
+        novo.definir_espelho(self._espelho_h, self._espelho_v)
 
     def retangulo_conteudo_cena(self) -> QRectF:
         """Retângulo de conteúdo de verdade — sem a margem das alças de
@@ -354,7 +374,15 @@ class ElementoMockup(QGraphicsObject):
         return QRectF(0, 0, self._largura, self._altura).adjusted(-margem, -margem, margem, margem)
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
-        self._pintar_conteudo(painter)
+        if self._espelho_h or self._espelho_v:
+            painter.save()
+            painter.translate(self._largura / 2, self._altura / 2)
+            painter.scale(-1.0 if self._espelho_h else 1.0, -1.0 if self._espelho_v else 1.0)
+            painter.translate(-self._largura / 2, -self._altura / 2)
+            self._pintar_conteudo(painter)
+            painter.restore()
+        else:
+            self._pintar_conteudo(painter)
         if self.isSelected():
             self._pintar_selecao(painter)
 
