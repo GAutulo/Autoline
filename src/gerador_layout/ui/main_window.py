@@ -521,6 +521,7 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
+        self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
 
         # Quebra de linha de propósito, mesmo motivo de `_montar_barra_mockup`:
         # sem isso o Qt tenta encaixar essa barra na mesma linha da barra
@@ -535,6 +536,10 @@ class JanelaPrincipal(QMainWindow):
         barra.addWidget(self.painel_propriedades_mockup)
         self.barra_propriedades_mockup = barra
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
+
+    def _tamanho_pagina(self) -> tuple[float, float] | None:
+        pagina = self.canvas.retangulo_pagina()
+        return None if pagina is None else (pagina.width(), pagina.height())
 
     def _montar_barra_mockup(self) -> None:
         """Caixa de ferramentas do modo Layout no estilo CorelDRAW (ver
@@ -1113,6 +1118,8 @@ class JanelaPrincipal(QMainWindow):
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
         self.canvas.definir_paineis(self._paineis_atuais)
+        if not self.canvas.cena.selectedItems():
+            self.painel_propriedades_mockup.definir_elemento(None)  # tamanho da chapa no estado "nada selecionado"
 
         self.linha_impressora.atualizar_valores_efetivos(layout.segmentos_impressora)
         self.linha_impressora.definir_total(layout.largura_total)

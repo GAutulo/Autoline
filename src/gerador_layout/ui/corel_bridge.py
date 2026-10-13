@@ -231,7 +231,29 @@ def _cor_rgb(app, cor_impressao):
 # ── Um desenhista por tipo de ElementoMockup (dispatch abaixo) ─────────
 
 
+# `Shape.Flip`/`ShapeRange.Flip` da API do CorelDRAW (cdrFlipAxes).
+_CDR_ESPELHO_HORIZONTAL = 1
+_CDR_ESPELHO_VERTICAL = 2
+
+
 def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total: float) -> None:
+    espelho = (_CDR_ESPELHO_HORIZONTAL if elemento.espelho_h else 0) | (_CDR_ESPELHO_VERTICAL if elemento.espelho_v else 0)
+    if espelho and not isinstance(elemento, GrupoMockup):
+        # Espelhar = desenhar normal e virar no CorelDRAW o que acabou de
+        # nascer. Shapes.Item(1) é o mais recente (topo da pilha).
+        antes = layer.Shapes.Count
+        _desenhar_elemento_mockup_normal(app, layer, elemento, altura_total)
+        novos = layer.Shapes.Count - antes
+        if novos > 0:
+            intervalo = app.CreateShapeRange()
+            for i in range(1, novos + 1):
+                intervalo.Add(layer.Shapes.Item(i))
+            intervalo.Flip(espelho)
+        return
+    _desenhar_elemento_mockup_normal(app, layer, elemento, altura_total)
+
+
+def _desenhar_elemento_mockup_normal(app, layer, elemento: ElementoMockup, altura_total: float) -> None:
     if isinstance(elemento, GrupoMockup):
         for filho in elemento.elementos:
             _desenhar_elemento_mockup(app, layer, filho, altura_total)
