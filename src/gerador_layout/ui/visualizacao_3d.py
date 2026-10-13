@@ -11,11 +11,15 @@ cruzam na tela, cada painel é dividido numa grade de pedaços menores
 (`_SUBDIVISOES`) e cada pedaço é ordenado sozinho. Só a borda real do
 painel recebe contorno — as emendas entre pedaços não aparecem.
 
-A arte do Layout (texto, formas, logotipo) entra como textura: a cena do
-canvas é renderizada sem a faca numa imagem da chapa inteira
-(`renderizar_arte`) e cada pedaço da face externa recebe o recorte dele
-via `QTransform.quadToQuad` — projetivo exato pra uma face plana. A arte
-vai sem luz/sombra por cima, pra manter as cores originais da marca.
+A arte do Layout (texto, formas, logotipo) entra como textura: uma imagem
+POR FACE, renderizada da própria cena do canvas sem a faca
+(`renderizar_arte_regioes`), na densidade que aquela face ocupa na tela
+agora (com folga). Aproximar a câmera faz a face ser redesenhada mais
+nítida — antes era uma imagem só da chapa inteira, limitada a ~2,4 px/mm,
+e texto/logo saíam borrados e serrilhados. Cada pedaço da face externa
+recebe o recorte dele via `QTransform.quadToQuad` — projetivo exato pra
+uma face plana. A arte vai sem luz/sombra por cima, pra manter as cores
+originais da marca.
 
 A geometria (quais painéis existem, onde fica cada vinco, em que ordem
 cada aba dobra) mora em `dobra3d.py`, sem nada de UI.
@@ -47,9 +51,13 @@ _DURACAO_PLANIFICAR_MS = 2800
 # Giro automático da caixa montada parada (soma ao arrasto do usuário).
 _GIRO_AUTOMATICO_GRAUS_S = 8.0
 _INTERVALO_QUADRO_MS = 33
-# Resolução da textura da arte: até 4 px/mm, limitada no lado maior.
-_ARTE_PX_POR_MM = 4.0
-_ARTE_LADO_MAX_PX = 2400
+# Textura da arte, por face: densidade = a que a face ocupa na tela × folga,
+# entre o mínimo e o máximo, e nunca mais que o lado máximo em pixels.
+_ARTE_FOLGA_DENSIDADE = 1.6
+_ARTE_PX_POR_MM_MIN = 1.0
+_ARTE_PX_POR_MM_MAX = 24.0
+_ARTE_LADO_MAX_PX = 6000
+_ARTE_MARGEM_MM = 1.0
 
 # Vista "3/4" da caixa montada (graus, relativos a `cima`/`frente` do modelo).
 _YAW_MONTADA = -34.0
@@ -81,19 +89,21 @@ def _suavizar(u: float) -> float:
     return u * u * (3.0 - 2.0 * u)
 
 
-def renderizar_arte(cena: QGraphicsScene, elementos: list, largura_mm: float, altura_mm: float) -> QImage | None:
-    """Imagem transparente da chapa inteira (origem = canto da dieline)
+def renderizar_arte_regioes(
+    cena: QGraphicsScene, elementos: list, pedidos: list[tuple[QRectF, float]]
+) -> list[QImage | None]:
+    """Uma imagem transparente por pedido `(retângulo em mm, px por mm)`,
     só com os elementos de Layout — sem faca, guias nem seleção (mesma
-    ideia de `_SelecaoOculta` em exportacao.py). `None` quando não há arte."""
-    if not elementos or largura_mm <= 0 or altura_mm <= 0:
-        return None
-    px_por_mm = min(_ARTE_PX_POR_MM, _ARTE_LADO_MAX_PX / max(largura_mm, altura_mm))
-    imagem = QImage(
-        max(1, round(largura_mm * px_por_mm)),
-        max(1, round(altura_mm * px_por_mm)),
-        QImage.Format.Format_ARGB32_Premultiplied,
-    )
-    imagem.fill(Qt.GlobalColor.transparent)
+    ideia de `_SelecaoOculta` em exportacao.py). A faca e as guias são
+    escondidas UMA vez pra todos os pedidos. `None` quando o retângulo não
+    encosta em nenhuma arte. Cada imagem guarda `px_por_mm`, `x_mm` e
+    `y_mm` (canto do retângulo) em `QImage.text`."""
+    visiveis = [el for el in elementos if el.isVisible()]
+    if not visiveis or not pedidos:
+        return [None] * len(pedidos)
+    area_arte = QRectF()
+    for el in visiveis:
+        area_arte = area_arte.united(el.sceneBoundingRect())
 
     manter = set(elementos)
     ocultos = [it for it in cena.items() if it.parentItem() is None and it not in manter and it.isVisible()]
@@ -102,24 +112,41 @@ def renderizar_arte(cena: QGraphicsScene, elementos: list, largura_mm: float, al
         item.setVisible(False)
     for item in selecionados:
         item.setSelected(False)
+    resultado: list[QImage | None] = []
     try:
-        p = QPainter(imagem)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        cena.render(
-            p,
-            target=QRectF(imagem.rect()),
-            source=QRectF(0.0, 0.0, largura_mm, altura_mm),
-            aspectRatioMode=Qt.AspectRatioMode.IgnoreAspectRatio,
-        )
-        p.end()
+        for retangulo, px_por_mm in pedidos:
+            if retangulo.isEmpty() or not retangulo.intersects(area_arte):
+                resultado.append(None)
+                continue
+            px_por_mm = min(px_por_mm, _ARTE_LADO_MAX_PX / max(retangulo.width(), retangulo.height()))
+            imagem = QImage(
+                max(1, math.ceil(retangulo.width() * px_por_mm)),
+                max(1, math.ceil(retangulo.height() * px_por_mm)),
+                QImage.Format.Format_ARGB32_Premultiplied,
+            )
+            imagem.fill(Qt.GlobalColor.transparent)
+            p = QPainter(imagem)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            destino = QRectF(0.0, 0.0, retangulo.width() * px_por_mm, retangulo.height() * px_por_mm)
+            cena.render(p, target=destino, source=retangulo, aspectRatioMode=Qt.AspectRatioMode.IgnoreAspectRatio)
+            p.end()
+            imagem.setText("px_por_mm", f"{px_por_mm}")
+            imagem.setText("x_mm", f"{retangulo.left()}")
+            imagem.setText("y_mm", f"{retangulo.top()}")
+            resultado.append(imagem)
     finally:
         for item in ocultos:
             item.setVisible(True)
         for item in selecionados:
             item.setSelected(True)
-    imagem.setText("px_por_mm", f"{px_por_mm}")
-    return imagem
+    return resultado
+
+
+def renderizar_arte(cena: QGraphicsScene, elementos: list, largura_mm: float, altura_mm: float, px_por_mm: float = 4.0) -> QImage | None:
+    """A chapa inteira numa imagem só (usado fora do 3D, ex.: testes)."""
+    return renderizar_arte_regioes(cena, elementos, [(QRectF(0.0, 0.0, largura_mm, altura_mm), px_por_mm)])[0]
 
 
 class VistaCaixa3D(QWidget):
@@ -146,8 +173,15 @@ class VistaCaixa3D(QWidget):
         self._centro_montado: Vetor = (0.0, 0.0, 0.0)
         self._raio_plano = 1.0
         self._raio_montado = 1.0
-        self._arte: QImage | None = None
-        self._arte_px_por_mm = 1.0
+        # Arte: `fonte(pedidos) -> imagens` (ver `renderizar_arte_regioes`)
+        # e uma textura por painel: id → (imagem | None, px/mm, retângulo mm).
+        self._fonte_arte = None
+        self._texturas: dict[str, tuple[QImage | None, float, QRectF]] = {}
+        self._texturas_pendentes: dict[str, tuple[QRectF, float]] = {}
+        self._timer_texturas = QTimer(self)
+        self._timer_texturas.setSingleShot(True)
+        self._timer_texturas.setInterval(90)  # espera a câmera parar um instante
+        self._timer_texturas.timeout.connect(self._gerar_texturas_pendentes)
         # Giro automático: só com a caixa montada, parada e sem arrasto.
         self._giro_auto = 0.0
         self._relogio = QElapsedTimer()
@@ -166,12 +200,34 @@ class VistaCaixa3D(QWidget):
             self._centro_montado = _lerp_vetor(montado[0], montado[1], 0.5)
             self._raio_plano = max(math.dist(plano[0], plano[1]) / 2.0, 1.0)
             self._raio_montado = max(math.dist(montado[0], montado[1]) / 2.0, 1.0)
+        self._texturas.clear()  # painéis mudaram de lugar/tamanho
         self.update()
 
-    def definir_arte(self, imagem: QImage | None) -> None:
-        self._arte = imagem if imagem is not None and not imagem.isNull() else None
-        if self._arte is not None:
-            self._arte_px_por_mm = float(self._arte.text("px_por_mm") or 1.0)
+    def definir_fonte_arte(self, fonte) -> None:
+        """`fonte(pedidos: list[(QRectF mm, px/mm)]) -> list[QImage | None]`,
+        ou None sem arte. Joga fora as texturas: a arte pode ter mudado."""
+        self._fonte_arte = fonte
+        self._texturas.clear()
+        self._texturas_pendentes.clear()
+        self.update()
+
+    def textura_do_painel(self, painel_id: str) -> tuple[QImage | None, float, QRectF] | None:
+        return self._texturas.get(painel_id)
+
+    def _gerar_texturas(self, pedidos: dict[str, tuple[QRectF, float]]) -> None:
+        if self._fonte_arte is None or not pedidos:
+            return
+        chaves = list(pedidos)
+        imagens = self._fonte_arte([pedidos[c] for c in chaves])
+        for chave, imagem in zip(chaves, imagens):
+            retangulo, densidade = pedidos[chave]
+            if imagem is not None:
+                densidade = float(imagem.text("px_por_mm") or densidade)
+            self._texturas[chave] = (imagem, densidade, retangulo)
+
+    def _gerar_texturas_pendentes(self) -> None:
+        pendentes, self._texturas_pendentes = self._texturas_pendentes, {}
+        self._gerar_texturas(pendentes)
         self.update()
 
     def progresso(self) -> float:
@@ -277,8 +333,10 @@ class VistaCaixa3D(QWidget):
         vies_interno = 0.04 * self._raio_montado
         vies_camada = 0.08 * self._raio_montado
         n = _SUBDIVISOES
-        arte = self._arte
-        k = self._arte_px_por_mm
+        com_arte = self._fonte_arte is not None
+        densidade_necessaria: dict[str, float] = {}
+        retangulo_painel: dict[str, QRectF] = {}
+        razao_pixels = self.devicePixelRatioF()
         for pp in posicionar(self._modelo, self._progresso):
             painel = pp.painel
             if caixa_fechada and painel.camada > 0:
@@ -330,29 +388,23 @@ class VistaCaixa3D(QWidget):
                         # uma face externa quase no mesmo lugar (abas sobrepostas).
                         profundidade += vies_interno
                     arte_pedaco = None
-                    if arte is not None and ve_lado_externo:
+                    if com_arte and ve_lado_externo:
                         xa, xb = _lerp(painel.x1, painel.x2, i / n), _lerp(painel.x1, painel.x2, (i + 1) / n)
                         ya, yb = _lerp(painel.y1, painel.y2, j / n), _lerp(painel.y1, painel.y2, (j + 1) / n)
-                        recorte = QRectF(QPointF(xa * k, ya * k), QPointF(xb * k, yb * k)).normalized()
-                        # Avança ~1,5 px DA TELA sobre os pedaços vizinhos da
-                        # MESMA face (nunca além da borda dela): o contorno de
-                        # 1,2 px do preenchimento do pedaço seguinte, pintado
-                        # depois, invadia a beirada desta arte e deixava emenda.
-                        px_tela_por_px_arte = max(
-                            math.dist((tela[1].x(), tela[1].y()), (tela[0].x(), tela[0].y())) / max(recorte.width(), 1e-6),
-                            math.dist((tela[3].x(), tela[3].y()), (tela[0].x(), tela[0].y())) / max(recorte.height(), 1e-6),
-                            1e-6,
+                        # Densidade (px de tela por mm) que este pedaço ocupa agora.
+                        densidade = razao_pixels * max(
+                            math.dist((tela[1].x(), tela[1].y()), (tela[0].x(), tela[0].y())) / max(abs(xb - xa), 1e-6),
+                            math.dist((tela[3].x(), tela[3].y()), (tela[0].x(), tela[0].y())) / max(abs(yb - ya), 1e-6),
                         )
-                        margem = min(1.5 / px_tela_por_px_arte, recorte.width() / 2, recorte.height() / 2)
-                        face = QRectF(QPointF(painel.x1 * k, painel.y1 * k), QPointF(painel.x2 * k, painel.y2 * k)).normalized()
-                        recorte = recorte.adjusted(-margem, -margem, margem, margem).intersected(face)
-                        # Quad de origem na MESMA ordem dos cantos da tela.
-                        quad = QPolygonF(
-                            [QPointF(xa * k, ya * k), QPointF(xb * k, ya * k), QPointF(xb * k, yb * k), QPointF(xa * k, yb * k)]
-                        )
-                        arte_pedaco = (recorte, quad)
+                        densidade_necessaria[painel.id] = max(densidade_necessaria.get(painel.id, 0.0), densidade)
+                        retangulo_painel[painel.id] = QRectF(
+                            QPointF(min(painel.x1, painel.x2), min(painel.y1, painel.y2)),
+                            QPointF(max(painel.x1, painel.x2), max(painel.y1, painel.y2)),
+                        ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
+                        arte_pedaco = (painel.id, xa, xb, ya, yb, painel)
                     pedacos.append((profundidade, QPolygonF(tela), cor, bordas, arte_pedaco))
 
+        self._atualizar_texturas(densidade_necessaria, retangulo_painel)
         pedacos.sort(key=lambda item: item[0], reverse=True)
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
@@ -364,12 +416,14 @@ class VistaCaixa3D(QWidget):
             p.setPen(caneta_fill)
             p.setBrush(cor)
             p.drawPolygon(poligono)
-            if arte_pedaco is not None and QTransform.quadToQuad(arte_pedaco[1], poligono, transformacao):
+            desenho = self._recorte_da_arte(arte_pedaco, poligono) if arte_pedaco is not None else None
+            if desenho is not None and QTransform.quadToQuad(desenho[2], poligono, transformacao):
                 # Sem luz nem mistura por cima: a arte mantém a cor original.
+                imagem, recorte, _quad = desenho
                 p.save()
                 p.setTransform(transformacao)
                 p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                p.drawImage(arte_pedaco[0], arte, arte_pedaco[0])
+                p.drawImage(recorte, imagem, recorte)
                 p.restore()
             if bordas:
                 p.setPen(caneta_aresta)
@@ -377,6 +431,53 @@ class VistaCaixa3D(QWidget):
                     p.drawLine(a, b)
 
         self._desenhar_legenda(p)
+
+    def _atualizar_texturas(self, necessaria: dict[str, float], retangulos: dict[str, QRectF]) -> None:
+        """Gera na hora a textura das faces que ainda não têm (senão a arte
+        piscaria) e agenda refazer as que ficaram sem resolução (câmera
+        aproximou) ou com resolução demais (afastou: menos memória e menos
+        serrilhado ao reduzir)."""
+        if self._fonte_arte is None:
+            return
+        agora: dict[str, tuple[QRectF, float]] = {}
+        for chave, densidade in necessaria.items():
+            alvo = min(_ARTE_PX_POR_MM_MAX, max(_ARTE_PX_POR_MM_MIN, densidade * _ARTE_FOLGA_DENSIDADE))
+            atual = self._texturas.get(chave)
+            if atual is None:
+                agora[chave] = (retangulos[chave], alvo)
+            elif atual[0] is not None and (atual[1] < alvo / 1.3 or atual[1] > alvo * 3.0):
+                self._texturas_pendentes[chave] = (retangulos[chave], alvo)
+        self._gerar_texturas(agora)
+        if self._texturas_pendentes:
+            self._timer_texturas.start()
+
+    def _recorte_da_arte(self, arte_pedaco, poligono: QPolygonF):
+        """(imagem, recorte na imagem, quad de origem) do pedaço, ou None."""
+        chave, xa, xb, ya, yb, painel = arte_pedaco
+        textura = self._texturas.get(chave)
+        if textura is None or textura[0] is None:
+            return None
+        imagem, k, retangulo = textura
+        ox, oy = retangulo.left(), retangulo.top()
+
+        def px(x: float, y: float) -> QPointF:
+            return QPointF((x - ox) * k, (y - oy) * k)
+
+        recorte = QRectF(px(xa, ya), px(xb, yb)).normalized()
+        # Avança ~1,5 px DA TELA sobre os pedaços vizinhos da MESMA face
+        # (nunca além da borda dela): o contorno de 1,2 px do preenchimento
+        # do pedaço seguinte, pintado depois, invadia a beirada desta arte.
+        px_tela_por_px_arte = max(
+            math.dist((poligono[1].x(), poligono[1].y()), (poligono[0].x(), poligono[0].y())) / max(recorte.width(), 1e-6),
+            math.dist((poligono[3].x(), poligono[3].y()), (poligono[0].x(), poligono[0].y())) / max(recorte.height(), 1e-6),
+            1e-6,
+        )
+        margem = min(1.5 / px_tela_por_px_arte, recorte.width() / 2, recorte.height() / 2)
+        face = QRectF(px(painel.x1, painel.y1), px(painel.x2, painel.y2)).normalized()
+        recorte = recorte.adjusted(-margem, -margem, margem, margem).intersected(face)
+        # Quad de origem na MESMA ordem dos cantos da tela.
+        quad = QPolygonF([px(xa, ya), px(xb, ya), px(xb, yb), px(xa, yb)])
+        return imagem, recorte, quad
 
     def _desenhar_sombra(self, p: QPainter, para_camera, para_tela, escala: float) -> None:
         """Sombra suave no chão, embaixo da caixa — some junto com a montagem."""
@@ -509,8 +610,8 @@ class Visualizacao3D(QWidget):
         self.botao_alternar.setEnabled(habilitado)
         self.regua_dobra.setEnabled(habilitado)
 
-    def definir_arte(self, imagem: QImage | None) -> None:
-        self.vista.definir_arte(imagem)
+    def definir_fonte_arte(self, fonte) -> None:
+        self.vista.definir_fonte_arte(fonte)
 
     def enquadrar(self) -> None:
         self.vista.vista_inicial()
