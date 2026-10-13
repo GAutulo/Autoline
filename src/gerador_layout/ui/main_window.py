@@ -572,7 +572,7 @@ class JanelaPrincipal(QMainWindow):
 
         acao_ferramenta(
             "selecionar",
-            "Selecionar (Esc) — Alt+arrastar duplica, Shift+arrastar restringe a um eixo",
+            "Selecionar (Esc / Espaço) — clique direito durante o arrasto deixa uma cópia, Ctrl ou Shift restringe a um eixo",
             FerramentaMockup.SELECIONAR,
         )
         acao_ferramenta(
@@ -586,21 +586,21 @@ class JanelaPrincipal(QMainWindow):
             FerramentaMockup.MOVER_PRECISO,
         )
         barra.addSeparator()  # fim do grupo "seleção" (Selecionar/Laço/Mover-preciso), começa "criar conteúdo"
-        acao_ferramenta("ferramenta_texto", "Texto — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
+        acao_ferramenta("ferramenta_texto", "Texto (F8) — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
         acao_ferramenta(
             "ferramenta_retangulo",
-            "Retângulo — clique e arraste pra desenhar (Alt = a partir do centro)",
+            "Retângulo (F6) — clique e arraste (Ctrl = quadrado, Shift = a partir do centro)",
             FerramentaMockup.RETANGULO,
         )
         acao_ferramenta(
-            "ferramenta_elipse", "Elipse — clique e arraste pra desenhar (Alt = a partir do centro)", FerramentaMockup.ELIPSE
+            "ferramenta_elipse", "Elipse (F7) — clique e arraste (Ctrl = círculo, Shift = a partir do centro)", FerramentaMockup.ELIPSE
         )
         acao_ferramenta(
             "ferramenta_poligono",
-            "Polígono — clique e arraste pra desenhar (nº de lados ajustável, Alt = a partir do centro)",
+            "Polígono (Y) — clique e arraste (nº de lados ajustável; Ctrl = lados iguais, Shift = do centro)",
             FerramentaMockup.POLIGONO,
         )
-        acao_ferramenta("ferramenta_linha", "Linha — clique e arraste pra desenhar", FerramentaMockup.LINHA)
+        acao_ferramenta("ferramenta_linha", "Linha (F5) — clique e arraste (Ctrl = ângulo em passos de 15°)", FerramentaMockup.LINHA)
         acao_ferramenta(
             "ferramenta_callout", "Callout — clique no canvas pra anotar (aponta pra esse lugar)", FerramentaMockup.CALLOUT
         )
@@ -630,12 +630,12 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
         self._acao_icone(
-            barra, "desagrupar", "Desagrupar (Ctrl+Shift+G)", lambda: self.canvas.desagrupar_selecionados()
+            barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados()
         )
 
         barra.addSeparator()
-        self._acao_icone(barra, "trazer_frente", "Trazer p/ frente (Ctrl+Home)", lambda: self.canvas.trazer_para_frente())
-        self._acao_icone(barra, "enviar_tras", "Enviar p/ trás (Ctrl+End)", lambda: self.canvas.enviar_para_tras())
+        self._acao_icone(barra, "trazer_frente", "Trazer p/ frente (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
+        self._acao_icone(barra, "enviar_tras", "Enviar p/ trás (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
 
         barra.addSeparator()
         pilha = self.canvas.pilha_desfazer

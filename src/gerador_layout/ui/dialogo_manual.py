@@ -67,12 +67,18 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>A ferramenta padrão (ponteiro). Clicar um elemento seleciona ele;
                 clicar e arrastar move; as alças ao redor de um elemento selecionado
                 redimensionam (nos cantos/lados) ou giram (o círculo acima).</p>
+                <p>Igual ao CorelDRAW: a alça de <b>canto</b> escala mantendo a
+                proporção (segure <b>Alt</b> pra soltar a proporção), a alça do
+                <b>meio</b> estica só um lado, e <b>Shift</b> redimensiona a partir do
+                centro. Girando, <b>Ctrl</b> prende o ângulo em passos de 15°.</p>
                 <p><b>Modificadores durante o arrasto:</b></p>
-                <p>• <b>Alt</b> — duplica: deixa uma cópia parada no lugar de onde você
-                começou a arrastar, e o que se move é a cópia nova.<br>
-                • <b>Shift</b> — restringe o movimento a um eixo só (horizontal ou
-                vertical, o que você estiver puxando mais); reavaliado o tempo todo,
-                dá pra "corrigir" o eixo sem soltar o botão.</p>
+                <p>• <b>Clique direito</b> (sem soltar o esquerdo) — ao soltar, deixa
+                uma cópia no destino e o original volta pro lugar.<br>
+                • <b>Alt</b> ao começar a arrastar — duplica: deixa uma cópia parada no
+                lugar de onde você começou, e o que se move é a cópia nova.<br>
+                • <b>Ctrl</b> ou <b>Shift</b> — restringe o movimento a um eixo só
+                (horizontal ou vertical, o que você estiver puxando mais); reavaliado
+                o tempo todo, dá pra "corrigir" o eixo sem soltar o botão.</p>
                 <p><b>Ctrl/Shift + clique</b> — adiciona/remove elementos individuais da
                 seleção atual (seleção múltipla). <b>Arrastar numa área vazia</b> — abre
                 uma seleção retangular, seleciona tudo que estiver dentro.</p>
@@ -136,10 +142,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """
                 <p>Clique e arraste pra desenhar, canto a canto (o clique inicial é um
                 canto, solta no canto oposto).</p>
-                <p><b>Alt segurado durante o arrasto</b> — desenha a partir do CENTRO
-                em vez de um canto: o ponto onde você clicou vira o meio da forma, que
-                cresce simétrica dos 2 lados. Dá pra soltar/segurar Alt no meio do
-                gesto e ver o efeito na hora.</p>
+                <p><b>Shift</b> (ou Alt) <b>segurado durante o arrasto</b> — desenha a
+                partir do CENTRO em vez de um canto: o ponto onde você clicou vira o
+                meio da forma, que cresce simétrica dos 2 lados. <b>Ctrl</b> força
+                lados iguais (quadrado, círculo). Dá pra soltar/segurar as teclas no
+                meio do gesto e ver o efeito na hora — igual ao CorelDRAW.</p>
                 <p>O Polígono tem um campo de "número de lados" na barra de
                 propriedades (3 a 20) — poucos lados também cobre losango/triângulo/
                 pentágono, sem precisar de uma ferramenta de estrela à parte. Os 3 têm
@@ -185,7 +192,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """
                 <p>Marca uma área que recebe um processo especial de pós-impressão
                 (verniz localizado, laminação fosca/brilho, hot stamping) — clique e
-                arraste pra desenhar, Alt = a partir do centro (mesma convenção do
+                arraste pra desenhar, Shift = a partir do centro (mesma convenção do
                 Retângulo/Elipse/Polígono). O tipo de processo é um campo na barra de
                 propriedades.</p>
                 <p>Sai desenhado com hachura + a cor de marcação técnica padrão da
@@ -340,11 +347,24 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 cascata").<br>
                 <b>Ctrl+C</b> / <b>Ctrl+V</b> — copiar/colar.<br>
                 <b>Delete</b> — remove a seleção atual.<br>
-                <b>Ctrl+G</b> / <b>Ctrl+Shift+G</b> — agrupar/desagrupar.<br>
-                <b>Ctrl+Home</b> / <b>Ctrl+End</b> — trazer pra frente / enviar pra
-                trás.<br>
+                <b>+ do teclado numérico</b> — duplica no lugar (cópia exatamente
+                em cima).<br>
+                <b>Ctrl+A</b> — seleciona todos os elementos.<br>
+                <b>Ctrl+G</b> / <b>Ctrl+U</b> (ou Ctrl+Shift+G) — agrupar/desagrupar.<br>
+                <b>Shift+PgUp</b> / <b>Shift+PgDn</b> (ou Ctrl+Home / Ctrl+End) — trazer
+                pra frente / enviar pra trás.<br>
+                <b>Ctrl+PgUp</b> / <b>Ctrl+PgDn</b> — um nível à frente / atrás.<br>
+                <b>L</b> / <b>R</b> / <b>T</b> / <b>B</b> — alinhar à esquerda, direita,
+                topo e base; <b>C</b> / <b>E</b> — centros na vertical / horizontal.
+                Com um elemento só, alinha com a chapa da dieline.<br>
+                <b>P</b> — centraliza a seleção na chapa.<br>
+                <b>F4</b> — zoom em tudo; <b>Shift+F4</b> — zoom na chapa;
+                <b>Shift+F2</b> — zoom na seleção.<br>
+                <b>F5</b> Linha, <b>F6</b> Retângulo, <b>F7</b> Elipse, <b>F8</b> Texto,
+                <b>Y</b> Polígono; <b>Espaço</b> alterna entre Selecionar e a última
+                ferramenta.<br>
                 <b>Setas do teclado</b> — move a seleção aos poucos (Shift = passo
-                maior).<br>
+                maior, Ctrl = passo de um décimo).<br>
                 <b>Tab</b> — troca de sub-modo na ferramenta Medida.<br>
                 <b>Esc</b> — cancela o gesto atual (arrasto de criação, laço, Move de
                 precisão, campo do Endpoint Offset) ou volta pro ponteiro.</p>
