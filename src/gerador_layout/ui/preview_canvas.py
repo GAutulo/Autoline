@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..models import CorImpressao, LayoutCaixa, TipoLinha
+from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
 from ..paineis import Painel
 from . import configuracoes
 from .estilo import Cor
@@ -471,6 +471,31 @@ def _simplificar(pontos: list[QPointF], tolerancia: float) -> list[QPointF]:
     return _simplificar(pontos[: indice + 1], tolerancia)[:-1] + _simplificar(pontos[indice:], tolerancia)
 
 
+class _ComandoEditarFaca(QUndoCommand):
+    """Edição manual da faca na tela Dieline (ver `PreviewCanvas.definir_edicao_faca`).
+    `None` = faca calculada pelas medidas, sem edição."""
+
+    def __init__(self, canvas: "PreviewCanvas", antes, depois, texto: str = "Editar faca") -> None:
+        super().__init__(texto)
+        self._canvas, self._antes, self._depois = canvas, antes, depois
+
+    def redo(self) -> None:  # noqa: N802
+        self._canvas._definir_linhas_editadas(self._depois)
+
+    def undo(self) -> None:  # noqa: N802
+        self._canvas._definir_linhas_editadas(self._antes)
+
+
+def _copiar_linhas(linhas) -> list[LinhaDesenho] | None:
+    if linhas is None:
+        return None
+    return [LinhaDesenho(l.x1, l.y1, l.x2, l.y2, l.tipo) for l in linhas]
+
+
+def _mesmo_ponto(ax: float, ay: float, bx: float, by: float) -> bool:
+    return abs(ax - bx) < 0.01 and abs(ay - by) < 0.01
+
+
 class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
@@ -487,7 +512,11 @@ class PreviewCanvas(QGraphicsView):
     linha_desenhada = Signal(QPointF, QPointF)
     cota_desenhada = Signal(QPointF, QPointF, str)
     curva_desenhada = Signal(QPainterPath)  # Bézier / Mão livre terminada (coordenadas da cena)
-    mensagem_status = Signal(str)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
+    mensagem_status = Signal(str)
+    # Faca editada à mão (True) ou voltou a ser a calculada (False).
+    faca_editada_alterada = Signal(bool)
+    # Tipo da linha selecionada na edição da faca (TipoLinha) ou None.
+    linha_faca_selecionada = Signal(object)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
     elipse_desenhada = Signal(QRectF)
@@ -560,6 +589,13 @@ class PreviewCanvas(QGraphicsView):
         # criação em andamento (clique/arrasto pra desenhar um retângulo/
         # linha novos, ou clique único pra texto).
         self._ferramenta = FerramentaMockup.SELECIONAR
+        # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
+        self._linhas_editadas: list[LinhaDesenho] | None = None
+        self._editando_faca = False
+        self._faca_ferramenta = "forma"  # "forma" | "corte" | "vinco"
+        self._faca_sel: int | None = None
+        self._faca_arrasto: tuple | None = None
+        self._faca_antes = None
         # Ferramentas de curva (ver `_curva_mouse_press`).
         self._bezier_nos: list[No] = []
         self._bezier_arrastando = False
@@ -669,6 +705,16 @@ class PreviewCanvas(QGraphicsView):
         return self._layout
 
     def definir_layout(self, layout: LayoutCaixa | None) -> None:
+        # Edição manual da faca sobrevive a recálculos que não mudam a
+        # geometria (ex.: marcar uma cor na legenda); se a faca calculada
+        # mudar, a edição perde o sentido e é descartada.
+        if self._linhas_editadas is not None:
+            antigas = [] if self._layout is None else self._layout.linhas
+            novas = [] if layout is None else layout.linhas
+            if antigas != novas:
+                self._linhas_editadas = None
+                self._faca_sel = None
+                self.faca_editada_alterada.emit(False)
         self._layout = layout
         self._redesenhar()
         self._ajuste_pendente = True
@@ -826,6 +872,9 @@ class PreviewCanvas(QGraphicsView):
         self.zoom_alterado.emit(self._zoom_atual)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._editando_faca and not self._modo_mockup:
+            event.accept()  # sem "ajustar à tela" no meio da edição da faca
+            return
         if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA:
             self._curva_duplo_clique(self.mapToScene(event.position().toPoint()))
             event.accept()
@@ -933,6 +982,10 @@ class PreviewCanvas(QGraphicsView):
             self._painel_offset.iniciar(event.pos())
             event.accept()
             return
+        if self._editando_faca and not self._modo_mockup and event.button() == Qt.MouseButton.LeftButton:
+            self._faca_mouse_press(self.mapToScene(event.position().toPoint()), event.modifiers())
+            event.accept()
+            return
         if self._modo_mockup and event.button() == Qt.MouseButton.LeftButton and self._ferramenta in _FERRAMENTAS_CURVA:
             self._curva_mouse_press(self.mapToScene(event.position().toPoint()))
             event.accept()
@@ -959,6 +1012,10 @@ class PreviewCanvas(QGraphicsView):
             self._panorama_ultimo_ponto = ponto
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
+            event.accept()
+            return
+        if self._editando_faca and not self._modo_mockup and self._faca_arrasto is not None:
+            self._faca_mouse_move(self.mapToScene(event.position().toPoint()), event.modifiers())
             event.accept()
             return
         if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA:
@@ -997,6 +1054,10 @@ class PreviewCanvas(QGraphicsView):
             # (que voltaria pro cursor padrão da seta, ignorando qual
             # ferramenta estava ativa antes do pan).
             self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[self._ferramenta])
+            event.accept()
+            return
+        if self._editando_faca and not self._modo_mockup and event.button() == Qt.MouseButton.LeftButton:
+            self._faca_mouse_release()
             event.accept()
             return
         if self._modo_mockup and event.button() == Qt.MouseButton.LeftButton and self._ferramenta in _FERRAMENTAS_CURVA:
@@ -1364,7 +1425,7 @@ class PreviewCanvas(QGraphicsView):
 
     def _desenhar_linhas_tecnicas(self) -> None:
         assert self._layout is not None
-        for linha in self._layout.linhas:
+        for linha in self.linhas_faca():
             cor, estilo, largura = _ESTILO_POR_TIPO.get(
                 linha.tipo, (QColor(0, 0, 0), Qt.PenStyle.SolidLine, 0.5)
             )
@@ -1385,6 +1446,9 @@ class PreviewCanvas(QGraphicsView):
         comportamentos de graça, o Qt já entende a diferença entre
         "clique caiu num item" e "clique caiu vazio"."""
         self._modo_mockup = ativo
+        if ativo and self._editando_faca:
+            self._editando_faca = False
+            self._faca_sel = None
         # Sempre volta pro ponteiro ao trocar de tela — solta qualquer
         # ferramenta de criação que tivesse ficado ativa (e já ajusta o
         # `DragMode`/cursor certo pro modo novo, ver `definir_ferramenta`).
@@ -1882,6 +1946,280 @@ class PreviewCanvas(QGraphicsView):
 
         self._com_undo_geometria("Centralizar na página", aplicar)
 
+    # ── Faca editável (tela Dieline) ───────────────────────────────────
+    def linhas_faca(self) -> list[LinhaDesenho]:
+        """As linhas da faca que valem agora: as editadas à mão, se houver,
+        senão as calculadas pelas medidas."""
+        if self._linhas_editadas is not None:
+            return self._linhas_editadas
+        return [] if self._layout is None else self._layout.linhas
+
+    @property
+    def faca_editada(self) -> bool:
+        return self._linhas_editadas is not None
+
+    def _definir_linhas_editadas(self, linhas) -> None:
+        estava = self._linhas_editadas is not None
+        self._linhas_editadas = _copiar_linhas(linhas)
+        if self._faca_sel is not None and self._faca_sel >= len(self.linhas_faca()):
+            self._selecionar_linha_faca(None)
+        self._redesenhar()
+        if estava != (self._linhas_editadas is not None):
+            self.faca_editada_alterada.emit(self._linhas_editadas is not None)
+        self.viewport().update()
+
+    def _aplicar_faca(self, texto: str, depois) -> None:
+        antes = _copiar_linhas(self._linhas_editadas)
+        if depois != antes:
+            self._pilha_desfazer.push(_ComandoEditarFaca(self, antes, _copiar_linhas(depois), texto))
+
+    def _linhas_para_editar(self) -> list[LinhaDesenho]:
+        return _copiar_linhas(self.linhas_faca())
+
+    @property
+    def editando_faca(self) -> bool:
+        return self._editando_faca
+
+    def definir_edicao_faca(self, ativo: bool, ferramenta: str = "forma") -> None:
+        """Liga a edição da faca (só fora do modo Layout): `forma` seleciona
+        e arrasta linhas/pontas; `corte`/`vinco` desenham linha nova."""
+        self._editando_faca = ativo and not self._modo_mockup
+        self._faca_ferramenta = ferramenta
+        self._faca_arrasto = None
+        if not self._editando_faca:
+            self._selecionar_linha_faca(None)
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag if not self._modo_mockup else self.dragMode())
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.viewport().setCursor(
+                Qt.CursorShape.ArrowCursor if ferramenta == "forma" else Qt.CursorShape.CrossCursor
+            )
+        self.viewport().update()
+
+    def _selecionar_linha_faca(self, indice: int | None) -> None:
+        self._faca_sel = indice
+        linhas = self.linhas_faca()
+        self.linha_faca_selecionada.emit(None if indice is None or indice >= len(linhas) else linhas[indice].tipo)
+        self.viewport().update()
+
+    @property
+    def linha_faca_selecionada_indice(self) -> int | None:
+        return self._faca_sel
+
+    def definir_tipo_linha_selecionada(self, tipo: TipoLinha) -> None:
+        if self._faca_sel is None:
+            return
+        linhas = self._linhas_para_editar()
+        if linhas[self._faca_sel].tipo == tipo:
+            return
+        linhas[self._faca_sel].tipo = tipo
+        self._aplicar_faca("Mudar tipo da linha", linhas)
+
+    def remover_linha_faca_selecionada(self) -> None:
+        if self._faca_sel is None:
+            return
+        linhas = self._linhas_para_editar()
+        del linhas[self._faca_sel]
+        self._selecionar_linha_faca(None)
+        self._aplicar_faca("Remover linha da faca", linhas)
+
+    def descartar_edicoes_faca(self) -> None:
+        if self._linhas_editadas is not None:
+            self._selecionar_linha_faca(None)
+            self._pilha_desfazer.push(_ComandoEditarFaca(self, _copiar_linhas(self._linhas_editadas), None, "Descartar edições da faca"))
+
+    def _pontas_coincidentes(self, linhas, x: float, y: float) -> list[tuple[int, int]]:
+        """(linha, 1|2) de toda ponta que está em (x, y) — as linhas da faca
+        se tocam nas quinas e nos vincos, e mexer numa ponta leva as outras
+        junto (como um nó compartilhado), senão a faca "abre"."""
+        pontas = []
+        for i, l in enumerate(linhas):
+            if _mesmo_ponto(l.x1, l.y1, x, y):
+                pontas.append((i, 1))
+            if _mesmo_ponto(l.x2, l.y2, x, y):
+                pontas.append((i, 2))
+        return pontas
+
+    def _encaixar_na_faca(self, ponto: QPointF, ignorar: set[tuple[int, int]] = frozenset()) -> QPointF:
+        """Gruda numa ponta de linha da faca (exceto as que estão sendo
+        arrastadas) — e, sem ponta por perto, no encaixe comum."""
+        if not self._snap_ativo:
+            return ponto
+        limiar = configuracoes.limiar_snap_mm()
+        melhor, menor = None, limiar
+        for i, l in enumerate(self.linhas_faca()):
+            for qual, (x, y) in ((1, (l.x1, l.y1)), (2, (l.x2, l.y2))):
+                if (i, qual) in ignorar:
+                    continue
+                d = math.hypot(x - ponto.x(), y - ponto.y())
+                if d < menor:
+                    melhor, menor = QPointF(x, y), d
+        return melhor if melhor is not None else self.encaixar_ponto(ponto)
+
+    def _faca_acertar(self, ponto: QPointF) -> tuple | None:
+        """("ponta", linha, 1|2) ou ("linha", linha) sob o cursor."""
+        tol = self._tolerancia_mm()
+        linhas = self.linhas_faca()
+        ordem = list(range(len(linhas)))
+        if self._faca_sel is not None and self._faca_sel < len(linhas):
+            ordem.remove(self._faca_sel)
+            ordem.insert(0, self._faca_sel)  # a selecionada tem prioridade
+        for i in ordem:
+            l = linhas[i]
+            for qual, (x, y) in ((1, (l.x1, l.y1)), (2, (l.x2, l.y2))):
+                if math.hypot(x - ponto.x(), y - ponto.y()) <= tol:
+                    return ("ponta", i, qual)
+        melhor, menor = None, tol
+        for i, l in enumerate(linhas):
+            d = _distancia_ao_segmento(ponto, QPointF(l.x1, l.y1), QPointF(l.x2, l.y2))
+            if d <= menor:
+                melhor, menor = ("linha", i), d
+        return melhor
+
+    def _faca_mouse_press(self, ponto: QPointF, modificadores) -> None:
+        if self._faca_ferramenta in ("corte", "vinco"):
+            inicio = self._encaixar_na_faca(ponto)
+            self._faca_arrasto = ("nova", inicio, inicio)
+            self._atualizar_preview_curva(QPainterPath(inicio))
+            return
+        acerto = self._faca_acertar(ponto)
+        if acerto is None:
+            self._selecionar_linha_faca(None)
+            return
+        linhas = self.linhas_faca()
+        self._selecionar_linha_faca(acerto[1])
+        self._faca_antes = _copiar_linhas(self._linhas_editadas)
+        so_esta = bool(modificadores & Qt.KeyboardModifier.AltModifier)  # Alt solta a ponta das vizinhas
+        if acerto[0] == "ponta":
+            _t, i, qual = acerto
+            l = linhas[i]
+            x, y = (l.x1, l.y1) if qual == 1 else (l.x2, l.y2)
+            pontas = [(i, qual)] if so_esta else self._pontas_coincidentes(linhas, x, y)
+            self._faca_arrasto = ("ponta", pontas, QPointF(x, y), self._linhas_para_editar())
+        else:
+            i = acerto[1]
+            l = linhas[i]
+            pontas = {(i, 1), (i, 2)}
+            if not so_esta:
+                # Pontas ligadas: as que coincidem com as da linha E as que
+                # encostam no meio dela (junção em "T", ex.: vinco vertical
+                # chegando no vinco horizontal) — todas andam junto.
+                a, b = QPointF(l.x1, l.y1), QPointF(l.x2, l.y2)
+                for k, outra in enumerate(linhas):
+                    if k == i:
+                        continue
+                    for qual, (x, y) in ((1, (outra.x1, outra.y1)), (2, (outra.x2, outra.y2))):
+                        if _distancia_ao_segmento(QPointF(x, y), a, b) < 0.01:
+                            pontas.add((k, qual))
+            self._faca_arrasto = ("linha", sorted(pontas), QPointF(ponto), self._linhas_para_editar())
+
+    def _faca_mouse_move(self, ponto: QPointF, modificadores) -> None:
+        arrasto = self._faca_arrasto
+        if arrasto is None:
+            return
+        if arrasto[0] == "nova":
+            fim = self._encaixar_na_faca(ponto)
+            if modificadores & Qt.KeyboardModifier.ControlModifier:
+                linha = QLineF(arrasto[1], ponto)
+                linha.setAngle(round(linha.angle() / 15.0) * 15.0)
+                fim = linha.p2()
+            self._faca_arrasto = ("nova", arrasto[1], fim)
+            caminho = QPainterPath(arrasto[1])
+            caminho.lineTo(fim)
+            self._atualizar_preview_curva(caminho)
+            return
+        tipo, pontas, inicio, originais = arrasto
+        if tipo == "ponta":
+            alvo = self._encaixar_na_faca(ponto, ignorar=set(pontas))
+            if modificadores & Qt.KeyboardModifier.ShiftModifier:
+                # Shift: só na horizontal ou na vertical, como no CorelDRAW.
+                d = alvo - inicio
+                alvo = QPointF(alvo.x(), inicio.y()) if abs(d.x()) >= abs(d.y()) else QPointF(inicio.x(), alvo.y())
+            delta = alvo - inicio
+        else:
+            delta = ponto - inicio
+            if modificadores & Qt.KeyboardModifier.ShiftModifier:
+                delta = QPointF(delta.x(), 0.0) if abs(delta.x()) >= abs(delta.y()) else QPointF(0.0, delta.y())
+        linhas = _copiar_linhas(originais)
+        for i, qual in pontas:
+            l, o = linhas[i], originais[i]
+            if qual == 1:
+                l.x1, l.y1 = o.x1 + delta.x(), o.y1 + delta.y()
+            else:
+                l.x2, l.y2 = o.x2 + delta.x(), o.y2 + delta.y()
+        self._linhas_editadas = linhas
+        self._redesenhar()
+        self.viewport().update()
+
+    def _faca_mouse_release(self) -> None:
+        arrasto, self._faca_arrasto = self._faca_arrasto, None
+        if arrasto is None:
+            return
+        if arrasto[0] == "nova":
+            self._atualizar_preview_curva(None)
+            _t, inicio, fim = arrasto
+            if QLineF(inicio, fim).length() < 1.0:
+                return
+            tipo = TipoLinha.VINCO if self._faca_ferramenta == "vinco" else TipoLinha.CORTE
+            linhas = self._linhas_para_editar()
+            linhas.append(LinhaDesenho(inicio.x(), inicio.y(), fim.x(), fim.y(), tipo))
+            self._aplicar_faca("Nova linha na faca", linhas)
+            self._selecionar_linha_faca(len(linhas) - 1)
+            return
+        depois = _copiar_linhas(self._linhas_editadas)
+        # Volta pro estado de antes do gesto e empurra UM comando de desfazer.
+        self._linhas_editadas = _copiar_linhas(self._faca_antes)
+        if depois != (self._faca_antes if self._faca_antes is not None else self._layout.linhas):
+            self._pilha_desfazer.push(_ComandoEditarFaca(self, self._faca_antes, depois, "Mover na faca"))
+        else:
+            self._redesenhar()
+        self._faca_antes = None
+
+    def _tecla_faca(self, event) -> bool:
+        if event.key() == Qt.Key.Key_Delete and self._faca_sel is not None:
+            self.remover_linha_faca_selecionada()
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            if self._faca_arrasto is not None:
+                self._faca_arrasto = None
+                self._atualizar_preview_curva(None)
+                self._linhas_editadas = _copiar_linhas(self._faca_antes) if self._faca_antes is not None else self._linhas_editadas
+                self._redesenhar()
+            else:
+                self._selecionar_linha_faca(None)
+            return True
+        return False
+
+    def _desenhar_overlay_faca(self, painter) -> None:
+        escala = self.transform().m11() or 1.0
+        lado = 5.0 / escala
+        caneta = QPen(QColor(Cor.PRIMARIA), 1.0)
+        caneta.setCosmetic(True)
+        painter.save()
+        painter.setPen(caneta)
+        linhas = self.linhas_faca()
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        vistos = set()
+        for l in linhas:
+            for x, y in ((l.x1, l.y1), (l.x2, l.y2)):
+                chave = (round(x, 2), round(y, 2))
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                painter.drawRect(QRectF(x - lado / 2, y - lado / 2, lado, lado))
+        if self._faca_sel is not None and self._faca_sel < len(linhas):
+            l = linhas[self._faca_sel]
+            destaque = QPen(QColor(Cor.PRIMARIA), 3.0)
+            destaque.setCosmetic(True)
+            painter.setPen(destaque)
+            painter.drawLine(QLineF(l.x1, l.y1, l.x2, l.y2))
+            painter.setPen(caneta)
+            painter.setBrush(QBrush(QColor(Cor.PRIMARIA)))
+            for x, y in ((l.x1, l.y1), (l.x2, l.y2)):
+                painter.drawRect(QRectF(x - lado / 2, y - lado / 2, lado, lado))
+        painter.restore()
+
     # ── Curvas: Bézier, Mão livre e Forma (ver mockup_curva.py) ─────────
     def _tolerancia_mm(self) -> float:
         return _TOLERANCIA_NO_PX / (self.transform().m11() or 1.0)
@@ -2102,6 +2440,8 @@ class PreviewCanvas(QGraphicsView):
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
+        if self._editando_faca and not self._modo_mockup:
+            self._desenhar_overlay_faca(painter)
         curva = self._forma_alvo
         if not (self._modo_mockup and self._ferramenta == FerramentaMockup.FORMA and curva is not None and curva.scene()):
             return
@@ -2229,7 +2569,7 @@ class PreviewCanvas(QGraphicsView):
         centro de cada objeto e cantos da chapa."""
         pontos: list[QPointF] = []
         if self._layout is not None:
-            for linha in self._layout.linhas:
+            for linha in self.linhas_faca():
                 pontos.append(QPointF(linha.x1, linha.y1))
                 pontos.append(QPointF(linha.x2, linha.y2))
         for el in self._elementos_mockup:
@@ -2490,6 +2830,8 @@ class PreviewCanvas(QGraphicsView):
             # alinhar do CorelDRAW abaixo) roubariam letras digitadas.
             super().keyPressEvent(event)
             return
+        if self._editando_faca and not self._modo_mockup and self._tecla_faca(event):
+            return
         if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA and self._tecla_curva(event):
             return
         if self._modo_mockup and self._atalho_corel(event):
@@ -2636,3 +2978,13 @@ class PainelLegendaCores(QWidget):
         item_layout.addWidget(nome)
 
         return item
+
+
+def _distancia_ao_segmento(p: QPointF, a: QPointF, b: QPointF) -> float:
+    ab = b - a
+    comprimento2 = ab.x() ** 2 + ab.y() ** 2
+    if comprimento2 < 1e-12:
+        return math.hypot(p.x() - a.x(), p.y() - a.y())
+    t = max(0.0, min(1.0, ((p.x() - a.x()) * ab.x() + (p.y() - a.y()) * ab.y()) / comprimento2))
+    q = a + ab * t
+    return math.hypot(p.x() - q.x(), p.y() - q.y())
