@@ -14,6 +14,7 @@ propriedade de vários de uma vez não é um caso coberto ainda.
 
 from __future__ import annotations
 
+import warnings
 from typing import Callable
 
 from PySide6.QtWidgets import (
@@ -81,6 +82,9 @@ class PainelPropriedadesMockup(QWidget):
         self._obter_tintas = obter_tintas_disponiveis
         self._obter_paineis = obter_paineis_disponiveis
         self._elemento: ElementoMockup | None = None
+        # Só o elemento cujo sinal foi de fato ligado — desligar um que não
+        # foi (troca de seleção no meio da montagem da barra) gerava aviso.
+        self._elemento_conectado: ElementoMockup | None = None
         self._modo_multiplo = False
         self._spins_geometria: dict[str, QDoubleSpinBox] = {}
         self._rotulo_posicao_painel: QLabel | None = None
@@ -180,18 +184,25 @@ class PainelPropriedadesMockup(QWidget):
             self.remover_solicitado()
 
     # ── API pública ─────────────────────────────────────────────────
-    def definir_elemento(self, elemento: ElementoMockup | None) -> None:
-        self._modo_multiplo = False
-        if self._elemento is not None:
-            # Desliga a conexão do elemento ANTERIOR antes de trocar —
-            # sem isso, quando esse elemento mudasse de novo (ex.: mover
-            # ele por outro caminho, tipo desfazer), o sinal ainda ia
-            # tentar atualizar spinboxes que já foram destruídos junto
-            # com a barra (ver `_limpar_barra`), e isso derruba o app.
+    def _desconectar_elemento(self) -> None:
+        elemento, self._elemento_conectado = self._elemento_conectado, None
+        if elemento is None:
+            return
+        # Na destruição da janela o Qt ainda emite troca de seleção; aí o
+        # desligamento pode falhar só com aviso (não exceção) — inofensivo.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             try:
-                self._elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
+                elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
             except (TypeError, RuntimeError):
                 pass
+
+    def definir_elemento(self, elemento: ElementoMockup | None) -> None:
+        self._modo_multiplo = False
+        # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
+        # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
+        # spinboxes já destruídos com a barra (ver `_limpar_barra`).
+        self._desconectar_elemento()
 
         self._elemento = elemento
         self._spins_geometria = {}
@@ -251,6 +262,7 @@ class PainelPropriedadesMockup(QWidget):
             self._layout_campos.addWidget(aviso)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
+        self._elemento_conectado = elemento
 
     def _montar_estado_sem_selecao(self) -> None:
         """Barra de propriedades sem nada selecionado, como no CorelDRAW:
@@ -306,11 +318,10 @@ class PainelPropriedadesMockup(QWidget):
         (fonte, cor...) de vários — só alinhar/remover, os dois únicos
         casos que fazem sentido pra um grupo heterogêneo de elementos."""
         self._modo_multiplo = True
-        if self._elemento is not None:
-            try:
-                self._elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
-            except (TypeError, RuntimeError):
-                pass
+        # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
+        # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
+        # spinboxes já destruídos com a barra (ver `_limpar_barra`).
+        self._desconectar_elemento()
         self._elemento = None
         self._spins_geometria = {}
         self._rotulo_posicao_painel = None

@@ -356,6 +356,26 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Janelas de encaixe (dockers)",
+                """
+                <p>Como no CorelDRAW, abrem na borda direita (em abas) pelo menu
+                Exibir &gt; Janelas de encaixe, só na tela de Layout:</p>
+                <p><b>Objetos</b> — a camada Arte com cada elemento (de cima pra
+                baixo, na ordem da frente pra trás) e a camada Faca, travada. Clicar
+                na lista seleciona no desenho e vice-versa; desmarcar oculta o
+                elemento, e o oculto não sai na exportação nem vai pro CorelDRAW.</p>
+                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — alinhar com a
+                seleção, com a página (chapa) ou com a face de cada elemento;
+                distribuir 3 ou mais objetos por centros ou por espaços iguais.</p>
+                <p><b>Transformações</b> (<b>Alt+F7</b> posição, <b>Alt+F8</b>
+                rotação, <b>Alt+F9</b> escala e espelho, <b>Alt+F10</b> tamanho) —
+                o campo <b>Cópias</b> funciona como no CorelDRAW: com 0, transforma
+                o próprio objeto; com N, deixa o original e cria N cópias, cada uma
+                transformada a partir da anterior (ex.: mover 50 mm com 3 cópias faz
+                uma fileira). Um Ctrl+Z desfaz tudo de uma vez.</p>
+                """,
+            ),
+            (
                 "Desfazer / refazer",
                 """
                 <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> refaz —

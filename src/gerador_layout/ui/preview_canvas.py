@@ -393,16 +393,19 @@ class _ComandoAlterarGeometria(QUndoCommand):
 
     @staticmethod
     def _aplicar(estados: dict) -> None:
-        for item, (pos, largura, altura, rotacao) in estados.items():
+        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v) in estados.items():
             item.definir_tamanho(largura, altura)
             item.setPos(pos)
             item.setRotation(rotacao)
+            item.definir_espelho(espelho_h, espelho_v)
 
 
 class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
     zoom_alterado = Signal(float)
+    # Lista/ordem/visibilidade dos elementos mudou (docker Objetos).
+    elementos_alterados = Signal()
     ajustar_a_alterado = Signal(str, bool)  # chave de AJUSTAR_A, ligado
     cursor_movido = Signal(object)  # QPointF em mm, ou None quando o mouse sai do canvas (barra de status)
     # Emitidos quando uma ferramenta de criação termina um gesto de
@@ -1301,6 +1304,7 @@ class PreviewCanvas(QGraphicsView):
         num caminho de criação novo (duplicar, colar, desagrupar...) e o
         elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
+        self.elementos_alterados.emit()
         elemento.definir_calculador_snap(self._calcular_snap)
         elemento.definir_solicitador_duplicata(self._duplicar_no_lugar)
         elemento.definir_registrador_undo(self._registrar_comando_geometria)
@@ -1323,12 +1327,14 @@ class PreviewCanvas(QGraphicsView):
             self._scene.addItem(elemento)
         if elemento not in self._elementos_mockup:
             self._elementos_mockup.append(elemento)
+        self.elementos_alterados.emit()
 
     def _retirar_elemento(self, elemento: ElementoMockup) -> None:
         if elemento.scene() is not None:
             self._scene.removeItem(elemento)
         if elemento in self._elementos_mockup:
             self._elementos_mockup.remove(elemento)
+        self.elementos_alterados.emit()
 
     def _registrar_comando_geometria(self, antes: dict, depois: dict) -> None:
         self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois))
@@ -1575,6 +1581,7 @@ class PreviewCanvas(QGraphicsView):
         grupo = GrupoMockup(selecionados)
         grupo.setSelected(True)
         self._registrar_elemento_mockup(grupo)
+        self.elementos_alterados.emit()
         return grupo
 
     def desagrupar_selecionados(self) -> None:
@@ -1584,6 +1591,7 @@ class PreviewCanvas(QGraphicsView):
                 self._elementos_mockup.remove(grupo)
             for filho in grupo.desagrupar():
                 self._registrar_elemento_mockup(filho)
+        self.elementos_alterados.emit()
 
     def remover_selecionados(self) -> None:
         elementos = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -1675,6 +1683,7 @@ class PreviewCanvas(QGraphicsView):
         for item in selecionados:
             maior += 1
             item.setZValue(maior)
+        self.elementos_alterados.emit()
 
     def enviar_para_tras(self) -> None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -1684,6 +1693,7 @@ class PreviewCanvas(QGraphicsView):
         for item in selecionados:
             menor -= 1
             item.setZValue(menor)
+        self.elementos_alterados.emit()
 
     # ── Atalhos do CorelDRAW (ver REFERENCIA_CORELDRAW.md, seção 4) ──────
     def _selecionados_mockup(self) -> list[ElementoMockup]:
@@ -1758,6 +1768,119 @@ class PreviewCanvas(QGraphicsView):
 
         self._com_undo_geometria("Centralizar na página", aplicar)
 
+    def selecionados_mockup(self) -> list[ElementoMockup]:
+        return self._selecionados_mockup()
+
+    def alinhar_a(self, referencia: str, alinhamento: str) -> None:
+        """Docker Alinhar e distribuir: `referencia` é "selecao" (entre
+        si), "pagina" (chapa) ou "face" (a face de cada elemento)."""
+        selecionados = self._selecionados_mockup()
+        if not selecionados:
+            return
+        if referencia == "selecao":
+            if len(selecionados) > 1:
+                self._com_undo_geometria("Alinhar", lambda: self.alinhar_selecionados(alinhamento))
+            return
+
+        def alvo_de(el: ElementoMockup) -> QRectF | None:
+            if referencia == "pagina":
+                return self.retangulo_pagina()
+            painel = self._painel_do_elemento(el)
+            return None if painel is None else QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
+
+        def aplicar() -> None:
+            for el in selecionados:
+                alvo = alvo_de(el)
+                if alvo is None:
+                    continue
+                x, y = el.pos().x(), el.pos().y()
+                if alinhamento == "esquerda":
+                    x = alvo.left()
+                elif alinhamento == "direita":
+                    x = alvo.right() - el.largura
+                elif alinhamento == "centro_h":
+                    x = alvo.center().x() - el.largura / 2
+                elif alinhamento == "topo":
+                    y = alvo.top()
+                elif alinhamento == "base":
+                    y = alvo.bottom() - el.altura
+                elif alinhamento == "centro_v":
+                    y = alvo.center().y() - el.altura / 2
+                el.setPos(x, y)
+
+        self._com_undo_geometria("Alinhar", aplicar)
+
+    def distribuir(self, eixo: str, modo: str) -> None:
+        """Distribui 3+ objetos no eixo "h" ou "v": `modo` "centros"
+        (centros equidistantes) ou "espacos" (vãos iguais entre eles),
+        mantendo o primeiro e o último no lugar."""
+        selecionados = self._selecionados_mockup()
+        if len(selecionados) < 3:
+            return
+        horizontal = eixo == "h"
+
+        def inicio(el):
+            return el.pos().x() if horizontal else el.pos().y()
+
+        def tamanho(el):
+            return el.largura if horizontal else el.altura
+
+        ordem = sorted(selecionados, key=lambda el: inicio(el) + tamanho(el) / 2)
+
+        def mover_para(el, valor: float) -> None:
+            if horizontal:
+                el.setPos(valor, el.pos().y())
+            else:
+                el.setPos(el.pos().x(), valor)
+
+        def aplicar() -> None:
+            n = len(ordem)
+            if modo == "centros":
+                c0 = inicio(ordem[0]) + tamanho(ordem[0]) / 2
+                c1 = inicio(ordem[-1]) + tamanho(ordem[-1]) / 2
+                for i, el in enumerate(ordem[1:-1], start=1):
+                    mover_para(el, c0 + (c1 - c0) * i / (n - 1) - tamanho(el) / 2)
+            else:
+                total = inicio(ordem[-1]) + tamanho(ordem[-1]) - inicio(ordem[0])
+                vao = (total - sum(tamanho(el) for el in ordem)) / (n - 1)
+                cursor = inicio(ordem[0]) + tamanho(ordem[0]) + vao
+                for el in ordem[1:-1]:
+                    mover_para(el, cursor)
+                    cursor += tamanho(el) + vao
+
+        self._com_undo_geometria("Distribuir", aplicar)
+
+    def transformar(self, texto: str, funcao, copias: int = 0) -> None:
+        """Docker Transformações: aplica `funcao(elemento)` na seleção.
+        Com `copias` > 0, como no CorelDRAW, o original fica e cada cópia
+        recebe a transformação a partir da anterior (efeito cumulativo);
+        a última cópia termina selecionada. Um passo só de desfazer."""
+        base = self._selecionados_mockup()
+        if not base:
+            return
+        if copias <= 0:
+            self._com_undo_geometria(texto, lambda: [funcao(el) for el in base])
+            return
+        self._pilha_desfazer.beginMacro(texto)
+        try:
+            for el in base:
+                el.setSelected(False)
+            atual = base
+            for _ in range(copias):
+                novos = []
+                for el in atual:
+                    clone = el.clonar()
+                    funcao(clone)
+                    self._scene.addItem(clone)
+                    self._registrar_elemento_mockup(clone)
+                    self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, texto))
+                    novos.append(clone)
+                atual = novos
+            for el in atual:
+                el.setSelected(True)
+        finally:
+            self._pilha_desfazer.endMacro()
+
     def selecionar_tudo(self) -> None:
         for el in self._elementos_mockup:
             el.setSelected(True)
@@ -1796,6 +1919,7 @@ class PreviewCanvas(QGraphicsView):
             else:
                 item.setZValue(z_vizinho)
                 vizinho.setZValue(z_item)
+        self.elementos_alterados.emit()
 
     def enquadrar(self, rect: QRectF) -> None:
         """Mesmo enquadramento de `ajustar_a_tela`, pra um retângulo qualquer."""
