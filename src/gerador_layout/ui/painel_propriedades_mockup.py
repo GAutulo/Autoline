@@ -42,6 +42,7 @@ from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota
+from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
@@ -72,6 +73,7 @@ NOME_TIPO_ELEMENTO: dict[type, str] = {
     GrupoMockup: "Grupo",
     ElementoCota: "Cota",
     ElementoCurva: "Curva",
+    ElementoCotaAngular: "Cota angular",
 }
 
 
@@ -246,6 +248,8 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_linha(elemento)
         elif isinstance(elemento, ElementoCota):
             self._montar_campos_cota(elemento)
+        elif isinstance(elemento, ElementoCotaAngular):
+            self._montar_campos_cota_angular(elemento)
         elif isinstance(elemento, ElementoCurva):
             self._montar_campos_retangulo(elemento)  # mesmos campos: preenchido, traço e tinta
         elif isinstance(elemento, ElementoCallout):
@@ -680,6 +684,27 @@ class PainelPropriedadesMockup(QWidget):
 
     def _montar_campos_linha(self, el: ElementoLinha) -> None:
         self._campo_espessura_traco(el.largura_traco, el.definir_largura_traco)
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_cota_angular(self, el: ElementoCotaAngular) -> None:
+        valor = QLabel(el.texto_valor())
+        valor.setStyleSheet("font-weight: 700;")
+        valor.setToolTip("Ângulo medido — muda sozinho ao esticar a cota")
+        el.geometria_alterada.connect(lambda: valor.setText(el.texto_valor()) if valor.parent() else None)
+        self._layout_campos.addWidget(valor)
+        for minimo, maximo, atual, ao_mudar, icone, dica in (
+            (2.0, 500.0, el.raio, el.definir_raio, "angulo", "Raio do arco"),
+            (0.5, 50.0, el.altura_texto, el.definir_altura_texto, "fonte_aa", "Altura do texto da cota"),
+        ):
+            campo = QDoubleSpinBox()
+            campo.setRange(minimo, maximo)
+            campo.setSuffix(" mm")
+            campo.setValue(atual)
+            campo.setKeyboardTracking(False)
+            campo.setMaximumWidth(84)
+            campo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            campo.valueChanged.connect(ao_mudar)
+            self._grupo(icone, campo, dica)
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_cota(self, el: ElementoCota) -> None:

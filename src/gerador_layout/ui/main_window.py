@@ -47,6 +47,7 @@ from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota, criar_cota
+from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import curva_de_caminho_cena
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
@@ -714,6 +715,11 @@ class JanelaPrincipal(QMainWindow):
             ),
             ferramenta("cota_horizontal", "Cota horizontal — mede só a distância na horizontal", FerramentaMockup.COTA_HORIZONTAL),
             ferramenta("cota_vertical", "Cota vertical — mede só a distância na vertical", FerramentaMockup.COTA_VERTICAL),
+            ferramenta(
+                "cota_angular",
+                "Cota angular — clique no vértice, depois num ponto de cada braço (Esc cancela)",
+                FerramentaMockup.COTA_ANGULAR,
+            ),
             ferramenta("medida", "Medida — leitura temporária entre 2 pontos (não fica no desenho)", FerramentaMockup.MEDIR),
             ferramenta("ferramenta_callout", "Chamada (callout) — clique no canvas pra anotar", FerramentaMockup.CALLOUT),
         )
@@ -742,6 +748,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
         self.canvas.cota_desenhada.connect(self._criar_cota_por_arrasto)
         self.canvas.curva_desenhada.connect(self._criar_curva)
+        self.canvas.cota_angular_desenhada.connect(self._criar_cota_angular)
         self.canvas.mensagem_status.connect(lambda texto: self.statusBar().showMessage(texto, 6000))
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
@@ -1112,6 +1119,13 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.adicionar_elemento_mockup(elemento, (p1 + p2) / 2 - origem)
         elemento.setRotation(angulo)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_cota_angular(self, vertice: QPointF, ponto_a: QPointF, ponto_b: QPointF) -> None:
+        cota = ElementoCotaAngular(vertice, ponto_a, ponto_b, cor_tinta=self._cor_tinta_padrao())
+        self.canvas.adicionar_elemento_mockup(cota, cota.posicao_inicial_cena)
+        self.canvas.cena.clearSelection()
+        cota.setSelected(True)
+        # Continua na ferramenta, como as outras cotas.
 
     def _criar_curva(self, caminho_cena) -> None:
         curva = curva_de_caminho_cena(caminho_cena, cor_tinta=self._cor_tinta_padrao())
