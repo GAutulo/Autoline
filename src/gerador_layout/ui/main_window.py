@@ -960,7 +960,10 @@ class JanelaPrincipal(QMainWindow):
         comprimento = math.hypot(vetor.x(), vetor.y())
         angulo = math.degrees(math.atan2(vetor.y(), vetor.x()))
         elemento = ElementoLinha(largura=comprimento, cor_tinta=self._cor_tinta_padrao())
-        self.canvas.adicionar_elemento_mockup(elemento, p1)
+        # A rotação é em torno do CENTRO do elemento: posicionar pelo meio
+        # do segmento (e não por p1) faz as pontas caírem em p1 e p2.
+        origem = QPointF(elemento.largura / 2, elemento.altura / 2)
+        self.canvas.adicionar_elemento_mockup(elemento, (p1 + p2) / 2 - origem)
         elemento.setRotation(angulo)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
 
