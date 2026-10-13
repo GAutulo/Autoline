@@ -90,6 +90,22 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setBrush(QBrush(cor))
         painter.drawPolygon(QPolygonF([QPointF(11, 5), QPointF(11, 13), QPointF(15.5, 13)]))
         painter.restore()
+    elif tipo in ("cota_paralela", "cota_horizontal", "cota_vertical"):
+        # Linha de cota com setas e as duas linhas de chamada.
+        painter.save()
+        if tipo == "cota_paralela":
+            painter.translate(c, c)
+            painter.rotate(-35)
+            painter.translate(-c, -c)
+        elif tipo == "cota_vertical":
+            painter.translate(c, c)
+            painter.rotate(-90)
+            painter.translate(-c, -c)
+        painter.drawLine(QPointF(3, 15), QPointF(3, 5))
+        painter.drawLine(QPointF(15, 15), QPointF(15, 5))
+        _seta(painter, QPointF(9, 8), QPointF(3.5, 8), 2.0)
+        _seta(painter, QPointF(9, 8), QPointF(14.5, 8), 2.0)
+        painter.restore()
     elif tipo in ("escala_l", "escala_a"):
         # "%" com a seta do eixo que escala.
         fonte = QFont()

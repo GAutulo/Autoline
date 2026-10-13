@@ -45,6 +45,7 @@ from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
+from .mockup_cota import ElementoCota, criar_cota
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
@@ -655,7 +656,14 @@ class JanelaPrincipal(QMainWindow):
         flyout(ferramenta("ferramenta_texto", "Texto (F8) — clique no canvas e digite direto ali", FerramentaMockup.TEXTO))
         barra.addSeparator()
         flyout(
-            ferramenta("medida", "Medida — clique e arraste pra ver a distância entre 2 pontos", FerramentaMockup.MEDIR),
+            ferramenta(
+                "cota_paralela",
+                "Cota paralela — arraste de um ponto a outro; gruda nos cantos da faca e dos objetos (Ctrl = 15°)",
+                FerramentaMockup.COTA_PARALELA,
+            ),
+            ferramenta("cota_horizontal", "Cota horizontal — mede só a distância na horizontal", FerramentaMockup.COTA_HORIZONTAL),
+            ferramenta("cota_vertical", "Cota vertical — mede só a distância na vertical", FerramentaMockup.COTA_VERTICAL),
+            ferramenta("medida", "Medida — leitura temporária entre 2 pontos (não fica no desenho)", FerramentaMockup.MEDIR),
             ferramenta("ferramenta_callout", "Chamada (callout) — clique no canvas pra anotar", FerramentaMockup.CALLOUT),
         )
         flyout(
@@ -681,6 +689,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.ferramenta_alterada.connect(self._ao_ferramenta_alterada)
         self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
         self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
+        self.canvas.cota_desenhada.connect(self._criar_cota_por_arrasto)
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
         self.canvas.elipse_desenhada.connect(self._criar_elipse_por_arrasto)
@@ -954,6 +963,19 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.adicionar_elemento_mockup(elemento, p1)
         elemento.setRotation(angulo)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_cota_por_arrasto(self, p1: QPointF, p2: QPointF, tipo: str) -> None:
+        pagina = self.canvas.retangulo_pagina()
+        cota = criar_cota(p1, p2, tipo, centro_referencia=None if pagina is None else pagina.center())
+        if cota is None:
+            return
+        pos, rotacao = cota.pos(), cota.rotation()
+        self.canvas.adicionar_elemento_mockup(cota, pos)
+        cota.setRotation(rotacao)
+        self.canvas.cena.clearSelection()
+        cota.setSelected(True)
+        # Diferente das outras formas, a cota NÃO volta pro ponteiro: o
+        # normal é cotar várias medidas em seguida, como no CorelDRAW.
 
     def _criar_texto_por_clique(self, pos: QPointF) -> None:
         elemento = ElementoTexto(
