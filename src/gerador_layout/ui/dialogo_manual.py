@@ -295,6 +295,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>Liga/desliga pelo menu Exibir &gt; "Encaixe (snap) ao arrastar". O
                 limiar de distância e o espaçamento da grade são preferências em
                 Configurações &gt; Ferramentas.</p>
+                <p><b>Ajustar a</b> (botão na barra do topo e em Exibir, como no
+                CorelDRAW) escolhe onde grudar: grade do documento (quando visível),
+                guias, objetos (inclui as bordas da face) e página (bordas e centro da
+                chapa). <b>Alt+Z</b> liga/desliga objetos e <b>Ctrl+Y</b> a grade.</p>
                 """,
             ),
             (
@@ -354,7 +358,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
             (
                 "Desfazer / refazer",
                 """
-                <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> (ou <b>Ctrl+Y</b>) refaz —
+                <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> refaz —
                 cobre adicionar (por ferramenta, duplicar, colar), remover, mover,
                 redimensionar e girar (inclusive grupos e o nudge pela seta do
                 teclado). Cada ação só entra na pilha quando o gesto termina (soltar o
@@ -364,8 +368,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
             (
                 "Atalhos de teclado",
                 """
-                <p><b>Ctrl+Z</b> / <b>Ctrl+Shift+Z</b> (ou <b>Ctrl+Y</b>) — desfazer/
-                refazer.<br>
+                <p><b>Ctrl+Z</b> / <b>Ctrl+Shift+Z</b> — desfazer/refazer.<br>
+                <b>Alt+Z</b> / <b>Ctrl+Y</b> — liga/desliga o encaixe em objetos / na
+                grade (como no CorelDRAW).<br>
                 <b>Ctrl+D</b> — duplicar a seleção (com deslocamento, "efeito
                 cascata").<br>
                 <b>Ctrl+C</b> / <b>Ctrl+V</b> — copiar/colar.<br>
