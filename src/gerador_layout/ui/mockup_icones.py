@@ -140,6 +140,13 @@ def construir_icone(tipo: str) -> QIcon:
         else:
             painter.drawRect(QRectF(8.5, 8.5, 7, 7))
             painter.drawLine(QPointF(6, 15), QPointF(3, 15))
+    elif tipo == "cota_angular":
+        # Dois braços saindo do vértice e o arco com setas entre eles.
+        painter.drawLine(QPointF(3, 15), QPointF(16, 15))
+        painter.drawLine(QPointF(3, 15), QPointF(12, 3))
+        painter.drawArc(QRectF(-5, 7, 16, 16), 0, 53 * 16)
+        painter.setBrush(QBrush(cor))
+        painter.drawEllipse(QPointF(3, 15), 1.1, 1.1)
     elif tipo in ("cota_paralela", "cota_horizontal", "cota_vertical"):
         # Linha de cota com setas e as duas linhas de chamada.
         painter.save()

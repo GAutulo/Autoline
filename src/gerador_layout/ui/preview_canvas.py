@@ -89,6 +89,7 @@ class FerramentaMockup(Enum):
     BEZIER = auto()
     MAO_LIVRE = auto()
     FORMA = auto()  # editar nós de curva (F10), ver mockup_curva.py
+    COTA_ANGULAR = auto()  # 3 cliques: vértice, 1º braço, 2º braço (mockup_cota_angular.py)
 
 
 # Cotas persistentes (CorelDRAW): mesmo gesto da Linha — clicar no 1º
@@ -155,6 +156,7 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.BEZIER: Qt.CursorShape.CrossCursor,
     FerramentaMockup.MAO_LIVRE: Qt.CursorShape.CrossCursor,
     FerramentaMockup.FORMA: Qt.CursorShape.ArrowCursor,
+    FerramentaMockup.COTA_ANGULAR: Qt.CursorShape.CrossCursor,
 }
 
 # Ferramentas de desenho em que as guias dinâmicas já aparecem ao pairar.
@@ -169,11 +171,17 @@ _FERRAMENTAS_DESENHO_COM_GUIAS = {
     FerramentaMockup.COTA_PARALELA,
     FerramentaMockup.COTA_HORIZONTAL,
     FerramentaMockup.COTA_VERTICAL,
+    FerramentaMockup.COTA_ANGULAR,
 }
 
 # Ferramentas de curva com gesto próprio (não o clique/arrasto genérico de
 # `_iniciar_criacao`) — ver `_curva_mouse_press` e seguintes.
-_FERRAMENTAS_CURVA = {FerramentaMockup.BEZIER, FerramentaMockup.MAO_LIVRE, FerramentaMockup.FORMA}
+_FERRAMENTAS_CURVA = {
+    FerramentaMockup.BEZIER,
+    FerramentaMockup.MAO_LIVRE,
+    FerramentaMockup.FORMA,
+    FerramentaMockup.COTA_ANGULAR,  # gesto de vários cliques, igual à Bézier
+}
 _TOLERANCIA_NO_PX = 6.0
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
@@ -526,7 +534,8 @@ class PreviewCanvas(QGraphicsView):
     retangulo_desenhado = Signal(QRectF)
     linha_desenhada = Signal(QPointF, QPointF)
     cota_desenhada = Signal(QPointF, QPointF, str)
-    curva_desenhada = Signal(QPainterPath)  # Bézier / Mão livre terminada (coordenadas da cena)
+    curva_desenhada = Signal(QPainterPath)
+    cota_angular_desenhada = Signal(QPointF, QPointF, QPointF)  # vértice, ponto do 1º braço, do 2º  # Bézier / Mão livre terminada (coordenadas da cena)
     mensagem_status = Signal(str)
     # Faca editada à mão (True) ou voltou a ser a calculada (False).
     faca_editada_alterada = Signal(bool)
@@ -618,6 +627,7 @@ class PreviewCanvas(QGraphicsView):
         self._faca_antes = None
         # Ferramentas de curva (ver `_curva_mouse_press`).
         self._bezier_nos: list[No] = []
+        self._angular_pontos: list[QPointF] = []
         self._bezier_arrastando = False
         self._mao_livre_pontos: list[QPointF] | None = None
         self._item_preview_curva: QGraphicsPathItem | None = None
@@ -2273,6 +2283,7 @@ class PreviewCanvas(QGraphicsView):
 
     def _cancelar_curva_em_andamento(self) -> None:
         self._limpar_guias_dinamicas()
+        self._angular_pontos = []
         self._bezier_nos = []
         self._bezier_arrastando = False
         self._mao_livre_pontos = None
@@ -2338,7 +2349,30 @@ class PreviewCanvas(QGraphicsView):
             return item
         return None
 
+    def _preview_angular(self, cursor: QPointF | None) -> None:
+        pontos = self._angular_pontos
+        if not pontos:
+            self._atualizar_preview_curva(None)
+            return
+        caminho = QPainterPath(pontos[0])
+        for q in pontos[1:] + ([cursor] if cursor is not None else []):
+            caminho.moveTo(pontos[0])
+            caminho.lineTo(q)
+        self._atualizar_preview_curva(caminho)
+
     def _curva_mouse_press(self, ponto: QPointF) -> None:
+        if self._ferramenta == FerramentaMockup.COTA_ANGULAR:
+            encaixado = self.encaixar_ponto(ponto)
+            ponto = encaixado if encaixado != ponto else self._ajustar_guias_dinamicas(ponto, self._angular_pontos)
+            self._angular_pontos.append(ponto)
+            if len(self._angular_pontos) == 3:
+                v, a, b = self._angular_pontos
+                self._cancelar_curva_em_andamento()
+                if QLineF(v, a).length() >= 1.0 and QLineF(v, b).length() >= 1.0:
+                    self.cota_angular_desenhada.emit(v, a, b)
+            else:
+                self._preview_angular(None)
+            return
         if self._ferramenta == FerramentaMockup.BEZIER:
             encaixado = self.encaixar_ponto(ponto)
             ponto = encaixado if encaixado != ponto else self._ajustar_guias_dinamicas(ponto, [n.p for n in self._bezier_nos])
@@ -2375,6 +2409,13 @@ class PreviewCanvas(QGraphicsView):
 
     def _curva_mouse_move(self, ponto: QPointF, botoes) -> None:
         segurando = bool(botoes & Qt.MouseButton.LeftButton)
+        if self._ferramenta == FerramentaMockup.COTA_ANGULAR:
+            if self._angular_pontos:
+                encaixado = self.encaixar_ponto(ponto)
+                if encaixado == ponto:
+                    encaixado = self._ajustar_guias_dinamicas(ponto, self._angular_pontos)
+                self._preview_angular(encaixado)
+            return
         if self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos:
             if segurando and self._bezier_arrastando:
                 no = self._bezier_nos[-1]
@@ -2437,6 +2478,11 @@ class PreviewCanvas(QGraphicsView):
         return resultado
 
     def _curva_duplo_clique(self, ponto: QPointF) -> None:
+        if self._ferramenta == FerramentaMockup.COTA_ANGULAR:
+            # O 2º clique do duplo clique não passa por `mousePressEvent`:
+            # conta como mais um ponto, senão a cota "engoliria" o clique.
+            self._curva_mouse_press(ponto)
+            return
         if self._ferramenta == FerramentaMockup.BEZIER:
             self._terminar_bezier(fechar=False)
             return
@@ -2459,6 +2505,9 @@ class PreviewCanvas(QGraphicsView):
 
     def _tecla_curva(self, event) -> bool:
         tecla = event.key()
+        if self._ferramenta == FerramentaMockup.COTA_ANGULAR and self._angular_pontos and tecla == Qt.Key.Key_Escape:
+            self._cancelar_curva_em_andamento()
+            return True
         if self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos:
             if tecla in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
                 self._terminar_bezier(fechar=False)
@@ -2619,7 +2668,8 @@ class PreviewCanvas(QGraphicsView):
     def _mostra_guias_ao_pairar(self) -> bool:
         if self._modo_mockup:
             return self._ferramenta in _FERRAMENTAS_DESENHO_COM_GUIAS and not (
-                self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos
+                (self._ferramenta == FerramentaMockup.BEZIER and self._bezier_nos)
+                or (self._ferramenta == FerramentaMockup.COTA_ANGULAR and self._angular_pontos)
             )
         return self._editando_faca and self._faca_ferramenta in ("corte", "vinco")
 

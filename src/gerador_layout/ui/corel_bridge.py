@@ -21,6 +21,7 @@ from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota
+from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
 from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
@@ -274,6 +275,8 @@ def _desenhar_elemento_mockup_normal(app, layer, elemento: ElementoMockup, altur
         _desenhar_linha_mockup_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCota):
         _desenhar_cota_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCotaAngular):
+        _desenhar_cota_angular_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCurva):
         _desenhar_curva_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCallout):
@@ -597,6 +600,32 @@ def _desenhar_curva_cdr(app, layer, elemento: "ElementoCurva", altura_total: flo
             forma.Outline.SetNoOutline()
     if elemento.preenchido and len(formas) == 1:
         _aplicar_cor_preenchimento(app, formas[0], elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+
+
+def _desenhar_cota_angular_cdr(app, layer, elemento: "ElementoCotaAngular", altura_total: float) -> None:
+    """Braços, arco (em segmentos curtos) e setas como linhas; o valor como
+    texto. Os pontos já vão na posição final (com rotação), então não há
+    giro depois."""
+    cena = elemento.sceneTransform()
+
+    def cdr(q: QPointF) -> tuple[float, float]:
+        q = cena.map(q)
+        return q.x(), altura_total - q.y()
+
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    linhas, arco, setas, caixa = elemento.primitivas_locais()
+    segmentos = list(linhas) + list(zip(arco, arco[1:]))
+    for seta in setas:
+        pontos = [seta.at(i) for i in range(seta.count())]
+        segmentos += list(zip(pontos, pontos[1:] + pontos[:1]))
+    for a, b in segmentos:
+        linha = layer.CreateLineSegment(*cdr(a), *cdr(b))
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.25
+    texto = layer.CreateArtisticText(0, 0, elemento.texto_valor(), Size=elemento.altura_texto * _FATOR_SIZE_CDR_POR_MM)
+    _aplicar_cor_preenchimento(app, texto, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    cx, cy = cdr(caixa.center())
+    texto.SetPosition(cx - texto.SizeWidth / 2, cy + elemento.altura_texto / 2)
 
 
 def _desenhar_cota_cdr(app, layer, elemento: "ElementoCota", altura_total: float) -> None:
