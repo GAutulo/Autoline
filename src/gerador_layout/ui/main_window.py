@@ -6,10 +6,11 @@ import math
 from contextlib import contextmanager
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QAction, QActionGroup, QColor
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -36,6 +37,7 @@ from ..paineis import Painel, calcular_paineis
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
+from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
 from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
 from .dialogo_tabela import DialogoTabela
@@ -443,6 +445,10 @@ class JanelaPrincipal(QMainWindow):
         acao_snap.setToolTip("Gruda automaticamente na grade, nas bordas de outros elementos, na face e nas guias")
         acao_snap.toggled.connect(self.canvas.definir_snap_ativo)
         menu_exibir.addMenu(self._menu_ajustar_a)
+        menu_dockers = menu_exibir.addMenu("Janelas de encaixe (Layout)")
+        for dock in self._docks.values():
+            menu_dockers.addAction(dock.toggleViewAction())
+        self._menu_dockers = menu_dockers
 
         acao_reguas = menu_exibir.addAction("Réguas")
         acao_reguas.setCheckable(True)
@@ -498,6 +504,20 @@ class JanelaPrincipal(QMainWindow):
         self.barra_mockup.setVisible(modo_layout)
         self.barra_organizar.setVisible(modo_layout)
         self.barra_paleta.setVisible(modo_layout)
+        # Dockers só na tela de Layout: ao sair, lembra quais estavam
+        # abertos pra reabrir na volta.
+        if modo_layout:
+            for chave in self._docks_abertos_layout:
+                self._docks[chave].show()
+        else:
+            if self._estava_no_layout:
+                self._docks_abertos_layout = {chave for chave, dock in self._docks.items() if dock.isVisible()}
+            for dock in self._docks.values():
+                dock.hide()
+        self._estava_no_layout = modo_layout
+        self._menu_dockers.setEnabled(modo_layout)
+        for acao in self._acoes_docker:
+            acao.setEnabled(modo_layout)
         self.barra_propriedades_mockup.setVisible(modo_layout)
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
@@ -674,6 +694,7 @@ class JanelaPrincipal(QMainWindow):
 
         self._montar_barra_organizar()
         self._montar_paleta_cores()
+        self._montar_dockers()
 
     def _montar_barra_organizar(self) -> None:
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
@@ -709,6 +730,56 @@ class JanelaPrincipal(QMainWindow):
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
         barra.hide()
+
+    def _montar_dockers(self) -> None:
+        """Janelas de encaixe do CorelDRAW (ver `dockers_corel.py`), em
+        abas na borda direita, entre o desenho e a paleta. Começam
+        fechadas, como no CorelDRAW, e só existem na tela de Layout."""
+        self.docker_objetos = DockerObjetos(self.canvas)
+        self.docker_alinhar = DockerAlinhar(self.canvas)
+        self.docker_transformacoes = DockerTransformacoes(self.canvas)
+        self._docks: dict[str, QDockWidget] = {}
+        anterior = None
+        for chave, titulo, conteudo in (
+            ("objetos", "Objetos", self.docker_objetos),
+            ("alinhar", "Alinhar e distribuir", self.docker_alinhar),
+            ("transformacoes", "Transformações", self.docker_transformacoes),
+        ):
+            dock = QDockWidget(titulo, self)
+            dock.setObjectName(f"docker_{chave}")
+            dock.setWidget(conteudo)
+            dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            if anterior is not None:
+                self.tabifyDockWidget(anterior, dock)
+            anterior = dock
+            dock.hide()
+            self._docks[chave] = dock
+        self._docks_abertos_layout: set[str] = set()
+        self._estava_no_layout = False
+
+        # Atalhos do CorelDRAW pra abrir cada docker (só na tela de Layout).
+        self._acoes_docker: list[QAction] = []
+
+        def atalho(texto: str, tecla: str, callback) -> None:
+            acao = QAction(texto, self)
+            acao.setShortcut(QKeySequence(tecla))
+            acao.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            acao.triggered.connect(callback)
+            acao.setEnabled(False)
+            self.addAction(acao)
+            self._acoes_docker.append(acao)
+
+        atalho("Alinhar e distribuir", "Ctrl+Shift+A", lambda: self.abrir_docker("alinhar"))
+        for tecla, aba in (("Alt+F7", "posicao"), ("Alt+F8", "rotacao"), ("Alt+F9", "escala"), ("Alt+F10", "tamanho")):
+            atalho(f"Transformações ({aba})", tecla, lambda _c=False, a=aba: self.abrir_docker("transformacoes", a))
+
+    def abrir_docker(self, chave: str, aba_transformacao: str | None = None) -> None:
+        dock = self._docks[chave]
+        dock.show()
+        dock.raise_()
+        if aba_transformacao is not None:
+            self.docker_transformacoes.mostrar_aba(aba_transformacao)
 
     def _montar_menu_ajustar_a(self) -> None:
         """Menu "Ajustar a" (CorelDRAW): uma opção por fonte de encaixe.
@@ -1135,9 +1206,9 @@ class JanelaPrincipal(QMainWindow):
             with self._cursor_espera():
                 if self._corel_app is None:
                     self._corel_app = corel_bridge.conectar()
-                corel_bridge.desenhar_layout(
-                    self._corel_app, self.canvas.layout_atual, self.canvas.elementos_mockup
-                )
+                # Oculto no docker Objetos não sai, como no CorelDRAW.
+                visiveis = [el for el in self.canvas.elementos_mockup if el.isVisible()]
+                corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual, visiveis)
         except corel_bridge.CorelIndisponivel as exc:
             self._corel_app = None
             QMessageBox.critical(self, "Erro ao conectar", str(exc))

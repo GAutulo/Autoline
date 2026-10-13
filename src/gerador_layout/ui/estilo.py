@@ -498,6 +498,22 @@ QDockWidget::title {{
     font-weight: 700;
 }}
 
+/* Árvore do docker Objetos (dockers_corel.py) — sem isso o fundo fica
+   branco nativo com o texto claro do tema escuro por cima. */
+QTreeWidget {{
+    background: {Cor.CAMPO};
+    color: {Cor.TEXTO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 6px;
+}}
+QTreeWidget::item {{
+    padding: 3px 2px;
+}}
+QTreeWidget::item:selected {{
+    background: {Cor.PRIMARIA};
+    color: {Cor.BRANCO};
+}}
+
 /* Sem isso, o viewport de dentro de um QScrollArea (ex.: o dock de
    propriedades do mockup, ver main_window.py) pinta com a cor de fundo
    padrão do estilo nativo do Qt em vez de acompanhar o tema. */
