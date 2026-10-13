@@ -276,6 +276,24 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 ferramenta não apaga as leituras já fixadas.</p>
                 """,
             ),
+            (
+                "Cotas (paralela, horizontal, vertical)",
+                """
+                <p>Como as ferramentas de cota do CorelDRAW (no mesmo grupo da Medida,
+                na caixa de ferramentas): arraste de um ponto a outro e a cota fica
+                <b>no desenho</b> — sai na exportação e no envio pro CorelDRAW, ao
+                contrário da Medida, que é só leitura.</p>
+                <p><b>Paralela</b> mede a distância direta (Ctrl prende o ângulo em
+                15°); <b>horizontal</b> mede só o Δx e <b>vertical</b> só o Δy. As duas
+                últimas vão sozinhas pro lado de fora da chapa. As pontas grudam nos
+                cantos da faca, dos objetos e da chapa quando o encaixe está ligado.</p>
+                <p>A cota é um objeto como os outros: o valor acompanha quando você a
+                redimensiona, e a barra de propriedades muda o afastamento da linha,
+                a altura do texto e a tinta. A ferramenta continua ativa depois de
+                cada cota, pra cotar várias medidas em sequência (Esc volta pro
+                ponteiro).</p>
+                """,
+            ),
         ],
     ),
     (

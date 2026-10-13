@@ -20,6 +20,7 @@ from . import configuracoes
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
+from .mockup_cota import ElementoCota
 from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
 from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
 from .mockup_checklist import _ESPACO_ENTRE_LINHAS_FATOR as _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
@@ -270,6 +271,8 @@ def _desenhar_elemento_mockup_normal(app, layer, elemento: ElementoMockup, altur
         _desenhar_poligono_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoLinha):
         _desenhar_linha_mockup_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCota):
+        _desenhar_cota_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCallout):
         _desenhar_callout_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoTabela):
@@ -548,6 +551,43 @@ def _desenhar_callout_cdr(app, layer, elemento: "ElementoCallout", altura_total:
         for forma in (caixa, cauda, texto_shape):
             intervalo.Add(forma)
         intervalo.Rotate(angulo)
+
+
+def _desenhar_cota_cdr(app, layer, elemento: "ElementoCota", altura_total: float) -> None:
+    """Cota como linhas + setas + texto (primitivas já usadas acima), não
+    como objeto de cota nativo do CorelDRAW: o valor sai fixo, igual ao
+    que aparece no Autoline. Gira em torno do centro do elemento."""
+    x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    ponto_cdr = _construtor_ponto_cdr(x_centro, y_centro, elemento.largura, elemento.altura)
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    formas = []
+    for a, b in elemento.segmentos_locais():
+        x0, y0 = ponto_cdr(a.x(), a.y())
+        x1, y1 = ponto_cdr(b.x(), b.y())
+        linha = layer.CreateLineSegment(x0, y0, x1, y1)
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.25
+        formas.append(linha)
+    for seta in elemento.setas_locais():
+        pontos = [ponto_cdr(seta[i].x(), seta[i].y()) for i in range(seta.count())]
+        for i, (xa, ya) in enumerate(pontos):
+            xb, yb = pontos[(i + 1) % len(pontos)]
+            lado = layer.CreateLineSegment(xa, ya, xb, yb)
+            lado.Outline.Color = cor
+            lado.Outline.Width = 0.25
+            formas.append(lado)
+    caixa = elemento.retangulo_texto_local()
+    tx0, ty0 = ponto_cdr(caixa.left(), caixa.top())
+    tx1, ty1 = ponto_cdr(caixa.right(), caixa.bottom())
+    texto = layer.CreateArtisticText(0, 0, elemento.texto_valor(), Size=elemento.altura_texto * _FATOR_SIZE_CDR_POR_MM)
+    _aplicar_cor_preenchimento(app, texto, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    texto.SetPosition((tx0 + tx1) / 2 - texto.SizeWidth / 2, max(ty0, ty1))
+    formas.append(texto)
+    if angulo:
+        intervalo = app.CreateShapeRange()
+        for forma in formas:
+            intervalo.Add(forma)
+        intervalo.RotateEx(angulo, x_centro, y_centro)
 
 
 def _desenhar_tabela_cdr(app, layer, elemento: "ElementoTabela", altura_total: float) -> None:
