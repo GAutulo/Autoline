@@ -68,6 +68,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 botão "Descartar edições da faca" volta pra faca calculada — e
                 Ctrl+Z desfaz cada passo. A faca editada é a que sai na exportação e
                 no envio pro CorelDRAW.</p>
+                <p>Na aba <b>3D</b>, a faca editada é dobrada como no ArtiosCAD: as
+                regiões entre as linhas viram faces, os vincos viram dobradiças (90°)
+                e a face com mais vincos fica parada como base. Furos e janelas
+                vazadas aparecem vazados; cortes soltos que não fecham uma região não
+                atrapalham.</p>
                 """,
             ),
             (

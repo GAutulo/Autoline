@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPolygonF, QRadialGradient, QTransform
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
 from PySide6.QtWidgets import QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from ..dobra3d import (
@@ -147,6 +147,33 @@ def renderizar_arte_regioes(
 def renderizar_arte(cena: QGraphicsScene, elementos: list, largura_mm: float, altura_mm: float, px_por_mm: float = 4.0) -> QImage | None:
     """A chapa inteira numa imagem só (usado fora do 3D, ex.: testes)."""
     return renderizar_arte_regioes(cena, elementos, [(QRectF(0.0, 0.0, largura_mm, altura_mm), px_por_mm)])[0]
+
+
+def _caminho_do_painel(painel) -> QPainterPath:
+    caminho = QPainterPath()
+    caminho.setFillRule(Qt.FillRule.OddEvenFill)  # furos ficam vazados
+    caminho.addPolygon(QPolygonF([QPointF(x, y) for x, y in painel.poligono]))
+    caminho.closeSubpath()
+    for furo in painel.furos:
+        caminho.addPolygon(QPolygonF([QPointF(x, y) for x, y in furo]))
+        caminho.closeSubpath()
+    return caminho
+
+
+def _na_borda(q: QPointF, painel, tol: float = 1e-3) -> bool:
+    """O ponto está sobre o contorno da face (ou de um furo)?"""
+    for contorno in (painel.poligono, *painel.furos):
+        n = len(contorno)
+        for k in range(n):
+            (x1, y1), (x2, y2) = contorno[k], contorno[(k + 1) % n]
+            dx, dy = x2 - x1, y2 - y1
+            c2 = dx * dx + dy * dy
+            if c2 < 1e-12:
+                continue
+            t = max(0.0, min(1.0, ((q.x() - x1) * dx + (q.y() - y1) * dy) / c2))
+            if math.hypot(q.x() - (x1 + dx * t), q.y() - (y1 + dy * t)) < tol:
+                return True
+    return False
 
 
 class VistaCaixa3D(QWidget):
@@ -329,7 +356,7 @@ class VistaCaixa3D(QWidget):
 
         # (profundidade, poligono, cor, arestas da borda, (recorte, quad) da arte em px | None)
         pedacos = []
-        caixa_fechada = self._progresso >= 0.999
+        caixa_fechada = self._progresso >= 0.999 and self._modelo.solido_fechado
         vies_interno = 0.04 * self._raio_montado
         vies_camada = 0.08 * self._raio_montado
         n = _SUBDIVISOES
@@ -347,6 +374,9 @@ class VistaCaixa3D(QWidget):
                 produto_escalar(normal, cima),
                 produto_escalar(normal, olhar),
             )
+            # Face que não é retângulo (dobra genérica): cada célula da grade é
+            # recortada pelo contorno real da face (menos os furos).
+            caminho_face = _caminho_do_painel(painel) if painel.poligono is not None else None
             # Grade (n+1)×(n+1) de pontos do painel já em coordenadas de câmera.
             grade = [
                 [
@@ -371,15 +401,36 @@ class VistaCaixa3D(QWidget):
                         min(1.0, base.redF() * luz), min(1.0, base.greenF() * luz), min(1.0, base.blueF() * luz)
                     )
                     tela = [para_tela(c) for c in cantos]
-                    bordas = []
-                    if j == 0:
-                        bordas.append((tela[0], tela[1]))
-                    if i == n - 1:
-                        bordas.append((tela[1], tela[2]))
-                    if j == n - 1:
-                        bordas.append((tela[2], tela[3]))
-                    if i == 0:
-                        bordas.append((tela[3], tela[0]))
+                    xa, xb = _lerp(painel.x1, painel.x2, i / n), _lerp(painel.x1, painel.x2, (i + 1) / n)
+                    ya, yb = _lerp(painel.y1, painel.y2, j / n), _lerp(painel.y1, painel.y2, (j + 1) / n)
+                    if caminho_face is None:
+                        desenhos = [QPolygonF(tela)]
+                        bordas = []
+                        if j == 0:
+                            bordas.append((tela[0], tela[1]))
+                        if i == n - 1:
+                            bordas.append((tela[1], tela[2]))
+                        if j == n - 1:
+                            bordas.append((tela[2], tela[3]))
+                        if i == 0:
+                            bordas.append((tela[3], tela[0]))
+                    else:
+                        celula = QPainterPath()
+                        celula.addRect(QRectF(QPointF(xa, ya), QPointF(xb, yb)).normalized())
+                        recortes = celula.intersected(caminho_face).toFillPolygons()
+                        if not recortes:
+                            continue
+
+                        def projetar(q: QPointF) -> QPointF:
+                            return para_tela(para_camera(pp.ponto(q.x(), q.y())))
+
+                        desenhos, bordas = [], []
+                        for recorte in recortes:
+                            pontos = [recorte.at(k) for k in range(recorte.count())]
+                            desenhos.append(QPolygonF([projetar(q) for q in pontos]))
+                            for a, b in zip(pontos, pontos[1:] + pontos[:1]):
+                                if _na_borda(QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2), painel):
+                                    bordas.append((projetar(a), projetar(b)))
                     profundidade = math.sqrt(produto_escalar(centro, centro))
                     profundidade += painel.camada * vies_camada
                     if not ve_lado_externo:
@@ -389,8 +440,6 @@ class VistaCaixa3D(QWidget):
                         profundidade += vies_interno
                     arte_pedaco = None
                     if com_arte and ve_lado_externo:
-                        xa, xb = _lerp(painel.x1, painel.x2, i / n), _lerp(painel.x1, painel.x2, (i + 1) / n)
-                        ya, yb = _lerp(painel.y1, painel.y2, j / n), _lerp(painel.y1, painel.y2, (j + 1) / n)
                         # Densidade (px de tela por mm) que este pedaço ocupa agora.
                         densidade = razao_pixels * max(
                             math.dist((tela[1].x(), tela[1].y()), (tela[0].x(), tela[0].y())) / max(abs(xb - xa), 1e-6),
@@ -402,25 +451,33 @@ class VistaCaixa3D(QWidget):
                             QPointF(max(painel.x1, painel.x2), max(painel.y1, painel.y2)),
                         ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
                         arte_pedaco = (painel.id, xa, xb, ya, yb, painel)
-                    pedacos.append((profundidade, QPolygonF(tela), cor, bordas, arte_pedaco))
+                    quad_tela = QPolygonF(tela)
+                    for k, desenho in enumerate(desenhos):
+                        # As bordas vão só no 1º pedaço da célula (não duplicar traço).
+                        pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela))
 
         self._atualizar_texturas(densidade_necessaria, retangulo_painel)
         pedacos.sort(key=lambda item: item[0], reverse=True)
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
         transformacao = QTransform()
-        for _prof, poligono, cor, bordas, arte_pedaco in pedacos:
+        for _prof, poligono, cor, bordas, arte_pedaco, quad_tela in pedacos:
             # Contorno da mesma cor fecha as frestas de antialiasing entre pedaços.
             caneta_fill = QPen(cor, 1.2)
             caneta_fill.setCosmetic(True)
             p.setPen(caneta_fill)
             p.setBrush(cor)
             p.drawPolygon(poligono)
-            desenho = self._recorte_da_arte(arte_pedaco, poligono) if arte_pedaco is not None else None
-            if desenho is not None and QTransform.quadToQuad(desenho[2], poligono, transformacao):
+            desenho = self._recorte_da_arte(arte_pedaco, quad_tela) if arte_pedaco is not None else None
+            if desenho is not None and QTransform.quadToQuad(desenho[2], quad_tela, transformacao):
                 # Sem luz nem mistura por cima: a arte mantém a cor original.
                 imagem, recorte, _quad = desenho
                 p.save()
+                if poligono != quad_tela:
+                    # Célula recortada pelo contorno da face: a arte também.
+                    contorno = QPainterPath()
+                    contorno.addPolygon(poligono)
+                    p.setClipPath(contorno)
                 p.setTransform(transformacao)
                 p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
                 p.drawImage(recorte, imagem, recorte)
