@@ -64,7 +64,7 @@ from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO, PainelPropriedadesMo
 from .modelagem import OPERACOES
 from .preview_canvas import AJUSTAR_A, FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
-from .visualizacao_3d import Visualizacao3D, renderizar_arte
+from .visualizacao_3d import Visualizacao3D, renderizar_arte_regioes
 
 _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
     ("Preto", (0, 0, 0)),
@@ -606,18 +606,16 @@ class JanelaPrincipal(QMainWindow):
             self.visualizacao_3d.enquadrar()
 
     def _atualizar_arte_3d(self) -> None:
-        """Leva a arte do Layout pras faces 3D. A arte só muda na aba
-        Layout, então basta refazer ao entrar na aba 3D (e ao recalcular
-        com ela aberta)."""
-        layout = self.canvas.layout_atual
-        if layout is None:
-            self.visualizacao_3d.definir_arte(None)
+        """Liga o 3D à arte do Layout. O 3D pede a arte face a face, na
+        resolução que precisar (ver `renderizar_arte_regioes`); aqui só
+        entrega a fonte — e chamar de novo descarta as texturas antigas,
+        então basta chamar ao entrar na aba 3D e ao recalcular com ela aberta."""
+        if self.canvas.layout_atual is None or not self.canvas.elementos_mockup:
+            self.visualizacao_3d.definir_fonte_arte(None)
             return
-        self.visualizacao_3d.definir_arte(
-            renderizar_arte(self.canvas.cena, self.canvas.elementos_mockup, layout.largura_total, layout.altura_total)
-        )
+        cena, elementos = self.canvas.cena, list(self.canvas.elementos_mockup)
+        self.visualizacao_3d.definir_fonte_arte(lambda pedidos: renderizar_arte_regioes(cena, elementos, pedidos))
 
-    # ── Mockup (Fase 2): barra de propriedades, barra e criação de itens ─
     def _montar_barra_propriedades_mockup(self) -> None:
         """Barra horizontal por baixo de `barra_mockup` — a "property
         bar" contextual do elemento selecionado, no mesmo lugar/formato
