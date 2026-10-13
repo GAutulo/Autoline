@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 from .estilo import Cor
 
@@ -75,6 +75,32 @@ def construir_icone(tipo: str) -> QIcon:
             painter.drawLine(QPointF(5, 15), QPointF(13, 15))
             _seta(painter, QPointF(9, 9), QPointF(9, 15))
             _seta(painter, QPointF(9, 9), QPointF(9, 3))
+    elif tipo in ("espelho_h", "espelho_v"):
+        # Dois triângulos espelhados em torno de um eixo tracejado.
+        painter.save()
+        if tipo == "espelho_v":
+            painter.translate(c, c)
+            painter.rotate(90)
+            painter.translate(-c, -c)
+        eixo = QPen(cor, 1.0, Qt.PenStyle.DashLine)
+        painter.setPen(eixo)
+        painter.drawLine(QPointF(c, 2), QPointF(c, 16))
+        painter.setPen(caneta)
+        painter.drawPolygon(QPolygonF([QPointF(7, 5), QPointF(7, 13), QPointF(2.5, 13)]))
+        painter.setBrush(QBrush(cor))
+        painter.drawPolygon(QPolygonF([QPointF(11, 5), QPointF(11, 13), QPointF(15.5, 13)]))
+        painter.restore()
+    elif tipo in ("escala_l", "escala_a"):
+        # "%" com a seta do eixo que escala.
+        fonte = QFont()
+        fonte.setPixelSize(10)
+        fonte.setBold(True)
+        painter.setFont(fonte)
+        painter.drawText(QRectF(0, 0, lado, lado), Qt.AlignmentFlag.AlignCenter, "%")
+        if tipo == "escala_l":
+            _seta(painter, QPointF(4, 16), QPointF(14, 16), 1.8)
+        else:
+            _seta(painter, QPointF(16, 14), QPointF(16, 4), 1.8)
     elif tipo == "angulo":
         painter.drawArc(QRectF(3, 3, 12, 12), 20 * 16, 220 * 16)
         fim = QPointF(c + 6 * 0.35, c - 6 * 0.93)

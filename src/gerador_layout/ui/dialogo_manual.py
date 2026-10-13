@@ -337,6 +337,21 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Barra de propriedades",
+                """
+                <p>Igual à do CorelDRAW, começa sempre pela geometria do objeto
+                selecionado: posição X/Y, largura/altura, ângulo, <b>escala em %</b>
+                (digite 150 e confirme pra aumentar 50% em torno do centro; o campo
+                volta pra 100), trava de proporção e <b>espelhar</b> na horizontal/
+                vertical. Depois vem a face da caixa (com o menu de alinhar na face) e
+                os campos do tipo do objeto (fonte, tinta, espessura...).</p>
+                <p><b>Sem nada selecionado</b>, a barra mostra o tamanho da chapa, a
+                unidade e as distâncias de deslocamento (setas e Shift+setas) e de
+                duplicação (Ctrl+D e colar) — as mesmas de Configurações &gt;
+                Ferramentas.</p>
+                """,
+            ),
+            (
                 "Desfazer / refazer",
                 """
                 <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> (ou <b>Ctrl+Y</b>) refaz —
