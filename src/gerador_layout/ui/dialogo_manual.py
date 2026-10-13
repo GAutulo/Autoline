@@ -202,6 +202,15 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 objetos numa curva só (onde se sobrepõem vira furo, como no
                 CorelDRAW) e <b>Separar</b> (Ctrl+K) desfaz em uma curva por
                 contorno. Os três também ficam na barra Organizar do topo.</p>
+                <p><b>Modelar</b> (menu Objeto &gt; Modelar, ou os botões da barra de
+                propriedades com 2+ objetos selecionados), como no CorelDRAW:
+                <b>Soldar</b> junta tudo numa forma; <b>Aparar</b> recorta o objeto de
+                baixo com os de cima (que ficam); <b>Interseção</b> cria a forma da
+                área em comum (os originais ficam); <b>Frente menos atrás</b> e
+                <b>Atrás menos frente</b> deixam só o de cima / o de baixo, sem a parte
+                coberta. O resultado é uma curva com a tinta e o preenchimento do
+                objeto de baixo (do de cima, em Frente menos atrás). Trechos curvos
+                viram segmentos retos bem curtos (diferença de centésimos de mm).</p>
                 """,
             ),
             (
