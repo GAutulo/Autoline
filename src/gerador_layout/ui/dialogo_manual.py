@@ -73,6 +73,15 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 e a face com mais vincos fica parada como base. Furos e janelas
                 vazadas aparecem vazados; cortes soltos que não fecham uma região não
                 atrapalham.</p>
+                <p>Nesse caso a aba 3D ganha as ferramentas do ArtiosCAD: <b>Ângulo da
+                dobra</b> — clique num vinco pra alternar 90° → −90° → 0° (duplo
+                clique conta dois), ou digite o valor exato no campo ao lado; e
+                <b>Face base</b> — clique numa face pra ela ficar parada e as outras
+                dobrarem em volta. Arrastar continua girando a vista em qualquer modo.
+                Mudar a faca na Dieline zera os ângulos e a base.</p>
+                <p><b>Faca em branco</b> (botão + da barra Faca, ou Arquivo &gt; Nova
+                faca em branco): começa a faca do zero, sem modelo — desenhe os cortes
+                e vincos e a aba 3D dobra o que você desenhar.</p>
                 """,
             ),
             (

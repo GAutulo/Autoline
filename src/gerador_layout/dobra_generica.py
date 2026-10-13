@@ -315,7 +315,7 @@ def montar_modelo_generico(
     resultado = achar_faces(linhas)
     faces = resultado.faces
     if not faces:
-        return ModeloCaixa3D()
+        return ModeloCaixa3D(descricao=descricao)
     angulos = angulos or {}
     vizinhos: dict[int, list[tuple[int, Ponto, Ponto, int]]] = defaultdict(list)
     for fa, fb, a, b, origem in resultado.dobradicas:

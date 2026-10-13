@@ -31,7 +31,7 @@ import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
-from PySide6.QtWidgets import QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from ..dobra3d import (
     ModeloCaixa3D,
@@ -181,6 +181,10 @@ class VistaCaixa3D(QWidget):
     volta pra vista inicial."""
 
     progresso_alterado = Signal(float)
+    # Modos "dobra" e "base" (dobra genérica, ver dobra_generica.py): clique
+    # num vinco (índice da linha da faca) ou numa face (id do painel).
+    dobra_clicada = Signal(int)
+    face_clicada = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -194,6 +198,10 @@ class VistaCaixa3D(QWidget):
         self._pitch_usuario = 0.0
         self._zoom = 1.0
         self._arrasto: tuple[QPointF, float, float] | None = None
+        self._modo = "girar"  # "girar" | "dobra" | "base"
+        self._dobra_destacada: int | None = None
+        self._dobradicas_tela: list[tuple[QPointF, QPointF, int, float]] = []
+        self._faces_tela: list[tuple[float, QPolygonF, str]] = []
         # Enquadramento de cada estado — a câmera interpola entre os dois,
         # senão a caixa montada fica minúscula no quadro da chapa aberta.
         self._centro_plano: Vetor = (0.0, 0.0, 0.0)
@@ -259,6 +267,20 @@ class VistaCaixa3D(QWidget):
 
     def progresso(self) -> float:
         return self._progresso
+
+    @property
+    def tem_dobras_editaveis(self) -> bool:
+        """Só a dobra genérica tem ângulo por vinco e base escolhível."""
+        return any(p.linha_origem is not None for p in self._modelo.paineis)
+
+    def definir_modo(self, modo: str) -> None:
+        self._modo = modo
+        self.setCursor(Qt.CursorShape.OpenHandCursor if modo == "girar" else Qt.CursorShape.PointingHandCursor)
+        self.update()
+
+    def destacar_dobra(self, linha: int | None) -> None:
+        self._dobra_destacada = linha
+        self.update()
 
     def definir_progresso(self, valor: float) -> None:
         valor = max(0.0, min(1.0, valor))
@@ -337,7 +359,9 @@ class VistaCaixa3D(QWidget):
             p.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                "Informe comprimento, largura e altura para ver a caixa em 3D.",
+                "Nada pra dobrar ainda: desenhe na tela Dieline cortes e vincos que fechem as faces."
+                if self._modelo.descricao
+                else "Informe comprimento, largura e altura para ver a caixa em 3D.",
             )
             return
 
@@ -360,6 +384,8 @@ class VistaCaixa3D(QWidget):
         vies_interno = 0.04 * self._raio_montado
         vies_camada = 0.08 * self._raio_montado
         n = _SUBDIVISOES
+        self._dobradicas_tela = []
+        self._faces_tela = []
         com_arte = self._fonte_arte is not None
         densidade_necessaria: dict[str, float] = {}
         retangulo_painel: dict[str, QRectF] = {}
@@ -368,6 +394,11 @@ class VistaCaixa3D(QWidget):
             painel = pp.painel
             if caixa_fechada and painel.camada > 0:
                 continue  # fechada é um sólido: as abas por baixo nunca aparecem
+            if painel.dobradica is not None and painel.linha_origem is not None:
+                (ax, ay), (bx, by) = painel.dobradica
+                ca, cb = para_camera(pp.ponto(ax, ay)), para_camera(pp.ponto(bx, by))
+                if ca[2] > 1.0 and cb[2] > 1.0:
+                    self._dobradicas_tela.append((para_tela(ca), para_tela(cb), painel.linha_origem, painel.angulo_fechado))
             normal = pp.normal_externa
             normal_cam = (
                 produto_escalar(normal, direita),
@@ -452,6 +483,8 @@ class VistaCaixa3D(QWidget):
                         ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
                         arte_pedaco = (painel.id, xa, xb, ya, yb, painel)
                     quad_tela = QPolygonF(tela)
+                    for desenho in desenhos:
+                        self._faces_tela.append((profundidade, desenho, painel.id))
                     for k, desenho in enumerate(desenhos):
                         # As bordas vão só no 1º pedaço da célula (não duplicar traço).
                         pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela))
@@ -487,6 +520,8 @@ class VistaCaixa3D(QWidget):
                 for a, b in bordas:
                     p.drawLine(a, b)
 
+        if self._modo == "dobra":
+            self._desenhar_dobradicas(p)
         self._desenhar_legenda(p)
 
     def _atualizar_texturas(self, necessaria: dict[str, float], retangulos: dict[str, QRectF]) -> None:
@@ -561,6 +596,41 @@ class VistaCaixa3D(QWidget):
         p.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0)
         p.restore()
 
+    def _desenhar_dobradicas(self, p: QPainter) -> None:
+        """Modo "Ângulo da dobra": cada vinco destacado com o ângulo atual."""
+        fonte = QFont(FONTE_MONO)
+        fonte.setPointSizeF(8.5)
+        p.setFont(fonte)
+        for a, b, linha, angulo in self._dobradicas_tela:
+            destacada = linha == self._dobra_destacada
+            caneta = QPen(QColor(0, 150, 220) if not destacada else QColor(230, 90, 20), 3.0 if destacada else 2.0)
+            caneta.setCosmetic(True)
+            p.setPen(caneta)
+            p.drawLine(a, b)
+            meio = (a + b) / 2
+            texto = f"{angulo:g}°"
+            caixa = QRectF(meio.x() - 20, meio.y() - 9, 40, 18)
+            p.setBrush(QColor(255, 255, 255, 220))
+            p.drawRoundedRect(caixa, 4, 4)
+            p.setPen(QColor(40, 40, 40))
+            p.drawText(caixa, Qt.AlignmentFlag.AlignCenter, texto)
+
+    def _clique(self, ponto: QPointF) -> None:
+        if self._modo == "dobra":
+            melhor, menor = None, 10.0
+            for a, b, linha, _angulo in self._dobradicas_tela:
+                d = _distancia_tela(ponto, a, b)
+                if d < menor:
+                    melhor, menor = linha, d
+            if melhor is not None:
+                self.dobra_clicada.emit(melhor)
+        elif self._modo == "base":
+            # A face da frente (menor profundidade) sob o cursor.
+            for _prof, poligono, painel_id in sorted(self._faces_tela, key=lambda item: item[0]):
+                if poligono.containsPoint(ponto, Qt.FillRule.OddEvenFill):
+                    self.face_clicada.emit(painel_id)
+                    return
+
     def _desenhar_legenda(self, p: QPainter) -> None:
         fonte = QFont(FONTE_MONO)
         fonte.setPointSizeF(9.0)
@@ -580,6 +650,7 @@ class VistaCaixa3D(QWidget):
     # ── Mouse ────────────────────────────────────────────────────────
     def mousePressEvent(self, evento) -> None:  # noqa: N802
         if evento.button() == Qt.MouseButton.LeftButton:
+            self._ponto_clique = evento.position()
             self._arrasto = (evento.position(), self._yaw_usuario, self._pitch_usuario)
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self._atualizar_timer_giro()
@@ -593,12 +664,23 @@ class VistaCaixa3D(QWidget):
         self._pitch_usuario = max(-180.0, min(180.0, pitch0 + delta.y() * 0.4))
         self.update()
 
-    def mouseReleaseEvent(self, _evento) -> None:  # noqa: N802
+    def mouseReleaseEvent(self, evento) -> None:  # noqa: N802
+        inicio = getattr(self, "_ponto_clique", None)
+        if self._modo != "girar" and inicio is not None and (evento.position() - inicio).manhattanLength() < 4:
+            # Clique sem arrastar: escolhe vinco/face; arrastar continua girando.
+            self._yaw_usuario, self._pitch_usuario = self._arrasto[1], self._arrasto[2]
+            self._clique(evento.position())
+        self._ponto_clique = None
         self._arrasto = None
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self._atualizar_timer_giro()
 
-    def mouseDoubleClickEvent(self, _evento) -> None:  # noqa: N802
+    def mouseDoubleClickEvent(self, evento) -> None:  # noqa: N802
+        if self._modo != "girar":
+            # O 2º clique do duplo clique não passa pelo press/release: conta
+            # como mais um clique (alternar o ângulo de novo, como no ArtiosCAD).
+            self._clique(evento.position())
+            return
         self.vista_inicial()
 
     def wheelEvent(self, evento) -> None:  # noqa: N802
@@ -607,12 +689,55 @@ class VistaCaixa3D(QWidget):
         self.update()
 
 
+def _distancia_tela(p: QPointF, a: QPointF, b: QPointF) -> float:
+    ab = b - a
+    c2 = ab.x() ** 2 + ab.y() ** 2
+    if c2 < 1e-9:
+        return math.hypot(p.x() - a.x(), p.y() - a.y())
+    t = max(0.0, min(1.0, ((p.x() - a.x()) * ab.x() + (p.y() - a.y()) * ab.y()) / c2))
+    q = a + ab * t
+    return math.hypot(p.x() - q.x(), p.y() - q.y())
+
+
 class Visualizacao3D(QWidget):
     """Viewport + barra de controles (Planificar/Montar e a régua de dobra)."""
+
+    # Ângulo de um vinco mudou (índice da linha da faca, graus) — main_window
+    # guarda e remonta o modelo. Face base escolhida: id do painel.
+    angulo_alterado = Signal(int, float)
+    face_base_escolhida = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.vista = VistaCaixa3D()
+        self.vista.dobra_clicada.connect(self._ao_clicar_dobra)
+        self.vista.face_clicada.connect(self.face_base_escolhida.emit)
+        self._angulos_atuais: dict[int, float] = {}
+
+        # Ferramentas do 3D no estilo ArtiosCAD (só na faca editada/livre).
+        self._modos = QButtonGroup(self)
+        self._botoes_modo: dict[str, QPushButton] = {}
+        for chave, rotulo, dica in (
+            ("girar", "Girar", "Arrastar gira a vista"),
+            ("dobra", "Ângulo da dobra", "Clique num vinco: 90° → −90° → 0° (o campo ao lado define o valor exato)"),
+            ("base", "Face base", "Clique numa face pra ela ficar parada e as outras dobrarem em volta"),
+        ):
+            botao = QPushButton(rotulo)
+            botao.setCheckable(True)
+            botao.setToolTip(dica)
+            botao.clicked.connect(lambda _c=False, m=chave: self.vista.definir_modo(m))
+            self._modos.addButton(botao)
+            self._botoes_modo[chave] = botao
+        self._botoes_modo["girar"].setChecked(True)
+        self.campo_angulo = QDoubleSpinBox()
+        self.campo_angulo.setRange(-180.0, 180.0)
+        self.campo_angulo.setDecimals(1)
+        self.campo_angulo.setSuffix(" °")
+        self.campo_angulo.setKeyboardTracking(False)
+        self.campo_angulo.setToolTip("Ângulo do vinco escolhido")
+        self.campo_angulo.setEnabled(False)
+        self.campo_angulo.valueChanged.connect(self._ao_digitar_angulo)
+        self._dobra_escolhida: int | None = None
 
         self.botao_alternar = QPushButton("Planificar")
         self.botao_alternar.setProperty("primario", True)
@@ -649,9 +774,21 @@ class Visualizacao3D(QWidget):
         barra.addSpacing(8)
         barra.addWidget(botao_vista)
 
+        ferramentas = QHBoxLayout()
+        ferramentas.setContentsMargins(12, 6, 0, 0)
+        ferramentas.setSpacing(6)
+        for chave in ("girar", "dobra", "base"):
+            ferramentas.addWidget(self._botoes_modo[chave])
+        ferramentas.addWidget(self.campo_angulo)
+        self.aviso_dobras = QLabel("Ângulo por vinco e face base: na faca editada à mão ou em branco.")
+        self.aviso_dobras.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
+        ferramentas.addWidget(self.aviso_dobras)
+        ferramentas.addStretch(1)
+
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(12, 6, 0, 0)
         vbox.setSpacing(0)
+        vbox.addLayout(ferramentas)
         vbox.addWidget(self.vista, 1)
         vbox.addLayout(barra)
 
@@ -663,6 +800,36 @@ class Visualizacao3D(QWidget):
 
     def definir_modelo(self, modelo: ModeloCaixa3D, medidas_texto: str = "") -> None:
         self.vista.definir_modelo(modelo, medidas_texto)
+        editavel = self.vista.tem_dobras_editaveis
+        for chave in ("dobra", "base"):
+            self._botoes_modo[chave].setEnabled(editavel)
+        self.aviso_dobras.setVisible(not editavel)
+        if not editavel:
+            self._botoes_modo["girar"].setChecked(True)
+            self.vista.definir_modo("girar")
+        self._angulos_atuais = {p.linha_origem: p.angulo_fechado for p in modelo.paineis if p.linha_origem is not None}
+        if self._dobra_escolhida not in self._angulos_atuais:
+            self._dobra_escolhida = None
+            self.campo_angulo.setEnabled(False)
+        else:
+            self._mostrar_angulo(self._dobra_escolhida)
+
+    def _mostrar_angulo(self, linha: int) -> None:
+        self.campo_angulo.blockSignals(True)
+        self.campo_angulo.setValue(self._angulos_atuais.get(linha, 90.0))
+        self.campo_angulo.blockSignals(False)
+        self.campo_angulo.setEnabled(True)
+        self.vista.destacar_dobra(linha)
+
+    def _ao_clicar_dobra(self, linha: int) -> None:
+        atual = self._angulos_atuais.get(linha, 90.0)
+        proximo = {90.0: -90.0, -90.0: 0.0}.get(round(atual, 1), 90.0)
+        self._dobra_escolhida = linha
+        self.angulo_alterado.emit(linha, proximo)
+
+    def _ao_digitar_angulo(self, valor: float) -> None:
+        if self._dobra_escolhida is not None:
+            self.angulo_alterado.emit(self._dobra_escolhida, valor)
         habilitado = not modelo.vazio
         self.botao_alternar.setEnabled(habilitado)
         self.regua_dobra.setEnabled(habilitado)
