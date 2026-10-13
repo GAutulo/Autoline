@@ -171,6 +171,14 @@ class ElementoMockup(QGraphicsObject):
         # pelos campos do painel de propriedades (`definir_tamanho`).
         self._proporcao_travada = False
 
+        # Espelhar horizontal/vertical (barra de propriedades, igual ao
+        # CorelDRAW). Só o CONTEÚDO é desenhado espelhado em torno do
+        # centro (ver `paint`) — posição, tamanho e alças não mudam.
+        self._espelho_h = False
+        self._espelho_v = False
+        # A ferramenta Forma esconde as alças comuns enquanto mostra os nós.
+        self._alcas_visiveis = True
+
         # Callback opcional (ver `definir_calculador_snap`) que o canvas
         # liga em todo elemento que cria/duplica/desagrupa — o elemento
         # não sabe nada de grade/outros elementos/guias sozinho, só pede
@@ -224,6 +232,9 @@ class ElementoMockup(QGraphicsObject):
         # interna e o item "trava"). Ver `mousePressEvent`/`mouseMoveEvent`.
         self._arrasto_corpo_ponto_inicial_cena = QPointF()
         self._arrasto_corpo_posicoes_iniciais: dict[ElementoMockup, QPointF] = {}
+        # Clique direito no meio do arrasto (CorelDRAW): ao soltar, deixa
+        # uma cópia no destino e o original volta pro lugar de origem.
+        self._deixar_copia_ao_soltar = False
 
     # ── Propriedades geométricas ────────────────────────────────────
     @property
@@ -256,6 +267,23 @@ class ElementoMockup(QGraphicsObject):
     def definir_proporcao_travada(self, travada: bool) -> None:
         self._proporcao_travada = travada
 
+    @property
+    def espelho_h(self) -> bool:
+        return self._espelho_h
+
+    @property
+    def espelho_v(self) -> bool:
+        return self._espelho_v
+
+    def definir_alcas_visiveis(self, visiveis: bool) -> None:
+        self._alcas_visiveis = visiveis
+        self.update()
+
+    def definir_espelho(self, horizontal: bool, vertical: bool) -> None:
+        self._espelho_h = horizontal
+        self._espelho_v = vertical
+        self.update()
+
     def definir_calculador_snap(self, calculador) -> None:
         """`calculador(elemento, ponto_proposto) -> ponto_ajustado` —
         chamado pelo canvas (ver `preview_canvas.py::_calcular_snap`)
@@ -277,7 +305,7 @@ class ElementoMockup(QGraphicsObject):
         self._registrar_geometria_undo = registrador
 
     def _estado_geometria(self) -> tuple:
-        return (self.pos(), self._largura, self._altura, self.rotation())
+        return (self.pos(), self._largura, self._altura, self.rotation(), self._espelho_h, self._espelho_v)
 
     def definir_largura(self, largura: float) -> None:
         """Muda só a largura — se a proporção estiver travada, a altura
@@ -331,6 +359,7 @@ class ElementoMockup(QGraphicsObject):
         novo.setRotation(self.rotation())
         novo.definir_painel(self.painel_id)
         novo.definir_proporcao_travada(self.proporcao_travada)
+        novo.definir_espelho(self._espelho_h, self._espelho_v)
 
     def retangulo_conteudo_cena(self) -> QRectF:
         """Retângulo de conteúdo de verdade — sem a margem das alças de
@@ -351,8 +380,16 @@ class ElementoMockup(QGraphicsObject):
         return QRectF(0, 0, self._largura, self._altura).adjusted(-margem, -margem, margem, margem)
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
-        self._pintar_conteudo(painter)
-        if self.isSelected():
+        if self._espelho_h or self._espelho_v:
+            painter.save()
+            painter.translate(self._largura / 2, self._altura / 2)
+            painter.scale(-1.0 if self._espelho_h else 1.0, -1.0 if self._espelho_v else 1.0)
+            painter.translate(-self._largura / 2, -self._altura / 2)
+            self._pintar_conteudo(painter)
+            painter.restore()
+        else:
+            self._pintar_conteudo(painter)
+        if self.isSelected() and self._alcas_visiveis:
             self._pintar_selecao(painter)
 
     def _pintar_conteudo(self, painter: QPainter) -> None:
@@ -410,6 +447,13 @@ class ElementoMockup(QGraphicsObject):
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.RightButton and self._arrastando_corpo:
+            self._deixar_copia_ao_soltar = not self._deixar_copia_ao_soltar
+            event.accept()
+            return
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
+            return
         alca = self._alca_em(event.pos())
 
         if alca == Alca.NENHUMA:
@@ -429,6 +473,7 @@ class ElementoMockup(QGraphicsObject):
                 self._solicitar_duplicata(self)
             super().mousePressEvent(event)  # só resolve SELEÇÃO (clique simples/Ctrl/Shift) — mover é manual, ver abaixo
             self._arrastando_corpo = True
+            self._deixar_copia_ao_soltar = False
             self._arrasto_corpo_ponto_inicial_cena = event.scenePos()
             # Congela a posição de largada de TODOS os itens selecionados
             # agora (não só `self`) — arrastar um item de uma seleção
@@ -456,9 +501,9 @@ class ElementoMockup(QGraphicsObject):
         self._arrasto_altura_inicial = self._altura
         self._arrasto_angulo_inicial = self.rotation()
         self._arrasto_geometria_antes = _estado_recursivo(self)
+        self._arrasto_centro_cena = self.mapToScene(QPointF(self._largura / 2, self._altura / 2))
 
         if alca == Alca.ROTACAO:
-            self._arrasto_centro_cena = self.mapToScene(QPointF(self._largura / 2, self._altura / 2))
             delta = event.scenePos() - self._arrasto_centro_cena
             self._arrasto_angulo_mouse_inicial = math.degrees(math.atan2(delta.y(), delta.x()))
         else:
@@ -470,14 +515,14 @@ class ElementoMockup(QGraphicsObject):
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._arrastando and self._alca_ativa == Alca.ROTACAO:
-            self._girar_para(event.scenePos())
+            self._girar_para(event.scenePos(), event.modifiers())
             return
         if self._arrastando and self._alca_ativa not in (Alca.NENHUMA, Alca.CORPO):
-            self._redimensionar_para(event.scenePos())
+            self._redimensionar_para(event.scenePos(), event.modifiers())
             return
         if self._arrastando_corpo:
             delta = event.scenePos() - self._arrasto_corpo_ponto_inicial_cena
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if event.modifiers() & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier):
                 # Restringe a UM eixo — o que tiver o maior deslocamento
                 # até agora "ganha", trava o outro em zero. Reavaliado a
                 # cada frame (não fixado no primeiro pixel de movimento),
@@ -493,6 +538,9 @@ class ElementoMockup(QGraphicsObject):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() != Qt.MouseButton.LeftButton and (self._arrastando_corpo or self._arrastando):
+            event.accept()  # soltar o direito (cópia) não termina o arrasto
+            return
         if self._arrastando_corpo:
             self._arrastando_corpo = False
             super().mouseReleaseEvent(event)
@@ -508,6 +556,14 @@ class ElementoMockup(QGraphicsObject):
                 if delta_snap != QPointF(0.0, 0.0):
                     for item in self._arrasto_corpo_posicoes_iniciais:
                         item.setPos(item.pos() + delta_snap)
+            if self._deixar_copia_ao_soltar and self._solicitar_duplicata is not None:
+                self._deixar_copia_ao_soltar = False
+                for item, pos_inicial in self._arrasto_corpo_posicoes_iniciais.items():
+                    copia = self._solicitar_duplicata(item)  # nasce no destino
+                    item.setPos(pos_inicial)
+                    if copia is not None:
+                        item.setSelected(False)
+                        copia.setSelected(True)
             self._registrar_undo_se_mudou()
             self._arrasto_corpo_posicoes_iniciais = {}
             self._arrasto_geometria_antes = {}
@@ -535,21 +591,32 @@ class ElementoMockup(QGraphicsObject):
             self._registrar_geometria_undo(dict(self._arrasto_geometria_antes), depois)
 
     # ── Redimensionar ────────────────────────────────────────────────
-    def _redimensionar_para(self, ponto_cena: QPointF) -> None:
+    def _redimensionar_para(self, ponto_cena: QPointF, modificadores=Qt.KeyboardModifier.NoModifier) -> None:
+        """Convenções do CorelDRAW: alça de **canto** escala proporcional
+        (Alt solta a proporção), alça do **meio** estica um eixo só, e
+        **Shift** redimensiona a partir do centro."""
         rel_x, rel_y = _PONTO_RELATIVO_ALCA[self._alca_ativa]
+        do_centro = bool(modificadores & Qt.KeyboardModifier.ShiftModifier)
+        canto = rel_x != 0.5 and rel_y != 0.5
 
         rotacao_inversa = QTransform().rotate(-self._arrasto_angulo_inicial)
-        diff_cena = ponto_cena - self._arrasto_oposto_cena
-        diff_local = rotacao_inversa.map(diff_cena)
+        ancora = self._arrasto_centro_cena if do_centro else self._arrasto_oposto_cena
+        diff_local = rotacao_inversa.map(ponto_cena - ancora)
+        fator = 2.0 if do_centro else 1.0
 
         nova_largura = self._arrasto_largura_inicial
         nova_altura = self._arrasto_altura_inicial
         if rel_x != 0.5:
-            nova_largura = max(self._largura_minima_mm, abs(diff_local.x()))
+            nova_largura = max(self._largura_minima_mm, abs(diff_local.x()) * fator)
         if rel_y != 0.5:
-            nova_altura = max(self._altura_minima_mm, abs(diff_local.y()))
+            nova_altura = max(self._altura_minima_mm, abs(diff_local.y()) * fator)
 
-        if self._proporcao_travada and self._arrasto_largura_inicial and self._arrasto_altura_inicial:
+        proporcional = self._proporcao_travada or (canto and not modificadores & Qt.KeyboardModifier.AltModifier)
+        if proporcional and canto and self._arrasto_largura_inicial and self._arrasto_altura_inicial:
+            escala = max(nova_largura / self._arrasto_largura_inicial, nova_altura / self._arrasto_altura_inicial)
+            nova_largura = max(self._largura_minima_mm, self._arrasto_largura_inicial * escala)
+            nova_altura = max(self._altura_minima_mm, self._arrasto_altura_inicial * escala)
+        elif self._proporcao_travada and self._arrasto_largura_inicial and self._arrasto_altura_inicial:
             # Mesmo puxando só uma alça de borda (largura OU altura), com
             # a proporção travada o outro eixo acompanha na mesma escala
             # — não só as alças de canto. Usa o eixo que a alça realmente
@@ -565,9 +632,13 @@ class ElementoMockup(QGraphicsObject):
             nova_altura = max(self._altura_minima_mm, self._arrasto_altura_inicial * escala)
 
         origem_nova = QPointF(nova_largura / 2, nova_altura / 2)
-        ponto_local_novo = QPointF((1 - rel_x) * nova_largura, (1 - rel_y) * nova_altura)
-        rotacao = QTransform().rotate(self._arrasto_angulo_inicial)
-        nova_pos = self._arrasto_oposto_cena - origem_nova - rotacao.map(ponto_local_novo - origem_nova)
+        if do_centro:
+            # Origem de transformação = centro, então o centro fica parado.
+            nova_pos = self._arrasto_centro_cena - origem_nova
+        else:
+            ponto_local_novo = QPointF((1 - rel_x) * nova_largura, (1 - rel_y) * nova_altura)
+            rotacao = QTransform().rotate(self._arrasto_angulo_inicial)
+            nova_pos = self._arrasto_oposto_cena - origem_nova - rotacao.map(ponto_local_novo - origem_nova)
 
         self.prepareGeometryChange()
         self._largura = nova_largura
@@ -578,11 +649,14 @@ class ElementoMockup(QGraphicsObject):
         self.geometria_alterada.emit()
 
     # ── Rotacionar ───────────────────────────────────────────────────
-    def _girar_para(self, ponto_cena: QPointF) -> None:
+    def _girar_para(self, ponto_cena: QPointF, modificadores=Qt.KeyboardModifier.NoModifier) -> None:
         delta = ponto_cena - self._arrasto_centro_cena
         angulo_atual = math.degrees(math.atan2(delta.y(), delta.x()))
         variacao = angulo_atual - self._arrasto_angulo_mouse_inicial
-        self.setRotation(self._arrasto_angulo_inicial + variacao)
+        angulo = self._arrasto_angulo_inicial + variacao
+        if modificadores & Qt.KeyboardModifier.ControlModifier:
+            angulo = round(angulo / 15.0) * 15.0  # Ctrl = passos de 15° (CorelDRAW)
+        self.setRotation(angulo)
         self.geometria_alterada.emit()
 
 
@@ -649,10 +723,10 @@ class GrupoMockup(ElementoMockup):
             cena.removeItem(self)
         return elementos
 
-    def _redimensionar_para(self, ponto_cena: QPointF) -> None:
+    def _redimensionar_para(self, ponto_cena: QPointF, modificadores=Qt.KeyboardModifier.NoModifier) -> None:
         largura_antes = self._largura
         altura_antes = self._altura
-        super()._redimensionar_para(ponto_cena)
+        super()._redimensionar_para(ponto_cena, modificadores)
         fator_x = self._largura / largura_antes if largura_antes else 1.0
         fator_y = self._altura / altura_antes if altura_antes else 1.0
         if fator_x == 1.0 and fator_y == 1.0:

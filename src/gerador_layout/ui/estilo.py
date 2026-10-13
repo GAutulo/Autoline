@@ -341,10 +341,23 @@ QToolBar#paletaFerramentasMockup QToolButton:checked {{
     background: {Cor.PRIMARIA_CLARA};
     border-color: {Cor.PRIMARIA};
 }}
-QToolBar#paletaFerramentasMockup::separator {{
+QToolBar#paletaFerramentasMockup QToolButton::menu-indicator {{
+    image: none;  /* o flyout desenha o próprio triângulo no canto (ver BotaoFlyout) */
+}}
+QToolBar#paletaCores {{
+    padding: 4px 2px;
+    border-left: 1px solid {Cor.BORDA};
+}}
+QToolBar#paletaFerramentasMockup::separator:horizontal {{
+    background: {Cor.BORDA};
     width: 1px;
-    height: auto;
     margin: 4px 4px;
+}}
+/* Caixa de ferramentas vertical (borda esquerda, estilo CorelDRAW). */
+QToolBar#paletaFerramentasMockup::separator:vertical {{
+    background: {Cor.BORDA};
+    height: 1px;
+    margin: 4px 6px;
 }}
 
 QMenuBar {{
@@ -483,6 +496,22 @@ QDockWidget::title {{
     border-bottom: 1px solid {Cor.BORDA};
     padding: 8px 10px;
     font-weight: 700;
+}}
+
+/* Árvore do docker Objetos (dockers_corel.py) — sem isso o fundo fica
+   branco nativo com o texto claro do tema escuro por cima. */
+QTreeWidget {{
+    background: {Cor.CAMPO};
+    color: {Cor.TEXTO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 6px;
+}}
+QTreeWidget::item {{
+    padding: 3px 2px;
+}}
+QTreeWidget::item:selected {{
+    background: {Cor.PRIMARIA};
+    color: {Cor.BRANCO};
 }}
 
 /* Sem isso, o viewport de dentro de um QScrollArea (ex.: o dock de

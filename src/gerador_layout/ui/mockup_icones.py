@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 from .estilo import Cor
 
@@ -75,6 +75,129 @@ def construir_icone(tipo: str) -> QIcon:
             painter.drawLine(QPointF(5, 15), QPointF(13, 15))
             _seta(painter, QPointF(9, 9), QPointF(9, 15))
             _seta(painter, QPointF(9, 9), QPointF(9, 3))
+    elif tipo in ("espelho_h", "espelho_v"):
+        # Dois triângulos espelhados em torno de um eixo tracejado.
+        painter.save()
+        if tipo == "espelho_v":
+            painter.translate(c, c)
+            painter.rotate(90)
+            painter.translate(-c, -c)
+        eixo = QPen(cor, 1.0, Qt.PenStyle.DashLine)
+        painter.setPen(eixo)
+        painter.drawLine(QPointF(c, 2), QPointF(c, 16))
+        painter.setPen(caneta)
+        painter.drawPolygon(QPolygonF([QPointF(7, 5), QPointF(7, 13), QPointF(2.5, 13)]))
+        painter.setBrush(QBrush(cor))
+        painter.drawPolygon(QPolygonF([QPointF(11, 5), QPointF(11, 13), QPointF(15.5, 13)]))
+        painter.restore()
+    elif tipo in ("linha_corte", "linha_vinco"):
+        # Linha da faca: corte contínuo, vinco tracejado, com as pontas marcadas.
+        caneta_linha = QPen(cor, 1.6, Qt.PenStyle.SolidLine if tipo == "linha_corte" else Qt.PenStyle.DashLine)
+        painter.setPen(caneta_linha)
+        painter.drawLine(QPointF(3, 15), QPointF(15, 3))
+        painter.setPen(caneta)
+        painter.setBrush(QBrush(cor))
+        painter.drawRect(QRectF(1.5, 13.5, 3, 3))
+        painter.drawRect(QRectF(13.5, 1.5, 3, 3))
+    elif tipo == "navegar":
+        # Mão aberta (mover a visão).
+        painter.drawRoundedRect(QRectF(4, 8, 10, 8), 3, 3)
+        for x in (5.5, 8, 10.5, 13):
+            painter.drawLine(QPointF(x, 9), QPointF(x, 3.5 if x in (8, 10.5) else 5))
+    elif tipo == "ferramenta_bezier":
+        # Curva com um nó e as duas alças.
+        caminho = QPainterPath(QPointF(2, 15))
+        caminho.cubicTo(QPointF(4, 4), QPointF(14, 4), QPointF(16, 13))
+        painter.drawPath(caminho)
+        painter.drawLine(QPointF(4, 6), QPointF(14, 6))
+        painter.setBrush(QBrush(cor))
+        painter.drawRect(QRectF(7.5, 4.5, 3, 3))
+        painter.drawEllipse(QPointF(4, 6), 1.2, 1.2)
+        painter.drawEllipse(QPointF(14, 6), 1.2, 1.2)
+    elif tipo == "ferramenta_mao_livre":
+        caminho = QPainterPath(QPointF(2, 13))
+        caminho.cubicTo(QPointF(5, 3), QPointF(8, 16), QPointF(11, 8))
+        caminho.cubicTo(QPointF(13, 3), QPointF(15, 9), QPointF(16, 5))
+        painter.drawPath(caminho)
+    elif tipo == "ferramenta_forma":
+        # Seta de ponteiro com um nó quadrado na ponta (ferramenta Forma).
+        painter.setBrush(QBrush(cor))
+        painter.drawPolygon(QPolygonF([QPointF(4, 3), QPointF(4, 14), QPointF(7, 11), QPointF(9.5, 16), QPointF(11, 15.3), QPointF(8.6, 10.4), QPointF(12.5, 10.2)]))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(12.5, 2.5, 3.5, 3.5))
+    elif tipo == "converter_curvas":
+        painter.drawRect(QRectF(2.5, 6, 6, 6))
+        _seta(painter, QPointF(9.5, 9), QPointF(12, 9), 1.6)
+        caminho = QPainterPath(QPointF(12.5, 13))
+        caminho.cubicTo(QPointF(13, 4), QPointF(16, 6), QPointF(16, 12))
+        painter.drawPath(caminho)
+    elif tipo in ("combinar", "separar"):
+        painter.drawRect(QRectF(2.5, 2.5, 8, 8))
+        if tipo == "combinar":
+            painter.setBrush(QBrush(cor))
+            painter.drawRect(QRectF(7.5, 7.5, 8, 8))
+            painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+        else:
+            painter.drawRect(QRectF(8.5, 8.5, 7, 7))
+            painter.drawLine(QPointF(6, 15), QPointF(3, 15))
+    elif tipo.startswith("modelar_"):
+        # Dois quadrados sobrepostos; o preenchido mostra o que sobra.
+        a = QRectF(2.5, 2.5, 9, 9)
+        b = QRectF(6.5, 6.5, 9, 9)
+        pa, pb = QPainterPath(), QPainterPath()
+        pa.addRect(a)
+        pb.addRect(b)
+        resultado = {
+            "modelar_soldar": pa.united(pb),
+            "modelar_aparar": pa.subtracted(pb),
+            "modelar_intersecao": pa.intersected(pb),
+            "modelar_frente_menos_atras": pb.subtracted(pa),
+            "modelar_atras_menos_frente": pa.subtracted(pb),
+        }.get(tipo, pa)
+        painter.setBrush(QBrush(cor))
+        painter.drawPath(resultado)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        contorno = QPen(cor, 0.8, Qt.PenStyle.DotLine)
+        painter.setPen(contorno)
+        painter.drawRect(a)
+        painter.drawRect(b)
+        if tipo == "modelar_aparar":
+            painter.setPen(caneta)
+            painter.drawRect(b)  # no Aparar o de cima continua inteiro
+    elif tipo == "cota_angular":
+        # Dois braços saindo do vértice e o arco com setas entre eles.
+        painter.drawLine(QPointF(3, 15), QPointF(16, 15))
+        painter.drawLine(QPointF(3, 15), QPointF(12, 3))
+        painter.drawArc(QRectF(-5, 7, 16, 16), 0, 53 * 16)
+        painter.setBrush(QBrush(cor))
+        painter.drawEllipse(QPointF(3, 15), 1.1, 1.1)
+    elif tipo in ("cota_paralela", "cota_horizontal", "cota_vertical"):
+        # Linha de cota com setas e as duas linhas de chamada.
+        painter.save()
+        if tipo == "cota_paralela":
+            painter.translate(c, c)
+            painter.rotate(-35)
+            painter.translate(-c, -c)
+        elif tipo == "cota_vertical":
+            painter.translate(c, c)
+            painter.rotate(-90)
+            painter.translate(-c, -c)
+        painter.drawLine(QPointF(3, 15), QPointF(3, 5))
+        painter.drawLine(QPointF(15, 15), QPointF(15, 5))
+        _seta(painter, QPointF(9, 8), QPointF(3.5, 8), 2.0)
+        _seta(painter, QPointF(9, 8), QPointF(14.5, 8), 2.0)
+        painter.restore()
+    elif tipo in ("escala_l", "escala_a"):
+        # "%" com a seta do eixo que escala.
+        fonte = QFont()
+        fonte.setPixelSize(10)
+        fonte.setBold(True)
+        painter.setFont(fonte)
+        painter.drawText(QRectF(0, 0, lado, lado), Qt.AlignmentFlag.AlignCenter, "%")
+        if tipo == "escala_l":
+            _seta(painter, QPointF(4, 16), QPointF(14, 16), 1.8)
+        else:
+            _seta(painter, QPointF(16, 14), QPointF(16, 4), 1.8)
     elif tipo == "angulo":
         painter.drawArc(QRectF(3, 3, 12, 12), 20 * 16, 220 * 16)
         fim = QPointF(c + 6 * 0.35, c - 6 * 0.93)
