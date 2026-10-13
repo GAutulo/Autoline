@@ -18,12 +18,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
     QTabBar,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -51,7 +53,7 @@ from .mockup_simbolos import ElementoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO, PainelPropriedadesMockup
-from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
+from .preview_canvas import AJUSTAR_A, FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
 _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
@@ -440,6 +442,7 @@ class JanelaPrincipal(QMainWindow):
         acao_snap.setChecked(True)
         acao_snap.setToolTip("Gruda automaticamente na grade, nas bordas de outros elementos, na face e nas guias")
         acao_snap.toggled.connect(self.canvas.definir_snap_ativo)
+        menu_exibir.addMenu(self._menu_ajustar_a)
 
         acao_reguas = menu_exibir.addAction("Réguas")
         acao_reguas.setCheckable(True)
@@ -682,6 +685,16 @@ class JanelaPrincipal(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
         self.barra_organizar = barra
 
+        self._montar_menu_ajustar_a()
+        botao_ajustar = QToolButton()
+        botao_ajustar.setText("Ajustar a")
+        botao_ajustar.setToolTip("Onde os objetos grudam ao arrastar (como o \"Ajustar a\" do CorelDRAW)")
+        botao_ajustar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        botao_ajustar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        botao_ajustar.setMenu(self._menu_ajustar_a)
+        barra.addWidget(botao_ajustar)
+        barra.addSeparator()
+
         pilha = self.canvas.pilha_desfazer
         acao_desfazer = self._acao_icone(barra, "desfazer", "Desfazer (Ctrl+Z)", pilha.undo)
         acao_desfazer.setEnabled(False)
@@ -696,6 +709,32 @@ class JanelaPrincipal(QMainWindow):
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
         barra.hide()
+
+    def _montar_menu_ajustar_a(self) -> None:
+        """Menu "Ajustar a" (CorelDRAW): uma opção por fonte de encaixe.
+        Fica no topo (barra Organizar) e em Exibir; Alt+Z e Ctrl+Y no
+        canvas mudam o mesmo estado, e os dois menus acompanham."""
+        menu = QMenu("Ajustar a", self)
+        atalhos = {"objetos": "Alt+Z", "grade": "Ctrl+Y"}
+        self._acoes_ajustar_a: dict[str, QAction] = {}
+        for chave, rotulo in AJUSTAR_A.items():
+            texto = rotulo + (" (quando visível)" if chave == "grade" else "")
+            if chave in atalhos:
+                texto += f"	{atalhos[chave]}"
+            acao = menu.addAction(texto)
+            acao.setCheckable(True)
+            acao.setChecked(self.canvas.ajustar_a(chave))
+            acao.toggled.connect(lambda ligado, c=chave: self.canvas.definir_ajustar_a(c, ligado))
+            self._acoes_ajustar_a[chave] = acao
+        self.canvas.ajustar_a_alterado.connect(self._ao_ajustar_a_alterado)
+        self._menu_ajustar_a = menu
+
+    def _ao_ajustar_a_alterado(self, chave: str, ligado: bool) -> None:
+        acao = self._acoes_ajustar_a[chave]
+        if acao.isChecked() != ligado:
+            acao.setChecked(ligado)
+        estado = "ligado" if ligado else "desligado"
+        self.statusBar().showMessage(f"Ajustar a {AJUSTAR_A[chave].lower()}: {estado}", 4000)
 
     def _montar_paleta_cores(self) -> None:
         """Paleta vertical na borda DIREITA, como no CorelDRAW: clique
