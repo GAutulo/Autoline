@@ -14,6 +14,7 @@ propriedade de vários de uma vez não é um caso coberto ainda.
 
 from __future__ import annotations
 
+import warnings
 from typing import Callable
 
 from PySide6.QtWidgets import (
@@ -34,11 +35,15 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao
 from ..paineis import Painel
+from . import configuracoes
 from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
+from .mockup_cota import ElementoCota
+from .mockup_cota_angular import ElementoCotaAngular
+from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
@@ -66,6 +71,9 @@ NOME_TIPO_ELEMENTO: dict[type, str] = {
     ElementoLogoVetorial: "Logotipo vetorial",
     ElementoChecklistCores: "Checklist de cores",
     GrupoMockup: "Grupo",
+    ElementoCota: "Cota",
+    ElementoCurva: "Curva",
+    ElementoCotaAngular: "Cota angular",
 }
 
 
@@ -80,6 +88,9 @@ class PainelPropriedadesMockup(QWidget):
         self._obter_tintas = obter_tintas_disponiveis
         self._obter_paineis = obter_paineis_disponiveis
         self._elemento: ElementoMockup | None = None
+        # Só o elemento cujo sinal foi de fato ligado — desligar um que não
+        # foi (troca de seleção no meio da montagem da barra) gerava aviso.
+        self._elemento_conectado: ElementoMockup | None = None
         self._modo_multiplo = False
         self._spins_geometria: dict[str, QDoubleSpinBox] = {}
         self._rotulo_posicao_painel: QLabel | None = None
@@ -92,6 +103,10 @@ class PainelPropriedadesMockup(QWidget):
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
         self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
+        self.modelar_solicitado: Callable[[str], None] | None = None
+        # Tamanho da página (chapa da dieline) em mm, pro estado "nada
+        # selecionado" da barra — ligado de fora, como os callbacks acima.
+        self.obter_tamanho_pagina: Callable[[], tuple[float, float] | None] | None = None
 
         raiz = QHBoxLayout(self)
         raiz.setContentsMargins(2, 0, 2, 0)
@@ -176,18 +191,25 @@ class PainelPropriedadesMockup(QWidget):
             self.remover_solicitado()
 
     # ── API pública ─────────────────────────────────────────────────
-    def definir_elemento(self, elemento: ElementoMockup | None) -> None:
-        self._modo_multiplo = False
-        if self._elemento is not None:
-            # Desliga a conexão do elemento ANTERIOR antes de trocar —
-            # sem isso, quando esse elemento mudasse de novo (ex.: mover
-            # ele por outro caminho, tipo desfazer), o sinal ainda ia
-            # tentar atualizar spinboxes que já foram destruídos junto
-            # com a barra (ver `_limpar_barra`), e isso derruba o app.
+    def _desconectar_elemento(self) -> None:
+        elemento, self._elemento_conectado = self._elemento_conectado, None
+        if elemento is None:
+            return
+        # Na destruição da janela o Qt ainda emite troca de seleção; aí o
+        # desligamento pode falhar só com aviso (não exceção) — inofensivo.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             try:
-                self._elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
+                elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
             except (TypeError, RuntimeError):
                 pass
+
+    def definir_elemento(self, elemento: ElementoMockup | None) -> None:
+        self._modo_multiplo = False
+        # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
+        # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
+        # spinboxes já destruídos com a barra (ver `_limpar_barra`).
+        self._desconectar_elemento()
 
         self._elemento = elemento
         self._spins_geometria = {}
@@ -195,10 +217,11 @@ class PainelPropriedadesMockup(QWidget):
         self._limpar_barra()
 
         if elemento is None:
-            self._rotulo_vazio.setVisible(True)
+            self._rotulo_vazio.setVisible(False)
             self._rotulo_tipo.setVisible(False)
-            self._container_campos.setVisible(False)
             self._botao_remover.setVisible(False)
+            self._montar_estado_sem_selecao()
+            self._container_campos.setVisible(True)
             return
 
         self._rotulo_vazio.setVisible(False)
@@ -224,6 +247,12 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_poligono(elemento)
         elif isinstance(elemento, ElementoLinha):
             self._montar_campos_linha(elemento)
+        elif isinstance(elemento, ElementoCota):
+            self._montar_campos_cota(elemento)
+        elif isinstance(elemento, ElementoCotaAngular):
+            self._montar_campos_cota_angular(elemento)
+        elif isinstance(elemento, ElementoCurva):
+            self._montar_campos_retangulo(elemento)  # mesmos campos: preenchido, traço e tinta
         elif isinstance(elemento, ElementoCallout):
             self._montar_campos_callout(elemento)
         elif isinstance(elemento, ElementoTabela):
@@ -246,6 +275,51 @@ class PainelPropriedadesMockup(QWidget):
             self._layout_campos.addWidget(aviso)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
+        self._elemento_conectado = elemento
+
+    def _montar_estado_sem_selecao(self) -> None:
+        """Barra de propriedades sem nada selecionado, como no CorelDRAW:
+        tamanho da página, unidade e as distâncias de deslocamento
+        (setas) e de duplicação (Ctrl+D) — que aqui são as mesmas
+        preferências de Configurações > Ferramentas."""
+        tamanho = self.obter_tamanho_pagina() if self.obter_tamanho_pagina is not None else None
+        texto = "Chapa —" if tamanho is None else f"Chapa  {tamanho[0]:.1f} × {tamanho[1]:.1f} mm".replace(".", ",")
+        rotulo = QLabel(texto)
+        rotulo.setObjectName("rotuloPaginaPropriedade")
+        rotulo.setStyleSheet("font-weight: 700;")
+        rotulo.setToolTip("Tamanho da página — a chapa da dieline")
+        self._layout_campos.addWidget(rotulo)
+        unidade = QLabel("Unidade: mm")
+        unidade.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
+        self._layout_campos.addWidget(unidade)
+        self._separador()
+
+        normal, com_shift = configuracoes.passo_nudge_mm()
+
+        def spin(valor: float, maximo: float) -> QDoubleSpinBox:
+            campo = QDoubleSpinBox()
+            campo.setRange(0.01, maximo)
+            campo.setDecimals(2)
+            campo.setSuffix(" mm")
+            campo.setValue(valor)
+            campo.setMaximumWidth(84)
+            campo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            campo.setKeyboardTracking(False)
+            return campo
+
+        spin_nudge = spin(normal, 100.0)
+        spin_nudge.setObjectName("spinDeslocamento")
+        spin_super = spin(com_shift, 1000.0)
+        spin_super.setObjectName("spinSuperDeslocamento")
+        spin_nudge.valueChanged.connect(lambda v: configuracoes.definir_passo_nudge_mm(v, spin_super.value()))
+        spin_super.valueChanged.connect(lambda v: configuracoes.definir_passo_nudge_mm(spin_nudge.value(), v))
+        self._grupo("x", spin_nudge, "Deslocamento com as setas (Ctrl+seta = um décimo)")
+        self._grupo("largura", spin_super, "Super deslocamento (Shift+seta)")
+
+        spin_duplicar = spin(configuracoes.passo_duplicar_mm(), 1000.0)
+        spin_duplicar.setObjectName("spinDistanciaDuplicar")
+        spin_duplicar.valueChanged.connect(configuracoes.definir_passo_duplicar_mm)
+        self._grupo("mais", spin_duplicar, "Distância de duplicação (Ctrl+D e colar)")
 
     def definir_selecao_multipla(self, quantidade: int) -> None:
         """Estado intermediário entre "nada selecionado" (`definir_elemento(None)`)
@@ -257,11 +331,10 @@ class PainelPropriedadesMockup(QWidget):
         (fonte, cor...) de vários — só alinhar/remover, os dois únicos
         casos que fazem sentido pra um grupo heterogêneo de elementos."""
         self._modo_multiplo = True
-        if self._elemento is not None:
-            try:
-                self._elemento.geometria_alterada.disconnect(self._atualizar_campos_geometria)
-            except (TypeError, RuntimeError):
-                pass
+        # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
+        # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
+        # spinboxes já destruídos com a barra (ver `_limpar_barra`).
+        self._desconectar_elemento()
         self._elemento = None
         self._spins_geometria = {}
         self._rotulo_posicao_painel = None
@@ -287,6 +360,20 @@ class PainelPropriedadesMockup(QWidget):
                 lambda _c=False, a=alinhamento: self.alinhar_multiplos_solicitado and self.alinhar_multiplos_solicitado(a)
             )
 
+        # Modelar, como na barra de propriedades do CorelDRAW com vários
+        # objetos selecionados (ver `modelagem.py`).
+        self._separador(forte=True)
+        for operacao, dica in (
+            ("soldar", "Soldar — junta as formas numa só"),
+            ("aparar", "Aparar — recorta o objeto de baixo com os de cima (os de cima ficam)"),
+            ("intersecao", "Interseção — cria a forma da área em comum (os originais ficam)"),
+            ("frente_menos_atras", "Frente menos atrás — o de cima menos os de baixo"),
+            ("atras_menos_frente", "Atrás menos frente — o de baixo menos os de cima"),
+        ):
+            botao = self._botao_icone(f"modelar_{operacao}", dica)
+            botao.setObjectName(f"modelar_{operacao}")
+            botao.clicked.connect(lambda _c=False, op=operacao: self.modelar_solicitado and self.modelar_solicitado(op))
+
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_campos_geometria(self, elemento: ElementoMockup) -> None:
         campos = (
@@ -301,7 +388,10 @@ class PainelPropriedadesMockup(QWidget):
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setMaximumWidth(78)
+            spin.setMaximumWidth(92)
+            # Campo de texto sem setinhas, como na barra do CorelDRAW — as
+            # setas comiam a largura e cortavam o número ("120,0(").
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             # Sem isso, `valueChanged` dispara a CADA TECLA digitada, não
             # só ao terminar — digitar "20" aplicava primeiro "2" (vira
             # "4" por causa do mínimo de 4mm), a tela atualizava o campo
@@ -314,11 +404,59 @@ class PainelPropriedadesMockup(QWidget):
             self._spins_geometria[chave] = spin
             self._grupo(tipo_icone, spin, tooltip)
 
+        # Fator de escala em %, como na barra do CorelDRAW: digitar 150 e
+        # confirmar escala o objeto em 150% e o campo volta pra 100.
+        for chave, tipo_icone, tooltip in (
+            ("escala_l", "escala_l", "Escala da largura (%)"),
+            ("escala_a", "escala_a", "Escala da altura (%)"),
+        ):
+            spin = QDoubleSpinBox()
+            spin.setRange(1.0, 10000.0)
+            spin.setDecimals(0)
+            spin.setSuffix(" %")
+            spin.setValue(100.0)
+            spin.setMaximumWidth(66)
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            spin.setKeyboardTracking(False)
+            spin.valueChanged.connect(lambda valor, c=chave, s=spin: self._ao_editar_escala(c, valor, s))
+            self._grupo(tipo_icone, spin, tooltip)
+
         botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
         botao_trava.setChecked(elemento.proporcao_travada)
         botao_trava.toggled.connect(elemento.definir_proporcao_travada)
 
+        if not isinstance(elemento, GrupoMockup):
+            botao_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)
+            botao_h.setChecked(elemento.espelho_h)
+            botao_v = self._botao_icone("espelho_v", "Espelhar na vertical", checkable=True)
+            botao_v.setChecked(elemento.espelho_v)
+            botao_h.toggled.connect(lambda marcado: elemento.definir_espelho(marcado, elemento.espelho_v))
+            botao_v.toggled.connect(lambda marcado: elemento.definir_espelho(elemento.espelho_h, marcado))
+
         self._atualizar_campos_geometria()
+
+    def _ao_editar_escala(self, chave: str, valor: float, spin: QDoubleSpinBox) -> None:
+        elemento = self._elemento
+        if elemento is not None and valor != 100.0:
+            fator = valor / 100.0
+            largura, altura = elemento.largura, elemento.altura
+            if elemento.proporcao_travada:
+                nova = (largura * fator, altura * fator)
+            elif chave == "escala_l":
+                nova = (largura * fator, altura)
+            else:
+                nova = (largura, altura * fator)
+            # Escala em torno do centro (ponto de referência padrão do
+            # CorelDRAW): a origem de transformação é o centro, então
+            # basta compensar a meia diferença de tamanho na posição.
+            pos = elemento.pos()
+            elemento.definir_tamanho(*nova)
+            elemento.setPos(
+                pos.x() + (largura - elemento.largura) / 2, pos.y() + (altura - elemento.altura) / 2
+            )
+        spin.blockSignals(True)
+        spin.setValue(100.0)
+        spin.blockSignals(False)
 
     def _atualizar_campos_geometria(self) -> None:
         """Reflete a geometria atual do elemento nos campos — chamado na
@@ -368,11 +506,17 @@ class PainelPropriedadesMockup(QWidget):
             ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
             ("alinhar_base", "base", "Alinhar à base da face"),
         )
-        botoes: list[QToolButton] = []
+        # Um botão só com menu (em vez de 6 botões soltos) — a barra no
+        # padrão CorelDRAW ganhou escala/espelhar e precisa caber.
+        botao_alinhar = self._botao_icone("alinhar_centro_h", "Alinhar na face escolhida")
+        botao_alinhar.setObjectName("botaoAlinharFace")
+        botao_alinhar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu_alinhar = QMenu(botao_alinhar)
         for tipo_icone, alinhamento, tooltip in disposicao:
-            botao = self._botao_icone(tipo_icone, tooltip)
-            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
-            botoes.append(botao)
+            acao = menu_alinhar.addAction(construir_icone(tipo_icone), tooltip)
+            acao.triggered.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
+        botao_alinhar.setMenu(menu_alinhar)
+        botoes: list[QToolButton] = [botao_alinhar]
 
         def atualizar_habilitado() -> None:
             ativo = combo.currentData() is not None
@@ -555,6 +699,53 @@ class PainelPropriedadesMockup(QWidget):
 
     def _montar_campos_linha(self, el: ElementoLinha) -> None:
         self._campo_espessura_traco(el.largura_traco, el.definir_largura_traco)
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_cota_angular(self, el: ElementoCotaAngular) -> None:
+        valor = QLabel(el.texto_valor())
+        valor.setStyleSheet("font-weight: 700;")
+        valor.setToolTip("Ângulo medido — muda sozinho ao esticar a cota")
+        el.geometria_alterada.connect(lambda: valor.setText(el.texto_valor()) if valor.parent() else None)
+        self._layout_campos.addWidget(valor)
+        for minimo, maximo, atual, ao_mudar, icone, dica in (
+            (2.0, 500.0, el.raio, el.definir_raio, "angulo", "Raio do arco"),
+            (0.5, 50.0, el.altura_texto, el.definir_altura_texto, "fonte_aa", "Altura do texto da cota"),
+        ):
+            campo = QDoubleSpinBox()
+            campo.setRange(minimo, maximo)
+            campo.setSuffix(" mm")
+            campo.setValue(atual)
+            campo.setKeyboardTracking(False)
+            campo.setMaximumWidth(84)
+            campo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            campo.valueChanged.connect(ao_mudar)
+            self._grupo(icone, campo, dica)
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+    def _montar_campos_cota(self, el: ElementoCota) -> None:
+        valor = QLabel(el.texto_valor())
+        valor.setStyleSheet("font-weight: 700;")
+        valor.setToolTip("Medida — muda sozinha ao redimensionar a cota")
+        el.geometria_alterada.connect(lambda: valor.setText(el.texto_valor()) if valor.parent() else None)
+        self._layout_campos.addWidget(valor)
+        afastamento = QDoubleSpinBox()
+        afastamento.setRange(2.0, 500.0)
+        afastamento.setSuffix(" mm")
+        afastamento.setValue(el.afastamento)
+        afastamento.setKeyboardTracking(False)
+        afastamento.setMaximumWidth(84)
+        afastamento.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        afastamento.valueChanged.connect(el.definir_afastamento)
+        self._grupo("altura", afastamento, "Afastamento da linha de cota até os pontos medidos")
+        texto = QDoubleSpinBox()
+        texto.setRange(0.5, 50.0)
+        texto.setSuffix(" mm")
+        texto.setValue(el.altura_texto)
+        texto.setKeyboardTracking(False)
+        texto.setMaximumWidth(78)
+        texto.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        texto.valueChanged.connect(el.definir_altura_texto)
+        self._grupo("fonte_aa", texto, "Altura do texto da cota")
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_elipse(self, el: ElementoElipse) -> None:

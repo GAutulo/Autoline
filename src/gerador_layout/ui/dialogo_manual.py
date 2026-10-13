@@ -36,10 +36,38 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 de corte/vinco calculada automaticamente. É aqui que a caixa nasce.</p>
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
                 posicionar texto, formas, imagens, logotipo e símbolos de manuseio por
-                cima (o "mockup"). É aqui que a paleta de ferramentas e a barra de
-                propriedades aparecem.</p>
+                cima (o "mockup").</p>
+                <p>A disposição segue o CorelDRAW: a <b>caixa de ferramentas</b> fica
+                na borda esquerda (botões com triângulo no canto agrupam ferramentas
+                irmãs: segure o clique ou clique no triângulo pra escolher), a
+                <b>barra de propriedades</b> logo abaixo do topo, a <b>paleta de
+                cores</b> na borda direita (clique = preenchimento, botão direito =
+                contorno, X = sem preenchimento; a tinta usada entra na legenda) e a
+                <b>barra de status</b> embaixo mostra a posição do cursor em mm e o
+                objeto selecionado com as amostras de preenchimento e contorno. A
+                chapa aparece como uma página branca sobre a mesa cinza.</p>
                 <p>Editar as medidas sempre volta pra tela de Dieline; os elementos de
                 mockup que você já posicionou na tela de Layout continuam lá.</p>
+                """,
+            ),
+            (
+                "Editar a faca (tela Dieline)",
+                """
+                <p>A barra <b>Faca</b> no topo da tela Dieline faz o ajuste à mão que
+                antes ia pro CorelDRAW. <b>Navegar</b> é o normal (arrastar move a
+                visão). <b>Editar faca</b> (F10): clique numa linha pra selecionar;
+                arraste a linha ou uma ponta — as linhas ligadas acompanham (pontas
+                em comum e junções em "T"), então a faca não abre. <b>Alt</b> solta a
+                ponta das vizinhas e <b>Shift</b> trava na horizontal/vertical. As
+                pontas grudam nas outras pontas da faca.</p>
+                <p><b>Nova linha de corte / de vinco</b>: arraste de um ponto a outro
+                (Ctrl = 15°). Com uma linha selecionada, a caixa da barra muda o tipo
+                (corte, vinco, meio corte, serra, dobra) e <b>Delete</b> remove.</p>
+                <p>Com a faca editada, o tipo de caixa e as medidas ficam
+                <b>travados</b> (mudar recalcularia a faca e perderia a edição). O
+                botão "Descartar edições da faca" volta pra faca calculada — e
+                Ctrl+Z desfaz cada passo. A faca editada é a que sai na exportação e
+                no envio pro CorelDRAW.</p>
                 """,
             ),
             (
@@ -67,12 +95,18 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>A ferramenta padrão (ponteiro). Clicar um elemento seleciona ele;
                 clicar e arrastar move; as alças ao redor de um elemento selecionado
                 redimensionam (nos cantos/lados) ou giram (o círculo acima).</p>
+                <p>Igual ao CorelDRAW: a alça de <b>canto</b> escala mantendo a
+                proporção (segure <b>Alt</b> pra soltar a proporção), a alça do
+                <b>meio</b> estica só um lado, e <b>Shift</b> redimensiona a partir do
+                centro. Girando, <b>Ctrl</b> prende o ângulo em passos de 15°.</p>
                 <p><b>Modificadores durante o arrasto:</b></p>
-                <p>• <b>Alt</b> — duplica: deixa uma cópia parada no lugar de onde você
-                começou a arrastar, e o que se move é a cópia nova.<br>
-                • <b>Shift</b> — restringe o movimento a um eixo só (horizontal ou
-                vertical, o que você estiver puxando mais); reavaliado o tempo todo,
-                dá pra "corrigir" o eixo sem soltar o botão.</p>
+                <p>• <b>Clique direito</b> (sem soltar o esquerdo) — ao soltar, deixa
+                uma cópia no destino e o original volta pro lugar.<br>
+                • <b>Alt</b> ao começar a arrastar — duplica: deixa uma cópia parada no
+                lugar de onde você começou, e o que se move é a cópia nova.<br>
+                • <b>Ctrl</b> ou <b>Shift</b> — restringe o movimento a um eixo só
+                (horizontal ou vertical, o que você estiver puxando mais); reavaliado
+                o tempo todo, dá pra "corrigir" o eixo sem soltar o botão.</p>
                 <p><b>Ctrl/Shift + clique</b> — adiciona/remove elementos individuais da
                 seleção atual (seleção múltipla). <b>Arrastar numa área vazia</b> — abre
                 uma seleção retangular, seleciona tudo que estiver dentro.</p>
@@ -136,15 +170,47 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """
                 <p>Clique e arraste pra desenhar, canto a canto (o clique inicial é um
                 canto, solta no canto oposto).</p>
-                <p><b>Alt segurado durante o arrasto</b> — desenha a partir do CENTRO
-                em vez de um canto: o ponto onde você clicou vira o meio da forma, que
-                cresce simétrica dos 2 lados. Dá pra soltar/segurar Alt no meio do
-                gesto e ver o efeito na hora.</p>
+                <p><b>Shift</b> (ou Alt) <b>segurado durante o arrasto</b> — desenha a
+                partir do CENTRO em vez de um canto: o ponto onde você clicou vira o
+                meio da forma, que cresce simétrica dos 2 lados. <b>Ctrl</b> força
+                lados iguais (quadrado, círculo). Dá pra soltar/segurar as teclas no
+                meio do gesto e ver o efeito na hora — igual ao CorelDRAW.</p>
                 <p>O Polígono tem um campo de "número de lados" na barra de
                 propriedades (3 a 20) — poucos lados também cobre losango/triângulo/
                 pentágono, sem precisar de uma ferramenta de estrela à parte. Os 3 têm
                 cor de tinta, "preenchido" (contorno vazado ou sólido) e espessura de
                 traço configuráveis.</p>
+                """,
+            ),
+            (
+                "Curvas: Bézier, Mão livre e Forma",
+                """
+                <p>Como no CorelDRAW. <b>Bézier</b> (no grupo da Mão livre): cada
+                clique põe um nó de canto; clicar e arrastar põe um nó suave, puxando
+                as alças. Clicar de novo no primeiro nó fecha a forma; duplo clique,
+                Enter ou Espaço terminam a curva aberta; Esc cancela. <b>Mão livre</b>
+                (F5): arraste pra desenhar — o traço é simplificado ao soltar, e
+                terminar perto do começo fecha a forma.</p>
+                <p><b>Forma</b> (F10) edita os nós de uma curva: clique na curva,
+                arraste um nó (ou a alça do nó selecionado); <b>duplo clique</b> na
+                curva adiciona um nó, no nó remove; <b>Delete</b> remove o nó
+                selecionado e <b>S</b> alterna entre canto e suave. Cada edição é um
+                passo de desfazer.</p>
+                <p><b>Converter em curvas</b> (Ctrl+Q) transforma retângulo, elipse,
+                polígono, linha e texto numa curva com o mesmo desenho — depois disso
+                os nós podem ser editados. <b>Combinar</b> (Ctrl+L) junta vários
+                objetos numa curva só (onde se sobrepõem vira furo, como no
+                CorelDRAW) e <b>Separar</b> (Ctrl+K) desfaz em uma curva por
+                contorno. Os três também ficam na barra Organizar do topo.</p>
+                <p><b>Modelar</b> (menu Objeto &gt; Modelar, ou os botões da barra de
+                propriedades com 2+ objetos selecionados), como no CorelDRAW:
+                <b>Soldar</b> junta tudo numa forma; <b>Aparar</b> recorta o objeto de
+                baixo com os de cima (que ficam); <b>Interseção</b> cria a forma da
+                área em comum (os originais ficam); <b>Frente menos atrás</b> e
+                <b>Atrás menos frente</b> deixam só o de cima / o de baixo, sem a parte
+                coberta. O resultado é uma curva com a tinta e o preenchimento do
+                objeto de baixo (do de cima, em Frente menos atrás). Trechos curvos
+                viram segmentos retos bem curtos (diferença de centésimos de mm).</p>
                 """,
             ),
             (
@@ -185,7 +251,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """
                 <p>Marca uma área que recebe um processo especial de pós-impressão
                 (verniz localizado, laminação fosca/brilho, hot stamping) — clique e
-                arraste pra desenhar, Alt = a partir do centro (mesma convenção do
+                arraste pra desenhar, Shift = a partir do centro (mesma convenção do
                 Retângulo/Elipse/Polígono). O tipo de processo é um campo na barra de
                 propriedades.</p>
                 <p>Sai desenhado com hachura + a cor de marcação técnica padrão da
@@ -261,6 +327,28 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 ferramenta não apaga as leituras já fixadas.</p>
                 """,
             ),
+            (
+                "Cotas (paralela, horizontal, vertical, angular)",
+                """
+                <p>Como as ferramentas de cota do CorelDRAW (no mesmo grupo da Medida,
+                na caixa de ferramentas): arraste de um ponto a outro e a cota fica
+                <b>no desenho</b> — sai na exportação e no envio pro CorelDRAW, ao
+                contrário da Medida, que é só leitura.</p>
+                <p><b>Paralela</b> mede a distância direta (Ctrl prende o ângulo em
+                15°); <b>horizontal</b> mede só o Δx e <b>vertical</b> só o Δy. As duas
+                últimas vão sozinhas pro lado de fora da chapa. As pontas grudam nos
+                cantos da faca, dos objetos e da chapa quando o encaixe está ligado.</p>
+                <p><b>Cota angular</b>: clique no vértice, depois num ponto de cada
+                braço — mede o menor ângulo entre eles (até 180°), com o arco e o
+                valor em graus. Esc cancela no meio. Na barra de propriedades: raio do
+                arco, altura do texto e tinta.</p>
+                <p>A cota é um objeto como os outros: o valor acompanha quando você a
+                redimensiona, e a barra de propriedades muda o afastamento da linha,
+                a altura do texto e a tinta. A ferramenta continua ativa depois de
+                cada cota, pra cotar várias medidas em sequência (Esc volta pro
+                ponteiro).</p>
+                """,
+            ),
         ],
     ),
     (
@@ -280,6 +368,16 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>Liga/desliga pelo menu Exibir &gt; "Encaixe (snap) ao arrastar". O
                 limiar de distância e o espaçamento da grade são preferências em
                 Configurações &gt; Ferramentas.</p>
+                <p><b>Guias dinâmicas</b> (Exibir, <b>Alt+Shift+D</b>, ligadas por
+                padrão): ao desenhar — formas, linhas, Bézier, cotas e linhas novas da
+                faca —, o cursor alinha na vertical e na horizontal com os nós da
+                faca, dos objetos, da chapa e com o 1º ponto do gesto, e aparece uma
+                linha tracejada azul até o nó (marcado com um ×). Alinhando com dois
+                nós ao mesmo tempo, o ponto cai no cruzamento das guias.</p>
+                <p><b>Ajustar a</b> (botão na barra do topo e em Exibir, como no
+                CorelDRAW) escolhe onde grudar: grade do documento (quando visível),
+                guias, objetos (inclui as bordas da face) e página (bordas e centro da
+                chapa). <b>Alt+Z</b> liga/desliga objetos e <b>Ctrl+Y</b> a grade.</p>
                 """,
             ),
             (
@@ -322,9 +420,44 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Barra de propriedades",
+                """
+                <p>Igual à do CorelDRAW, começa sempre pela geometria do objeto
+                selecionado: posição X/Y, largura/altura, ângulo, <b>escala em %</b>
+                (digite 150 e confirme pra aumentar 50% em torno do centro; o campo
+                volta pra 100), trava de proporção e <b>espelhar</b> na horizontal/
+                vertical. Depois vem a face da caixa (com o menu de alinhar na face) e
+                os campos do tipo do objeto (fonte, tinta, espessura...).</p>
+                <p><b>Sem nada selecionado</b>, a barra mostra o tamanho da chapa, a
+                unidade e as distâncias de deslocamento (setas e Shift+setas) e de
+                duplicação (Ctrl+D e colar) — as mesmas de Configurações &gt;
+                Ferramentas.</p>
+                """,
+            ),
+            (
+                "Janelas de encaixe (dockers)",
+                """
+                <p>Como no CorelDRAW, abrem na borda direita (em abas) pelo menu
+                Exibir &gt; Janelas de encaixe, só na tela de Layout:</p>
+                <p><b>Objetos</b> — a camada Arte com cada elemento (de cima pra
+                baixo, na ordem da frente pra trás) e a camada Faca, travada. Clicar
+                na lista seleciona no desenho e vice-versa; desmarcar oculta o
+                elemento, e o oculto não sai na exportação nem vai pro CorelDRAW.</p>
+                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — alinhar com a
+                seleção, com a página (chapa) ou com a face de cada elemento;
+                distribuir 3 ou mais objetos por centros ou por espaços iguais.</p>
+                <p><b>Transformações</b> (<b>Alt+F7</b> posição, <b>Alt+F8</b>
+                rotação, <b>Alt+F9</b> escala e espelho, <b>Alt+F10</b> tamanho) —
+                o campo <b>Cópias</b> funciona como no CorelDRAW: com 0, transforma
+                o próprio objeto; com N, deixa o original e cria N cópias, cada uma
+                transformada a partir da anterior (ex.: mover 50 mm com 3 cópias faz
+                uma fileira). Um Ctrl+Z desfaz tudo de uma vez.</p>
+                """,
+            ),
+            (
                 "Desfazer / refazer",
                 """
-                <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> (ou <b>Ctrl+Y</b>) refaz —
+                <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> refaz —
                 cobre adicionar (por ferramenta, duplicar, colar), remover, mover,
                 redimensionar e girar (inclusive grupos e o nudge pela seta do
                 teclado). Cada ação só entra na pilha quando o gesto termina (soltar o
@@ -334,17 +467,34 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
             (
                 "Atalhos de teclado",
                 """
-                <p><b>Ctrl+Z</b> / <b>Ctrl+Shift+Z</b> (ou <b>Ctrl+Y</b>) — desfazer/
-                refazer.<br>
+                <p><b>Ctrl+Z</b> / <b>Ctrl+Shift+Z</b> — desfazer/refazer.<br>
+                <b>Alt+Z</b> / <b>Ctrl+Y</b> — liga/desliga o encaixe em objetos / na
+                grade (como no CorelDRAW).<br>
                 <b>Ctrl+D</b> — duplicar a seleção (com deslocamento, "efeito
                 cascata").<br>
                 <b>Ctrl+C</b> / <b>Ctrl+V</b> — copiar/colar.<br>
                 <b>Delete</b> — remove a seleção atual.<br>
-                <b>Ctrl+G</b> / <b>Ctrl+Shift+G</b> — agrupar/desagrupar.<br>
-                <b>Ctrl+Home</b> / <b>Ctrl+End</b> — trazer pra frente / enviar pra
-                trás.<br>
+                <b>+ do teclado numérico</b> — duplica no lugar (cópia exatamente
+                em cima).<br>
+                <b>Ctrl+A</b> — seleciona todos os elementos.<br>
+                <b>Ctrl+G</b> / <b>Ctrl+U</b> (ou Ctrl+Shift+G) — agrupar/desagrupar.<br>
+                <b>Shift+PgUp</b> / <b>Shift+PgDn</b> (ou Ctrl+Home / Ctrl+End) — trazer
+                pra frente / enviar pra trás.<br>
+                <b>Ctrl+PgUp</b> / <b>Ctrl+PgDn</b> — um nível à frente / atrás.<br>
+                <b>L</b> / <b>R</b> / <b>T</b> / <b>B</b> — alinhar à esquerda, direita,
+                topo e base; <b>C</b> / <b>E</b> — centros na vertical / horizontal.
+                Com um elemento só, alinha com a chapa da dieline.<br>
+                <b>P</b> — centraliza a seleção na chapa.<br>
+                <b>F4</b> — zoom em tudo; <b>Shift+F4</b> — zoom na chapa;
+                <b>Shift+F2</b> — zoom na seleção.<br>
+                <b>Ctrl+Q</b> — converter em curvas; <b>Ctrl+L</b> / <b>Ctrl+K</b> —
+                combinar / separar.<br>
+                <b>F5</b> Mão livre, <b>F6</b> Retângulo, <b>F7</b> Elipse, <b>F8</b> Texto,
+                <b>F10</b> Forma,
+                <b>Y</b> Polígono; <b>Espaço</b> alterna entre Selecionar e a última
+                ferramenta.<br>
                 <b>Setas do teclado</b> — move a seleção aos poucos (Shift = passo
-                maior).<br>
+                maior, Ctrl = passo de um décimo).<br>
                 <b>Tab</b> — troca de sub-modo na ferramenta Medida.<br>
                 <b>Esc</b> — cancela o gesto atual (arrasto de criação, laço, Move de
                 precisão, campo do Endpoint Offset) ou volta pro ponteiro.</p>

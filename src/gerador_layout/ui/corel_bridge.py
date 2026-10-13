@@ -20,6 +20,9 @@ from . import configuracoes
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
+from .mockup_cota import ElementoCota
+from .mockup_cota_angular import ElementoCotaAngular
+from .mockup_curva import ElementoCurva
 from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
 from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
 from .mockup_checklist import _ESPACO_ENTRE_LINHAS_FATOR as _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
@@ -231,7 +234,29 @@ def _cor_rgb(app, cor_impressao):
 # ── Um desenhista por tipo de ElementoMockup (dispatch abaixo) ─────────
 
 
+# `Shape.Flip`/`ShapeRange.Flip` da API do CorelDRAW (cdrFlipAxes).
+_CDR_ESPELHO_HORIZONTAL = 1
+_CDR_ESPELHO_VERTICAL = 2
+
+
 def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total: float) -> None:
+    espelho = (_CDR_ESPELHO_HORIZONTAL if elemento.espelho_h else 0) | (_CDR_ESPELHO_VERTICAL if elemento.espelho_v else 0)
+    if espelho and not isinstance(elemento, GrupoMockup):
+        # Espelhar = desenhar normal e virar no CorelDRAW o que acabou de
+        # nascer. Shapes.Item(1) é o mais recente (topo da pilha).
+        antes = layer.Shapes.Count
+        _desenhar_elemento_mockup_normal(app, layer, elemento, altura_total)
+        novos = layer.Shapes.Count - antes
+        if novos > 0:
+            intervalo = app.CreateShapeRange()
+            for i in range(1, novos + 1):
+                intervalo.Add(layer.Shapes.Item(i))
+            intervalo.Flip(espelho)
+        return
+    _desenhar_elemento_mockup_normal(app, layer, elemento, altura_total)
+
+
+def _desenhar_elemento_mockup_normal(app, layer, elemento: ElementoMockup, altura_total: float) -> None:
     if isinstance(elemento, GrupoMockup):
         for filho in elemento.elementos:
             _desenhar_elemento_mockup(app, layer, filho, altura_total)
@@ -248,6 +273,12 @@ def _desenhar_elemento_mockup(app, layer, elemento: ElementoMockup, altura_total
         _desenhar_poligono_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoLinha):
         _desenhar_linha_mockup_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCota):
+        _desenhar_cota_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCotaAngular):
+        _desenhar_cota_angular_cdr(app, layer, elemento, altura_total)
+    elif isinstance(elemento, ElementoCurva):
+        _desenhar_curva_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoCallout):
         _desenhar_callout_cdr(app, layer, elemento, altura_total)
     elif isinstance(elemento, ElementoTabela):
@@ -526,6 +557,112 @@ def _desenhar_callout_cdr(app, layer, elemento: "ElementoCallout", altura_total:
         for forma in (caixa, cauda, texto_shape):
             intervalo.Add(forma)
         intervalo.Rotate(angulo)
+
+
+def _desenhar_curva_cdr(app, layer, elemento: "ElementoCurva", altura_total: float) -> None:
+    """Curva Bézier nativa do CorelDRAW (`Document.CreateCurve` +
+    `SubPath.AppendCurveSegment2`), com os nós já na posição final (com
+    rotação; o espelho é aplicado depois por `_desenhar_elemento_mockup`,
+    igual aos outros tipos). Se a API de curva falhar nessa versão do
+    CorelDRAW, cai pra um polígono de segmentos retos (aproximação fina)."""
+    def cdr(q: QPointF) -> tuple[float, float]:
+        return q.x(), altura_total - q.y()
+
+    cena = elemento.sceneTransform()
+    subs = elemento.subcaminhos_locais()
+    try:
+        curva = app.ActiveDocument.CreateCurve()
+        for sub in subs:
+            nos = [no.mapeado(cena.map) for no in sub.nos]
+            caminho_cdr = curva.CreateSubPath(*cdr(nos[0].p))
+            pares = list(zip(nos, nos[1:]))
+            if sub.fechado:
+                pares.append((nos[-1], nos[0]))
+            for a, b in pares:
+                caminho_cdr.AppendCurveSegment2(*cdr(b.p), *cdr(a.saida), *cdr(b.entrada))
+            if sub.fechado:
+                caminho_cdr.Closed = True
+        forma = layer.CreateCurve(curva)
+        formas = [forma]
+    except Exception:  # noqa: BLE001 — API de curva indisponível: aproximação por segmentos
+        caminho = cena.map(elemento.caminho_local())
+        formas = []
+        for poligono in caminho.toSubpathPolygons():
+            pontos = [cdr(poligono.at(i)) for i in range(poligono.count())]
+            for (xa, ya), (xb, yb) in zip(pontos, pontos[1:]):
+                formas.append(layer.CreateLineSegment(xa, ya, xb, yb))
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    for forma in formas:
+        if elemento.largura_traco > 0:
+            forma.Outline.Color = cor
+            forma.Outline.Width = elemento.largura_traco
+        else:
+            forma.Outline.SetNoOutline()
+    if elemento.preenchido and len(formas) == 1:
+        _aplicar_cor_preenchimento(app, formas[0], elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+
+
+def _desenhar_cota_angular_cdr(app, layer, elemento: "ElementoCotaAngular", altura_total: float) -> None:
+    """Braços, arco (em segmentos curtos) e setas como linhas; o valor como
+    texto. Os pontos já vão na posição final (com rotação), então não há
+    giro depois."""
+    cena = elemento.sceneTransform()
+
+    def cdr(q: QPointF) -> tuple[float, float]:
+        q = cena.map(q)
+        return q.x(), altura_total - q.y()
+
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    linhas, arco, setas, caixa = elemento.primitivas_locais()
+    segmentos = list(linhas) + list(zip(arco, arco[1:]))
+    for seta in setas:
+        pontos = [seta.at(i) for i in range(seta.count())]
+        segmentos += list(zip(pontos, pontos[1:] + pontos[:1]))
+    for a, b in segmentos:
+        linha = layer.CreateLineSegment(*cdr(a), *cdr(b))
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.25
+    texto = layer.CreateArtisticText(0, 0, elemento.texto_valor(), Size=elemento.altura_texto * _FATOR_SIZE_CDR_POR_MM)
+    _aplicar_cor_preenchimento(app, texto, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    cx, cy = cdr(caixa.center())
+    texto.SetPosition(cx - texto.SizeWidth / 2, cy + elemento.altura_texto / 2)
+
+
+def _desenhar_cota_cdr(app, layer, elemento: "ElementoCota", altura_total: float) -> None:
+    """Cota como linhas + setas + texto (primitivas já usadas acima), não
+    como objeto de cota nativo do CorelDRAW: o valor sai fixo, igual ao
+    que aparece no Autoline. Gira em torno do centro do elemento."""
+    x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
+    ponto_cdr = _construtor_ponto_cdr(x_centro, y_centro, elemento.largura, elemento.altura)
+    cor = _cor_rgb(app, elemento.cor_tinta)
+    formas = []
+    for a, b in elemento.segmentos_locais():
+        x0, y0 = ponto_cdr(a.x(), a.y())
+        x1, y1 = ponto_cdr(b.x(), b.y())
+        linha = layer.CreateLineSegment(x0, y0, x1, y1)
+        linha.Outline.Color = cor
+        linha.Outline.Width = 0.25
+        formas.append(linha)
+    for seta in elemento.setas_locais():
+        pontos = [ponto_cdr(seta[i].x(), seta[i].y()) for i in range(seta.count())]
+        for i, (xa, ya) in enumerate(pontos):
+            xb, yb = pontos[(i + 1) % len(pontos)]
+            lado = layer.CreateLineSegment(xa, ya, xb, yb)
+            lado.Outline.Color = cor
+            lado.Outline.Width = 0.25
+            formas.append(lado)
+    caixa = elemento.retangulo_texto_local()
+    tx0, ty0 = ponto_cdr(caixa.left(), caixa.top())
+    tx1, ty1 = ponto_cdr(caixa.right(), caixa.bottom())
+    texto = layer.CreateArtisticText(0, 0, elemento.texto_valor(), Size=elemento.altura_texto * _FATOR_SIZE_CDR_POR_MM)
+    _aplicar_cor_preenchimento(app, texto, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+    texto.SetPosition((tx0 + tx1) / 2 - texto.SizeWidth / 2, max(ty0, ty1))
+    formas.append(texto)
+    if angulo:
+        intervalo = app.CreateShapeRange()
+        for forma in formas:
+            intervalo.Add(forma)
+        intervalo.RotateEx(angulo, x_centro, y_centro)
 
 
 def _desenhar_tabela_cdr(app, layer, elemento: "ElementoTabela", altura_total: float) -> None:

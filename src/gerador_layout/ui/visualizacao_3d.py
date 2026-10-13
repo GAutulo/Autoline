@@ -110,7 +110,7 @@ def renderizar_arte(cena: QGraphicsScene, elementos: list, largura_mm: float, al
             p,
             target=QRectF(imagem.rect()),
             source=QRectF(0.0, 0.0, largura_mm, altura_mm),
-            mode=Qt.AspectRatioMode.IgnoreAspectRatio,
+            aspectRatioMode=Qt.AspectRatioMode.IgnoreAspectRatio,
         )
         p.end()
     finally:
@@ -334,6 +334,18 @@ class VistaCaixa3D(QWidget):
                         xa, xb = _lerp(painel.x1, painel.x2, i / n), _lerp(painel.x1, painel.x2, (i + 1) / n)
                         ya, yb = _lerp(painel.y1, painel.y2, j / n), _lerp(painel.y1, painel.y2, (j + 1) / n)
                         recorte = QRectF(QPointF(xa * k, ya * k), QPointF(xb * k, yb * k)).normalized()
+                        # Avança ~1,5 px DA TELA sobre os pedaços vizinhos da
+                        # MESMA face (nunca além da borda dela): o contorno de
+                        # 1,2 px do preenchimento do pedaço seguinte, pintado
+                        # depois, invadia a beirada desta arte e deixava emenda.
+                        px_tela_por_px_arte = max(
+                            math.dist((tela[1].x(), tela[1].y()), (tela[0].x(), tela[0].y())) / max(recorte.width(), 1e-6),
+                            math.dist((tela[3].x(), tela[3].y()), (tela[0].x(), tela[0].y())) / max(recorte.height(), 1e-6),
+                            1e-6,
+                        )
+                        margem = min(1.5 / px_tela_por_px_arte, recorte.width() / 2, recorte.height() / 2)
+                        face = QRectF(QPointF(painel.x1 * k, painel.y1 * k), QPointF(painel.x2 * k, painel.y2 * k)).normalized()
+                        recorte = recorte.adjusted(-margem, -margem, margem, margem).intersected(face)
                         # Quad de origem na MESMA ordem dos cantos da tela.
                         quad = QPolygonF(
                             [QPointF(xa * k, ya * k), QPointF(xb * k, ya * k), QPointF(xb * k, yb * k), QPointF(xa * k, yb * k)]

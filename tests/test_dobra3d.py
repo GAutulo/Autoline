@@ -85,3 +85,33 @@ def test_tampa_da_maleta_fecha_no_plano_do_topo():
 
 def test_medidas_invalidas_geram_modelo_vazio():
     assert montar_modelo(TipoCaixa.MALETA_NORMAL, [4, 0, 300, 200, 300], [100, 150, 100]).vazio
+
+
+def test_aba_3d_leva_a_arte_do_layout():
+    """Regressão: entrar na aba 3D com arte no Layout renderizava a arte
+    com um parâmetro inválido e quebrava."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.abas_tela.setCurrentIndex(1)
+    vermelho = CorImpressao("VERMELHO", 255, 0, 0)
+    j.canvas.adicionar_elemento_mockup(ElementoRetangulo(largura=50, altura=30, cor_tinta=vermelho, preenchido=True), QPointF(250, 120))
+    j.abas_tela.setCurrentIndex(2)
+    arte = j.visualizacao_3d.vista._arte
+    assert arte is not None
+    px = float(arte.text("px_por_mm"))
+    cor = arte.pixelColor(int(275 * px), int(135 * px))
+    assert (cor.red(), cor.green(), cor.blue(), cor.alpha()) == (255, 0, 0, 255)
+    assert arte.pixelColor(int(10 * px), int(10 * px)).alpha() == 0  # sem faca nem fundo na textura
+    j.visualizacao_3d.vista.resize(800, 600)
+    j.visualizacao_3d.vista.grab()
+    j.close()
