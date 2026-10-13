@@ -120,3 +120,17 @@ def test_ponte_corel_desenha_cota_com_primitivas(app):
     assert chamadas.count("CreateLineSegment") == 3 + 6  # 2 chamadas + linha + 2 setas de 3 lados
     assert "CreateArtisticText" in chamadas
     assert "RotateEx" in chamadas
+
+
+def test_linha_inclinada_nasce_entre_os_pontos_clicados(app):
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = JanelaPrincipal()
+    j.abas_tela.setCurrentIndex(1)
+    for p1, p2 in (((100, 100), (100, 200)), ((50, 80), (170, 20))):
+        j._criar_linha_por_arrasto(QPointF(*p1), QPointF(*p2))
+        el = j.canvas.elementos_mockup[-1]
+        a = el.mapToScene(QPointF(0, el.altura / 2))
+        b = el.mapToScene(QPointF(el.largura, el.altura / 2))
+        assert (a.x(), a.y(), b.x(), b.y()) == pytest.approx((*p1, *p2), abs=1e-6)
+    j.close()
