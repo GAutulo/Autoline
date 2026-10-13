@@ -106,6 +106,10 @@ class JanelaPrincipal(QMainWindow):
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
         self._paineis_atuais: list[Painel] = []
+        # Dobra genérica (faca editada/em branco): ângulo por linha e face base.
+        self._angulos_dobra: dict[int, float] = {}
+        self._face_base_3d: int | None = None
+        self._assinatura_faca_3d: tuple = ()
         self._dialogo_manual: DialogoManual | None = None
 
         self._montar_ui()
@@ -254,6 +258,8 @@ class JanelaPrincipal(QMainWindow):
         # à esquerda e os trechos embaixo continuam editáveis e o 3D
         # acompanha ao vivo (ver `_recalcular`).
         self.visualizacao_3d = Visualizacao3D()
+        self.visualizacao_3d.angulo_alterado.connect(self._ao_mudar_angulo_3d)
+        self.visualizacao_3d.face_base_escolhida.connect(self._ao_escolher_base_3d)
         self.pilha_visualizacao = QStackedWidget()
         self.pilha_visualizacao.addWidget(legenda_e_canvas)
         self.pilha_visualizacao.addWidget(self.visualizacao_3d)
@@ -457,6 +463,8 @@ class JanelaPrincipal(QMainWindow):
 
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
+        menu_arquivo.addAction("Nova faca em branco (desenho livre)", self._nova_faca_em_branco)
+        menu_arquivo.addSeparator()
         menu_arquivo.addAction("Conectar ao CorelDRAW", self._conectar_corel)
         menu_arquivo.addSeparator()
 
@@ -607,6 +615,25 @@ class JanelaPrincipal(QMainWindow):
             self._atualizar_arte_3d()
             self.visualizacao_3d.enquadrar()
 
+    def _ao_mudar_angulo_3d(self, linha: int, angulo: float) -> None:
+        self._angulos_dobra[linha] = angulo
+        self._atualizar_modelo_3d()
+
+    def _ao_escolher_base_3d(self, painel_id: str) -> None:
+        self._face_base_3d = int(painel_id.split("_")[1])
+        self._atualizar_modelo_3d()
+
+    def _nova_faca_em_branco(self) -> None:
+        """Começa uma faca do zero (desenho livre, como no ArtiosCAD): a faca
+        calculada sai, as medidas travam e a ferramenta de corte já fica
+        ativa. Ctrl+Z volta; "Descartar edições" volta pra faca calculada."""
+        self.abas_tela.setCurrentIndex(0)
+        self.canvas._aplicar_faca("Nova faca em branco", [])
+        self._acoes_faca["corte"].trigger()
+        self.statusBar().showMessage(
+            "Faca em branco: desenhe os cortes e vincos (barra Faca). A aba 3D dobra o que você desenhar.", 8000
+        )
+
     def _atualizar_modelo_3d(self) -> None:
         """Modelo 3D da faca atual. Faca calculada: o modelo próprio do tipo
         de caixa (com sequência de montagem e abas por baixo). Faca editada à
@@ -618,7 +645,16 @@ class JanelaPrincipal(QMainWindow):
         medidas = self._obter_medidas()
         texto = f"{medidas.comprimento:g} × {medidas.largura:g} × {medidas.altura:g} mm"
         if self.canvas.faca_editada:
-            modelo = montar_modelo_generico(list(self.canvas.linhas_faca()), descricao="Faca editada")
+            linhas = list(self.canvas.linhas_faca())
+            assinatura = tuple((l.x1, l.y1, l.x2, l.y2, l.tipo) for l in linhas)
+            if assinatura != self._assinatura_faca_3d:
+                # A faca mudou: índices de linha e de face não valem mais.
+                self._assinatura_faca_3d = assinatura
+                self._angulos_dobra = {}
+                self._face_base_3d = None
+            modelo = montar_modelo_generico(
+                linhas, angulos=self._angulos_dobra, base=self._face_base_3d, descricao="Faca editada"
+            )
             texto = ""
         else:
             modelo = montar_modelo(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
@@ -870,6 +906,7 @@ class JanelaPrincipal(QMainWindow):
         modo("corte", "linha_corte", "Nova linha de corte — arraste de um ponto a outro (Ctrl = 15°)")
         modo("vinco", "linha_vinco", "Nova linha de vinco — arraste de um ponto a outro (Ctrl = 15°)")
         self._acoes_faca["navegar"].setChecked(True)
+        self._acao_icone(barra, "mais", "Faca em branco — começar a faca do zero (desenho livre)", self._nova_faca_em_branco)
         barra.addSeparator()
 
         self.combo_tipo_linha = QComboBox()
