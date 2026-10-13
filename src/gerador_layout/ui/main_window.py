@@ -32,6 +32,7 @@ from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
 from ..paineis import Painel, calcular_paineis
 from . import configuracoes, corel_bridge, exportacao
+from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
 from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
@@ -49,7 +50,7 @@ from .mockup_reguas import ReguaHorizontal, ReguaVertical
 from .mockup_simbolos import ElementoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
-from .painel_propriedades_mockup import PainelPropriedadesMockup
+from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO, PainelPropriedadesMockup
 from .preview_canvas import FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
@@ -100,6 +101,7 @@ class JanelaPrincipal(QMainWindow):
         self._montar_barra_mockup()
         self._montar_barra_propriedades_mockup()
         self._montar_menu()
+        self._montar_painel_status()
         self._conectar_sinais()
         self._ao_trocar_tipo()
         self._trocar_tela(0)  # começa na tela de Dieline
@@ -491,6 +493,8 @@ class JanelaPrincipal(QMainWindow):
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
+        self.barra_organizar.setVisible(modo_layout)
+        self.barra_paleta.setVisible(modo_layout)
         self.barra_propriedades_mockup.setVisible(modo_layout)
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
@@ -533,118 +537,118 @@ class JanelaPrincipal(QMainWindow):
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _montar_barra_mockup(self) -> None:
-        """Paleta de ferramentas do modo Layout — horizontal, no topo da
-        janela (pedido explícito do usuário — antes ficava na borda
-        esquerda), só ícone com tooltip (sem texto, pedido explícito do
-        usuário: "não quero nada escrito, quero ícones interativos").
+        """Caixa de ferramentas do modo Layout no estilo CorelDRAW (ver
+        REFERENCIA_CORELDRAW.md, seção 2): vertical, na borda ESQUERDA,
+        só ícone com tooltip, com ferramentas irmãs agrupadas em
+        *flyouts* (`BotaoFlyout`) — segurar o clique ou clicar no
+        triângulo do canto abre o grupo.
 
-        Selecionar/Texto/Retângulo/Linha são uma FERRAMENTA (ver
+        Selecionar/Texto/Retângulo/Linha... são uma FERRAMENTA (ver
         `FerramentaMockup` em `preview_canvas.py`) — só uma ativa por
-        vez, escolhida num `QActionGroup` exclusivo; escolher uma delas
-        muda o que clicar/arrastar no canvas faz (criar o elemento ali
-        na hora, em vez de sempre no centro da tela + editar depois pela
-        barra de propriedades). O resto (Imagem/Logotipo/Checklist/
-        Agrupar/Desagrupar/ordem) continua ação de um clique só, como
-        sempre foi — não tem um gesto natural de "desenhar" pra elas."""
-        # Quebra de linha de propósito: sem isso, o Qt tenta encaixar essa
-        # barra na mesma linha da barra principal — numa linha própria
-        # fica claro que são dois grupos de ferramentas diferentes.
-        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
-        barra = QToolBar("Ferramentas")
+        vez, num `QActionGroup` exclusivo. Inserir imagem/logotipo/
+        checklist continuam ações de um clique, no último flyout.
+        Desfazer/agrupar/ordem ficam na barra "Organizar" do topo, como
+        na barra padrão do CorelDRAW (ver `_montar_barra_organizar`)."""
+        barra = QToolBar("Caixa de ferramentas")
         barra.setObjectName("paletaFerramentasMockup")
         barra.setMovable(False)
-        barra.setOrientation(Qt.Orientation.Horizontal)
+        barra.setOrientation(Qt.Orientation.Vertical)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, barra)
         self.barra_mockup = barra
 
         self._acoes_ferramenta: dict[FerramentaMockup, QAction] = {}
+        self._botoes_flyout: list[BotaoFlyout] = []
         grupo_ferramentas = QActionGroup(self)
         grupo_ferramentas.setExclusive(True)
 
-        def acao_ferramenta(tipo_icone: str, tooltip: str, ferramenta: FerramentaMockup) -> None:
+        def ferramenta(tipo_icone: str, tooltip: str, f: FerramentaMockup) -> QAction:
             acao = QAction(construir_icone(tipo_icone), tooltip, self)
             acao.setCheckable(True)
-            acao.triggered.connect(lambda: self.canvas.definir_ferramenta(ferramenta))
+            acao.triggered.connect(lambda: self.canvas.definir_ferramenta(f))
             grupo_ferramentas.addAction(acao)
-            barra.addAction(acao)
-            self._acoes_ferramenta[ferramenta] = acao
+            self._acoes_ferramenta[f] = acao
+            return acao
 
-        acao_ferramenta(
-            "selecionar",
-            "Selecionar (Esc / Espaço) — clique direito durante o arrasto deixa uma cópia, Ctrl ou Shift restringe a um eixo",
-            FerramentaMockup.SELECIONAR,
+        def acao_simples(tipo_icone: str, tooltip: str, callback) -> QAction:
+            acao = QAction(construir_icone(tipo_icone), tooltip, self)
+            acao.triggered.connect(callback)
+            return acao
+
+        def flyout(*acoes: QAction) -> None:
+            botao = BotaoFlyout(list(acoes))
+            barra.addWidget(botao)
+            self._botoes_flyout.append(botao)
+
+        flyout(
+            ferramenta(
+                "selecionar",
+                "Seleção (Espaço) — clique direito durante o arrasto deixa uma cópia, Ctrl ou Shift restringe a um eixo",
+                FerramentaMockup.SELECIONAR,
+            ),
+            ferramenta(
+                "ferramenta_laco",
+                "Seleção à mão livre — clique pra cada vértice, feche perto do primeiro ponto",
+                FerramentaMockup.LACO_SELECAO,
+            ),
+            ferramenta(
+                "ferramenta_mover_preciso",
+                "Mover de precisão — clique no ponto de pega, depois no ponto de solta",
+                FerramentaMockup.MOVER_PRECISO,
+            ),
         )
-        acao_ferramenta(
-            "ferramenta_laco",
-            "Laço de seleção — clique pra cada vértice, feche perto do primeiro ponto",
-            FerramentaMockup.LACO_SELECAO,
+        barra.addSeparator()
+        flyout(ferramenta("ferramenta_linha", "Linha (F5) — clique e arraste (Ctrl = ângulo em passos de 15°)", FerramentaMockup.LINHA))
+        flyout(
+            ferramenta(
+                "ferramenta_retangulo",
+                "Retângulo (F6) — clique e arraste (Ctrl = quadrado, Shift = a partir do centro)",
+                FerramentaMockup.RETANGULO,
+            )
         )
-        acao_ferramenta(
-            "ferramenta_mover_preciso",
-            "Mover de precisão — clique no ponto de pega, depois no ponto de solta (move a seleção atual)",
-            FerramentaMockup.MOVER_PRECISO,
+        flyout(
+            ferramenta(
+                "ferramenta_elipse", "Elipse (F7) — clique e arraste (Ctrl = círculo, Shift = a partir do centro)", FerramentaMockup.ELIPSE
+            )
         )
-        barra.addSeparator()  # fim do grupo "seleção" (Selecionar/Laço/Mover-preciso), começa "criar conteúdo"
-        acao_ferramenta("ferramenta_texto", "Texto (F8) — clique no canvas e digite direto ali", FerramentaMockup.TEXTO)
-        acao_ferramenta(
-            "ferramenta_retangulo",
-            "Retângulo (F6) — clique e arraste (Ctrl = quadrado, Shift = a partir do centro)",
-            FerramentaMockup.RETANGULO,
+        flyout(
+            ferramenta(
+                "ferramenta_poligono",
+                "Polígono (Y) — clique e arraste (nº de lados ajustável; Ctrl = lados iguais, Shift = do centro)",
+                FerramentaMockup.POLIGONO,
+            ),
+            ferramenta("ferramenta_tabela", "Tabela — clique no canvas (ficha técnica/nutricional)", FerramentaMockup.TABELA),
+            ferramenta(
+                "ferramenta_simbolo",
+                "Símbolo de manuseio — clique no canvas (frágil, este lado para cima, reciclável...)",
+                FerramentaMockup.SIMBOLO,
+            ),
         )
-        acao_ferramenta(
-            "ferramenta_elipse", "Elipse (F7) — clique e arraste (Ctrl = círculo, Shift = a partir do centro)", FerramentaMockup.ELIPSE
+        flyout(ferramenta("ferramenta_texto", "Texto (F8) — clique no canvas e digite direto ali", FerramentaMockup.TEXTO))
+        barra.addSeparator()
+        flyout(
+            ferramenta("medida", "Medida — clique e arraste pra ver a distância entre 2 pontos", FerramentaMockup.MEDIR),
+            ferramenta("ferramenta_callout", "Chamada (callout) — clique no canvas pra anotar", FerramentaMockup.CALLOUT),
         )
-        acao_ferramenta(
-            "ferramenta_poligono",
-            "Polígono (Y) — clique e arraste (nº de lados ajustável; Ctrl = lados iguais, Shift = do centro)",
-            FerramentaMockup.POLIGONO,
+        flyout(
+            ferramenta(
+                "ferramenta_transparencia",
+                "Acabamento de produção — clique e arraste (Shift = a partir do centro; verniz, laminação, hot stamping)",
+                FerramentaMockup.ACABAMENTO,
+            )
         )
-        acao_ferramenta("ferramenta_linha", "Linha (F5) — clique e arraste (Ctrl = ângulo em passos de 15°)", FerramentaMockup.LINHA)
-        acao_ferramenta(
-            "ferramenta_callout", "Callout — clique no canvas pra anotar (aponta pra esse lugar)", FerramentaMockup.CALLOUT
+        flyout(
+            ferramenta(
+                "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
+            )
         )
-        acao_ferramenta("ferramenta_tabela", "Tabela — clique no canvas (ficha técnica/nutricional)", FerramentaMockup.TABELA)
-        acao_ferramenta(
-            "ferramenta_transparencia",
-            "Acabamento de produção — clique e arraste (Alt = a partir do centro; verniz localizado, laminação, hot stamping)",
-            FerramentaMockup.ACABAMENTO,
+        barra.addSeparator()
+        flyout(
+            acao_simples("ferramenta_imagem", "Importar imagem...", self._adicionar_imagem),
+            acao_simples("ferramenta_logo", "Importar logotipo...", self._adicionar_logo),
+            acao_simples("lista", "Checklist de cores", self._adicionar_checklist),
         )
-        acao_ferramenta(
-            "ferramenta_simbolo",
-            "Símbolo de manuseio — clique no canvas (frágil, este lado para cima, reciclável...)",
-            FerramentaMockup.SIMBOLO,
-        )
-        barra.addSeparator()  # fim de "criar conteúdo", começa "inspecionar" (não cria nada)
-        acao_ferramenta(
-            "conta_gotas", "Conta-gotas — clica numa cor da tela e aplica no elemento selecionado", FerramentaMockup.CONTA_GOTAS
-        )
-        acao_ferramenta("medida", "Medida — clique e arraste pra ver a distância entre 2 pontos", FerramentaMockup.MEDIR)
         self._acoes_ferramenta[FerramentaMockup.SELECIONAR].setChecked(True)
-
-        barra.addSeparator()
-        self._acao_icone(barra, "ferramenta_imagem", "Adicionar imagem...", self._adicionar_imagem)
-        self._acao_icone(barra, "ferramenta_logo", "Adicionar logotipo...", self._adicionar_logo)
-        self._acao_icone(barra, "lista", "Adicionar checklist de cores", self._adicionar_checklist)
-
-        barra.addSeparator()
-        self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
-        self._acao_icone(
-            barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados()
-        )
-
-        barra.addSeparator()
-        self._acao_icone(barra, "trazer_frente", "Trazer p/ frente (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
-        self._acao_icone(barra, "enviar_tras", "Enviar p/ trás (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
-
-        barra.addSeparator()
-        pilha = self.canvas.pilha_desfazer
-        acao_desfazer = self._acao_icone(barra, "desfazer", "Desfazer (Ctrl+Z)", pilha.undo)
-        acao_desfazer.setEnabled(False)
-        pilha.canUndoChanged.connect(acao_desfazer.setEnabled)
-        acao_refazer = self._acao_icone(barra, "refazer", "Refazer (Ctrl+Shift+Z)", pilha.redo)
-        acao_refazer.setEnabled(False)
-        pilha.canRedoChanged.connect(acao_refazer.setEnabled)
 
         self.canvas.ferramenta_alterada.connect(self._ao_ferramenta_alterada)
         self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
@@ -660,6 +664,78 @@ class JanelaPrincipal(QMainWindow):
 
         barra.hide()
 
+        self._montar_barra_organizar()
+        self._montar_paleta_cores()
+
+    def _montar_barra_organizar(self) -> None:
+        """Desfazer/refazer, agrupar e ordem — no topo, como a barra
+        padrão do CorelDRAW (não na caixa de ferramentas)."""
+        barra = QToolBar("Organizar")
+        barra.setObjectName("paletaFerramentasMockup")
+        barra.setMovable(False)
+        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
+        self.barra_organizar = barra
+
+        pilha = self.canvas.pilha_desfazer
+        acao_desfazer = self._acao_icone(barra, "desfazer", "Desfazer (Ctrl+Z)", pilha.undo)
+        acao_desfazer.setEnabled(False)
+        pilha.canUndoChanged.connect(acao_desfazer.setEnabled)
+        acao_refazer = self._acao_icone(barra, "refazer", "Refazer (Ctrl+Shift+Z)", pilha.redo)
+        acao_refazer.setEnabled(False)
+        pilha.canRedoChanged.connect(acao_refazer.setEnabled)
+        barra.addSeparator()
+        self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
+        self._acao_icone(barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados())
+        barra.addSeparator()
+        self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
+        self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
+        barra.hide()
+
+    def _montar_paleta_cores(self) -> None:
+        """Paleta vertical na borda DIREITA, como no CorelDRAW: clique
+        esquerdo = preenchimento, direito = contorno, X = nenhum."""
+        barra = QToolBar("Paleta de cores")
+        barra.setObjectName("paletaCores")
+        barra.setMovable(False)
+        barra.setOrientation(Qt.Orientation.Vertical)
+        self.addToolBar(Qt.ToolBarArea.RightToolBarArea, barra)
+        paleta = PaletaCores(_CORES_DISPONIVEIS)
+        paleta.preenchimento_escolhido.connect(lambda cor: self._aplicar_cor_paleta(cor, contorno=False))
+        paleta.contorno_escolhido.connect(lambda cor: self._aplicar_cor_paleta(cor, contorno=True))
+        barra.addWidget(paleta)
+        self.barra_paleta = barra
+        barra.hide()
+
+    def _aplicar_cor_paleta(self, cor, contorno: bool) -> None:
+        """Clique na paleta. O Autoline guarda UMA tinta por forma e uma
+        chave "preenchido" — então esquerdo = tinta + preenchida, direito
+        = tinta + só contorno, X esquerdo = tira o preenchimento. A tinta
+        usada entra na legenda de cores se ainda não estava."""
+        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, ElementoMockup)]
+        if not selecionados:
+            self.statusBar().showMessage("Selecione um objeto pra aplicar a cor.", 5000)
+            return
+        if cor is None:
+            if contorno:
+                self.statusBar().showMessage("Contorno não pode ser removido — toda forma impressa tem traço.", 5000)
+                return
+            for el in selecionados:
+                if hasattr(el, "definir_preenchido"):
+                    el.definir_preenchido(False)
+        else:
+            nome, rgb = cor
+            chip = self._chips_cor.get(nome, (None,))[0]
+            if chip is not None and not chip.isChecked():
+                chip.setChecked(True)
+            tinta = CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
+            for el in selecionados:
+                if hasattr(el, "definir_cor_tinta"):
+                    el.definir_cor_tinta(tinta)
+                if hasattr(el, "definir_preenchido"):
+                    el.definir_preenchido(not contorno)
+        self._ao_selecao_mockup_mudar()
+
     def _acao_icone(self, barra: QToolBar, tipo_icone: str, tooltip: str, callback) -> QAction:
         acao = QAction(construir_icone(tipo_icone), tooltip, self)
         acao.triggered.connect(callback)
@@ -674,9 +750,43 @@ class JanelaPrincipal(QMainWindow):
         acao = self._acoes_ferramenta.get(ferramenta)
         if acao is not None:
             acao.setChecked(True)
+            for botao in self._botoes_flyout:
+                botao.mostrar(acao)
+
+    def _montar_painel_status(self) -> None:
+        """Barra de status do CorelDRAW: posição do cursor, objeto
+        selecionado e amostras de preenchimento/contorno."""
+        self.painel_status = PainelStatus()
+        self.statusBar().addPermanentWidget(self.painel_status)
+        self.canvas.cursor_movido.connect(self.painel_status.definir_posicao)
+        self.painel_status.definir_objeto("", None, None, False)
+
+    def _atualizar_status_objeto(self, selecionados: list[ElementoMockup]) -> None:
+        if not selecionados:
+            self.painel_status.definir_objeto("", None, None, False)
+            return
+        if len(selecionados) > 1:
+            self.painel_status.definir_objeto(f"{len(selecionados)} objetos selecionados", None, None, False)
+            return
+        el = selecionados[0]
+        nome = NOME_TIPO_ELEMENTO.get(type(el), "Objeto")
+        descricao = f"{nome}  ·  {el.largura:.1f} × {el.altura:.1f} mm".replace(".", ",")
+        cor_tinta = getattr(el, "cor_tinta", None)
+        if cor_tinta is None:
+            self.painel_status.definir_objeto(descricao, None, None, False)
+            return
+        cor = QColor(cor_tinta.r, cor_tinta.g, cor_tinta.b)
+        if isinstance(el, ElementoLinha):
+            preenchimento, contorno = None, cor
+        elif hasattr(el, "preenchido"):
+            preenchimento, contorno = (cor if el.preenchido else None), cor
+        else:
+            preenchimento, contorno = cor, None
+        self.painel_status.definir_objeto(descricao, preenchimento, contorno, True)
 
     def _ao_selecao_mockup_mudar(self) -> None:
         selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
+        self._atualizar_status_objeto(selecionados)
         if len(selecionados) > 1:
             self.painel_propriedades_mockup.definir_selecao_multipla(len(selecionados))
         else:
