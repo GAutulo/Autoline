@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPathItem,
+    QGraphicsProxyWidget,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -157,6 +158,26 @@ _DELTA_SETA_NUDGE: dict[Qt.Key, QPointF] = {
     Qt.Key.Key_Right: QPointF(1, 0),
     Qt.Key.Key_Up: QPointF(0, -1),
     Qt.Key.Key_Down: QPointF(0, 1),
+}
+
+# Atalhos de alinhar do CorelDRAW. C = centros numa linha vertical (mesmo
+# X), E = centros numa linha horizontal (mesmo Y).
+_TECLA_ALINHAR_CORELDRAW: dict[Qt.Key, str] = {
+    Qt.Key.Key_L: "esquerda",
+    Qt.Key.Key_R: "direita",
+    Qt.Key.Key_T: "topo",
+    Qt.Key.Key_B: "base",
+    Qt.Key.Key_C: "centro_h",
+    Qt.Key.Key_E: "centro_v",
+}
+
+# Teclas de ferramenta do CorelDRAW (F5 é a família de curvas; aqui, Linha).
+_TECLA_FERRAMENTA_CORELDRAW: dict[Qt.Key, FerramentaMockup] = {
+    Qt.Key.Key_F5: FerramentaMockup.LINHA,
+    Qt.Key.Key_F6: FerramentaMockup.RETANGULO,
+    Qt.Key.Key_F7: FerramentaMockup.ELIPSE,
+    Qt.Key.Key_F8: FerramentaMockup.TEXTO,
+    Qt.Key.Key_Y: FerramentaMockup.POLIGONO,
 }
 
 # Fundo do canvas: um branco liso incomoda a vista numa área grande (era
@@ -443,6 +464,8 @@ class PreviewCanvas(QGraphicsView):
         # criação em andamento (clique/arrasto pra desenhar um retângulo/
         # linha novos, ou clique único pra texto).
         self._ferramenta = FerramentaMockup.SELECIONAR
+        # Barra de espaço alterna entre Selecionar e a última ferramenta usada (CorelDRAW).
+        self._ferramenta_anterior = FerramentaMockup.SELECIONAR
         self._criando = False
         self._ponto_inicial_criacao = QPointF()
         self._item_preview_criacao: QGraphicsItem | None = None
@@ -737,6 +760,8 @@ class PreviewCanvas(QGraphicsView):
             if self._item_preview_criacao is not None:
                 self._scene.removeItem(self._item_preview_criacao)
                 self._item_preview_criacao = None
+        if self._ferramenta != ferramenta:
+            self._ferramenta_anterior = self._ferramenta
         self._ferramenta = ferramenta
         # `self.viewport().setCursor()`, não `self.setCursor()` — o
         # `QGraphicsView` é um `QAbstractScrollArea`, o cursor que aparece
@@ -909,18 +934,32 @@ class PreviewCanvas(QGraphicsView):
         vetorial). Reavaliado a cada frame (dá pra soltar/segurar Alt no
         meio do arrasto e ver o efeito na hora, sem precisar recomeçar).
         Recebe os modificadores do evento (não `QApplication.keyboardModifiers()`
-        global) — mais direto e mais fácil de testar."""
-        if modificadores & Qt.KeyboardModifier.AltModifier:
-            meia_diagonal = atual - self._ponto_inicial_criacao
-            return QRectF(self._ponto_inicial_criacao - meia_diagonal, self._ponto_inicial_criacao + meia_diagonal).normalized()
-        return QRectF(self._ponto_inicial_criacao, atual).normalized()
+        global) — mais direto e mais fácil de testar.
+
+        Convenção do CorelDRAW por cima disso: **Shift** também desenha a
+        partir do centro e **Ctrl** força lados iguais (quadrado/círculo)."""
+        diagonal = atual - self._ponto_inicial_criacao
+        if modificadores & Qt.KeyboardModifier.ControlModifier:
+            lado = max(abs(diagonal.x()), abs(diagonal.y()))
+            diagonal = QPointF(math.copysign(lado, diagonal.x()), math.copysign(lado, diagonal.y()))
+        if modificadores & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier):
+            return QRectF(self._ponto_inicial_criacao - diagonal, self._ponto_inicial_criacao + diagonal).normalized()
+        return QRectF(self._ponto_inicial_criacao, self._ponto_inicial_criacao + diagonal).normalized()
+
+    def _fim_linha_de_criacao(self, atual: QPointF, modificadores: Qt.KeyboardModifier) -> QPointF:
+        """Ctrl prende o ângulo da linha em passos de 15° (CorelDRAW)."""
+        if not modificadores & Qt.KeyboardModifier.ControlModifier:
+            return atual
+        linha = QLineF(self._ponto_inicial_criacao, atual)
+        linha.setAngle(round(linha.angle() / 15.0) * 15.0)
+        return linha.p2()
 
     def _atualizar_criacao(self, pos_viewport, modificadores: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
         atual = self.mapToScene(pos_viewport)
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO and isinstance(self._item_preview_criacao, QGraphicsRectItem):
             self._item_preview_criacao.setRect(self._retangulo_de_criacao(atual, modificadores))
         elif isinstance(self._item_preview_criacao, QGraphicsLineItem):
-            linha = QLineF(self._ponto_inicial_criacao, atual)
+            linha = QLineF(self._ponto_inicial_criacao, self._fim_linha_de_criacao(atual, modificadores))
             self._item_preview_criacao.setLine(linha)
             if self._ferramenta == FerramentaMockup.MEDIR:
                 self._rotulo_medida.setText(f"{linha.length():.1f} mm")
@@ -969,6 +1008,7 @@ class PreviewCanvas(QGraphicsView):
             }
             sinais_arrasto[self._ferramenta].emit(rect)
         elif self._ferramenta == FerramentaMockup.LINHA:
+            atual = self._fim_linha_de_criacao(atual, modificadores)
             if QLineF(self._ponto_inicial_criacao, atual).length() >= 2.0:
                 self.linha_desenhada.emit(self._ponto_inicial_criacao, atual)
 
@@ -1506,7 +1546,7 @@ class PreviewCanvas(QGraphicsView):
     # `configuracoes.passo_duplicar_mm()` — deslocamento de cada cópia,
     # lido ao vivo (ver seção de snap acima pro mesmo motivo).
 
-    def _duplicar_no_lugar(self, elemento: ElementoMockup) -> None:
+    def _duplicar_no_lugar(self, elemento: ElementoMockup) -> ElementoMockup:
         """Chamado por `ElementoMockup.mousePressEvent` quando o usuário
         começa a arrastar o corpo segurando Alt — deixa um clone parado
         EXATAMENTE na posição atual de `elemento` (sem deslocamento, ao
@@ -1516,6 +1556,7 @@ class PreviewCanvas(QGraphicsView):
         self._scene.addItem(clone)
         self._registrar_elemento_mockup(clone)
         self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
+        return clone
 
     def duplicar_selecionados(self) -> list[ElementoMockup]:
         """Ctrl+D — clona e desloca na hora, já selecionando o clone (não
@@ -1593,7 +1634,192 @@ class PreviewCanvas(QGraphicsView):
             menor -= 1
             item.setZValue(menor)
 
+    # ── Atalhos do CorelDRAW (ver REFERENCIA_CORELDRAW.md, seção 4) ──────
+    def _selecionados_mockup(self) -> list[ElementoMockup]:
+        return [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+
+    def _com_undo_geometria(self, texto: str, acao) -> None:
+        """Roda `acao()` e empurra um único passo de desfazer com a
+        geometria de antes/depois de toda a seleção."""
+        selecionados = self._selecionados_mockup()
+        antes: dict = {}
+        for item in selecionados:
+            antes.update(_estado_recursivo(item))
+        acao()
+        depois: dict = {}
+        for item in selecionados:
+            depois.update(_estado_recursivo(item))
+        if antes and depois != antes:
+            self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois, texto))
+
+    def retangulo_pagina(self) -> QRectF | None:
+        """A "página" do CorelDRAW aqui é a chapa da dieline."""
+        if self._layout is None:
+            return None
+        return QRectF(0.0, 0.0, self._layout.largura_total, self._layout.altura_total)
+
+    def alinhar_corel(self, alinhamento: str) -> None:
+        """L/R/T/B/C/E do CorelDRAW: 2+ objetos alinham entre si; um
+        objeto sozinho alinha com a página (chapa da dieline)."""
+        selecionados = self._selecionados_mockup()
+        if not selecionados:
+            return
+        if len(selecionados) > 1:
+            self._com_undo_geometria("Alinhar", lambda: self.alinhar_selecionados(alinhamento))
+            return
+        pagina = self.retangulo_pagina()
+        if pagina is None:
+            return
+        el = selecionados[0]
+
+        def aplicar() -> None:
+            x, y = el.pos().x(), el.pos().y()
+            if alinhamento == "esquerda":
+                x = pagina.left()
+            elif alinhamento == "direita":
+                x = pagina.right() - el.largura
+            elif alinhamento == "centro_h":
+                x = pagina.center().x() - el.largura / 2
+            elif alinhamento == "topo":
+                y = pagina.top()
+            elif alinhamento == "base":
+                y = pagina.bottom() - el.altura
+            elif alinhamento == "centro_v":
+                y = pagina.center().y() - el.altura / 2
+            el.setPos(x, y)
+
+        self._com_undo_geometria("Alinhar à página", aplicar)
+
+    def centralizar_na_pagina(self) -> None:
+        """P do CorelDRAW: centro da seleção (como bloco) no centro da página."""
+        selecionados = self._selecionados_mockup()
+        pagina = self.retangulo_pagina()
+        if not selecionados or pagina is None:
+            return
+        bloco = QRectF()
+        for el in selecionados:
+            bloco = bloco.united(el.retangulo_conteudo_cena())
+        delta = pagina.center() - bloco.center()
+
+        def aplicar() -> None:
+            for el in selecionados:
+                el.setPos(el.pos() + delta)
+
+        self._com_undo_geometria("Centralizar na página", aplicar)
+
+    def selecionar_tudo(self) -> None:
+        for el in self._elementos_mockup:
+            el.setSelected(True)
+
+    def duplicar_no_lugar_selecionados(self) -> None:
+        """+ do teclado numérico do CorelDRAW: cópia exatamente em cima,
+        já selecionada (o original fica parado embaixo)."""
+        selecionados = self._selecionados_mockup()
+        for it in selecionados:
+            it.setSelected(False)
+            clone = it.clonar()
+            self._scene.addItem(clone)
+            self._registrar_elemento_mockup(clone)
+            self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar no lugar"))
+            clone.setSelected(True)
+
+    def mover_na_ordem(self, passo: int) -> None:
+        """Ctrl+PgUp / Ctrl+PgDn: um nível à frente / atrás, trocando de
+        lugar com o vizinho mais próximo na pilha."""
+        for item in self._selecionados_mockup():
+            if item not in self._elementos_mockup:
+                continue
+            outros = [o for o in self._elementos_mockup if o is not item and not o.isSelected()]
+            if passo > 0:
+                vizinhos = [o for o in outros if o.zValue() >= item.zValue()]
+                vizinho = min(vizinhos, key=lambda o: o.zValue(), default=None)
+            else:
+                vizinhos = [o for o in outros if o.zValue() <= item.zValue()]
+                vizinho = max(vizinhos, key=lambda o: o.zValue(), default=None)
+            if vizinho is None:
+                continue
+            z_item, z_vizinho = item.zValue(), vizinho.zValue()
+            if z_item == z_vizinho:
+                z_item = z_vizinho + passo
+                item.setZValue(z_item)
+            else:
+                item.setZValue(z_vizinho)
+                vizinho.setZValue(z_item)
+
+    def enquadrar(self, rect: QRectF) -> None:
+        """Mesmo enquadramento de `ajustar_a_tela`, pra um retângulo qualquer."""
+        if rect.isEmpty():
+            return
+        margem = 10
+        rect = rect.adjusted(-margem, -margem, margem, margem)
+        ancora_original = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.resetTransform()
+        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        self.setTransformationAnchor(ancora_original)
+        self.centerOn(rect.center())
+        self._zoom_atual = self.transform().m11()
+        self.zoom_alterado.emit(self._zoom_atual)
+
+    def _atalho_corel(self, event) -> bool:
+        """Atalhos de teclado do CorelDRAW. Devolve True se tratou a tecla."""
+        tecla = event.key()
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        nenhum = Qt.KeyboardModifier.NoModifier
+
+        if mods == ctrl and tecla == Qt.Key.Key_U:
+            self.desagrupar_selecionados()
+        elif mods == ctrl and tecla == Qt.Key.Key_A:
+            self.selecionar_tudo()
+        elif mods == shift and tecla == Qt.Key.Key_PageUp:
+            self.trazer_para_frente()
+        elif mods == shift and tecla == Qt.Key.Key_PageDown:
+            self.enviar_para_tras()
+        elif mods == ctrl and tecla == Qt.Key.Key_PageUp:
+            self.mover_na_ordem(+1)
+        elif mods == ctrl and tecla == Qt.Key.Key_PageDown:
+            self.mover_na_ordem(-1)
+        elif mods == nenhum and tecla == Qt.Key.Key_F4:
+            self.ajustar_a_tela()
+        elif mods == shift and tecla == Qt.Key.Key_F4:
+            pagina = self.retangulo_pagina()
+            if pagina is not None:
+                self.enquadrar(pagina)
+        elif mods == shift and tecla == Qt.Key.Key_F2:
+            bloco = QRectF()
+            for el in self._selecionados_mockup():
+                bloco = bloco.united(el.retangulo_conteudo_cena())
+            self.enquadrar(bloco)
+        elif tecla == Qt.Key.Key_Plus and event.modifiers() & Qt.KeyboardModifier.KeypadModifier:
+            self.duplicar_no_lugar_selecionados()
+        elif mods == nenhum and tecla in _TECLA_ALINHAR_CORELDRAW:
+            self.alinhar_corel(_TECLA_ALINHAR_CORELDRAW[tecla])
+        elif mods == nenhum and tecla == Qt.Key.Key_P:
+            self.centralizar_na_pagina()
+        elif mods == nenhum and tecla in _TECLA_FERRAMENTA_CORELDRAW:
+            self.definir_ferramenta(_TECLA_FERRAMENTA_CORELDRAW[tecla])
+        elif mods == nenhum and tecla == Qt.Key.Key_Space and not event.isAutoRepeat():
+            if self._criando:
+                return True
+            if self._ferramenta == FerramentaMockup.SELECIONAR:
+                self.definir_ferramenta(self._ferramenta_anterior)
+            else:
+                self.definir_ferramenta(FerramentaMockup.SELECIONAR)
+        else:
+            return False
+        return True
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        if isinstance(self._scene.focusItem(), QGraphicsProxyWidget):
+            # Editando texto no lugar (campo embutido, ver `mockup_texto.py`):
+            # toda tecla é do campo — senão L/R/T/B/E/C/P (atalhos de
+            # alinhar do CorelDRAW abaixo) roubariam letras digitadas.
+            super().keyPressEvent(event)
+            return
+        if self._modo_mockup and self._atalho_corel(event):
+            return
         if self._modo_mockup:
             if event.key() == Qt.Key.Key_Escape:
                 # Mesma tecla resolve os 2 casos de "sair do que eu tava
@@ -1647,7 +1873,7 @@ class PreviewCanvas(QGraphicsView):
             if eh_ctrl and event.key() == Qt.Key.Key_V:
                 self.colar()
                 return
-            if not eh_ctrl and event.key() in _DELTA_SETA_NUDGE:
+            if event.key() in _DELTA_SETA_NUDGE:
                 # Mover fino pelo teclado — passo configurável em
                 # Configurações > Ferramentas (padrão 1mm por toque, 10mm
                 # com Shift, mesmo padrão de qualquer CAD: mouse pro
@@ -1659,6 +1885,8 @@ class PreviewCanvas(QGraphicsView):
                 if selecionados:
                     passo_normal, passo_shift = configuracoes.passo_nudge_mm()
                     passo = passo_shift if eh_shift else passo_normal
+                    if bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                        passo = passo_normal / 10.0  # micro-deslocamento (Ctrl+seta), igual CorelDRAW
                     delta = _DELTA_SETA_NUDGE[event.key()] * passo
                     antes = {}
                     for item in selecionados:
