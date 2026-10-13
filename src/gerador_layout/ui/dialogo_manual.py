@@ -36,8 +36,16 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 de corte/vinco calculada automaticamente. É aqui que a caixa nasce.</p>
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
                 posicionar texto, formas, imagens, logotipo e símbolos de manuseio por
-                cima (o "mockup"). É aqui que a paleta de ferramentas e a barra de
-                propriedades aparecem.</p>
+                cima (o "mockup").</p>
+                <p>A disposição segue o CorelDRAW: a <b>caixa de ferramentas</b> fica
+                na borda esquerda (botões com triângulo no canto agrupam ferramentas
+                irmãs: segure o clique ou clique no triângulo pra escolher), a
+                <b>barra de propriedades</b> logo abaixo do topo, a <b>paleta de
+                cores</b> na borda direita (clique = preenchimento, botão direito =
+                contorno, X = sem preenchimento; a tinta usada entra na legenda) e a
+                <b>barra de status</b> embaixo mostra a posição do cursor em mm e o
+                objeto selecionado com as amostras de preenchimento e contorno. A
+                chapa aparece como uma página branca sobre a mesa cinza.</p>
                 <p>Editar as medidas sempre volta pra tela de Dieline; os elementos de
                 mockup que você já posicionou na tela de Layout continuam lá.</p>
                 """,
@@ -326,6 +334,21 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 ali, e não sai na exportação).</p>
                 <p>Liga/desliga pelo menu Exibir &gt; "Zonas seguras (recuo do
                 vinco)" — desligado por padrão.</p>
+                """,
+            ),
+            (
+                "Barra de propriedades",
+                """
+                <p>Igual à do CorelDRAW, começa sempre pela geometria do objeto
+                selecionado: posição X/Y, largura/altura, ângulo, <b>escala em %</b>
+                (digite 150 e confirme pra aumentar 50% em torno do centro; o campo
+                volta pra 100), trava de proporção e <b>espelhar</b> na horizontal/
+                vertical. Depois vem a face da caixa (com o menu de alinhar na face) e
+                os campos do tipo do objeto (fonte, tinta, espessura...).</p>
+                <p><b>Sem nada selecionado</b>, a barra mostra o tamanho da chapa, a
+                unidade e as distâncias de deslocamento (setas e Shift+setas) e de
+                duplicação (Ctrl+D e colar) — as mesmas de Configurações &gt;
+                Ferramentas.</p>
                 """,
             ),
             (
