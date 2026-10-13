@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..dobra3d import montar_modelo
+from ..dobra_generica import montar_modelo_generico
 from ..layout_service import ServicoLayoutCaixa
 from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa, TipoLinha
 from ..paineis import Painel, calcular_paineis
@@ -602,8 +603,26 @@ class JanelaPrincipal(QMainWindow):
         # sentido pro novo tamanho de viewport.
         self.canvas.ajustar_a_tela()
         if modo_3d:
+            self._atualizar_modelo_3d()  # a faca pode ter sido editada na Dieline
             self._atualizar_arte_3d()
             self.visualizacao_3d.enquadrar()
+
+    def _atualizar_modelo_3d(self) -> None:
+        """Modelo 3D da faca atual. Faca calculada: o modelo próprio do tipo
+        de caixa (com sequência de montagem e abas por baixo). Faca editada à
+        mão: a dobra genérica, que acha as faces e os vincos sozinha, como o
+        "Converter em 3D" do ArtiosCAD (ver dobra_generica.py)."""
+        layout = self.canvas.layout_atual
+        if layout is None:
+            return
+        medidas = self._obter_medidas()
+        texto = f"{medidas.comprimento:g} × {medidas.largura:g} × {medidas.altura:g} mm"
+        if self.canvas.faca_editada:
+            modelo = montar_modelo_generico(list(self.canvas.linhas_faca()), descricao="Faca editada")
+            texto = ""
+        else:
+            modelo = montar_modelo(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
+        self.visualizacao_3d.definir_modelo(modelo, texto)
 
     def _atualizar_arte_3d(self) -> None:
         """Liga o 3D à arte do Layout. O 3D pede a arte face a face, na
@@ -1476,10 +1495,7 @@ class JanelaPrincipal(QMainWindow):
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
         self.canvas.definir_paineis(self._paineis_atuais)
-        self.visualizacao_3d.definir_modelo(
-            montar_modelo(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador),
-            f"{medidas.comprimento:g} × {medidas.largura:g} × {medidas.altura:g} mm",
-        )
+        self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
             self._atualizar_arte_3d()
         if not self.canvas.cena.selectedItems():
