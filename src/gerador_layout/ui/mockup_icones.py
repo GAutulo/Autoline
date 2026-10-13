@@ -90,6 +90,20 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setBrush(QBrush(cor))
         painter.drawPolygon(QPolygonF([QPointF(11, 5), QPointF(11, 13), QPointF(15.5, 13)]))
         painter.restore()
+    elif tipo in ("linha_corte", "linha_vinco"):
+        # Linha da faca: corte contínuo, vinco tracejado, com as pontas marcadas.
+        caneta_linha = QPen(cor, 1.6, Qt.PenStyle.SolidLine if tipo == "linha_corte" else Qt.PenStyle.DashLine)
+        painter.setPen(caneta_linha)
+        painter.drawLine(QPointF(3, 15), QPointF(15, 3))
+        painter.setPen(caneta)
+        painter.setBrush(QBrush(cor))
+        painter.drawRect(QRectF(1.5, 13.5, 3, 3))
+        painter.drawRect(QRectF(13.5, 1.5, 3, 3))
+    elif tipo == "navegar":
+        # Mão aberta (mover a visão).
+        painter.drawRoundedRect(QRectF(4, 8, 10, 8), 3, 3)
+        for x in (5.5, 8, 10.5, 13):
+            painter.drawLine(QPointF(x, 9), QPointF(x, 3.5 if x in (8, 10.5) else 5))
     elif tipo == "ferramenta_bezier":
         # Curva com um nó e as duas alças.
         caminho = QPainterPath(QPointF(2, 15))
