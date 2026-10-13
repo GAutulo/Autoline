@@ -176,6 +176,8 @@ class ElementoMockup(QGraphicsObject):
         # centro (ver `paint`) — posição, tamanho e alças não mudam.
         self._espelho_h = False
         self._espelho_v = False
+        # A ferramenta Forma esconde as alças comuns enquanto mostra os nós.
+        self._alcas_visiveis = True
 
         # Callback opcional (ver `definir_calculador_snap`) que o canvas
         # liga em todo elemento que cria/duplica/desagrupa — o elemento
@@ -272,6 +274,10 @@ class ElementoMockup(QGraphicsObject):
     @property
     def espelho_v(self) -> bool:
         return self._espelho_v
+
+    def definir_alcas_visiveis(self, visiveis: bool) -> None:
+        self._alcas_visiveis = visiveis
+        self.update()
 
     def definir_espelho(self, horizontal: bool, vertical: bool) -> None:
         self._espelho_h = horizontal
@@ -383,7 +389,7 @@ class ElementoMockup(QGraphicsObject):
             painter.restore()
         else:
             self._pintar_conteudo(painter)
-        if self.isSelected():
+        if self.isSelected() and self._alcas_visiveis:
             self._pintar_selecao(painter)
 
     def _pintar_conteudo(self, painter: QPainter) -> None:

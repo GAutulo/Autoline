@@ -90,6 +90,42 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setBrush(QBrush(cor))
         painter.drawPolygon(QPolygonF([QPointF(11, 5), QPointF(11, 13), QPointF(15.5, 13)]))
         painter.restore()
+    elif tipo == "ferramenta_bezier":
+        # Curva com um nó e as duas alças.
+        caminho = QPainterPath(QPointF(2, 15))
+        caminho.cubicTo(QPointF(4, 4), QPointF(14, 4), QPointF(16, 13))
+        painter.drawPath(caminho)
+        painter.drawLine(QPointF(4, 6), QPointF(14, 6))
+        painter.setBrush(QBrush(cor))
+        painter.drawRect(QRectF(7.5, 4.5, 3, 3))
+        painter.drawEllipse(QPointF(4, 6), 1.2, 1.2)
+        painter.drawEllipse(QPointF(14, 6), 1.2, 1.2)
+    elif tipo == "ferramenta_mao_livre":
+        caminho = QPainterPath(QPointF(2, 13))
+        caminho.cubicTo(QPointF(5, 3), QPointF(8, 16), QPointF(11, 8))
+        caminho.cubicTo(QPointF(13, 3), QPointF(15, 9), QPointF(16, 5))
+        painter.drawPath(caminho)
+    elif tipo == "ferramenta_forma":
+        # Seta de ponteiro com um nó quadrado na ponta (ferramenta Forma).
+        painter.setBrush(QBrush(cor))
+        painter.drawPolygon(QPolygonF([QPointF(4, 3), QPointF(4, 14), QPointF(7, 11), QPointF(9.5, 16), QPointF(11, 15.3), QPointF(8.6, 10.4), QPointF(12.5, 10.2)]))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(12.5, 2.5, 3.5, 3.5))
+    elif tipo == "converter_curvas":
+        painter.drawRect(QRectF(2.5, 6, 6, 6))
+        _seta(painter, QPointF(9.5, 9), QPointF(12, 9), 1.6)
+        caminho = QPainterPath(QPointF(12.5, 13))
+        caminho.cubicTo(QPointF(13, 4), QPointF(16, 6), QPointF(16, 12))
+        painter.drawPath(caminho)
+    elif tipo in ("combinar", "separar"):
+        painter.drawRect(QRectF(2.5, 2.5, 8, 8))
+        if tipo == "combinar":
+            painter.setBrush(QBrush(cor))
+            painter.drawRect(QRectF(7.5, 7.5, 8, 8))
+            painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+        else:
+            painter.drawRect(QRectF(8.5, 8.5, 7, 7))
+            painter.drawLine(QPointF(6, 15), QPointF(3, 15))
     elif tipo in ("cota_paralela", "cota_horizontal", "cota_vertical"):
         # Linha de cota com setas e as duas linhas de chamada.
         painter.save()

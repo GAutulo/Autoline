@@ -90,12 +90,26 @@ cotas persistentes, camadas Corte/Vinco/Arte, e edição de nós na faca.
 
 ---
 
-## Plano de entrega (um PR por etapa)
+## Plano de entrega (um PR por etapa) — situação
 
-1. **Atalhos e gestos do CorelDRAW** — tabela da seção 4 e gestos da seção 3 que não mudam a interface (Ctrl/Shift no desenho e no redimensionamento, clique direito duplica, L/R/T/B/E/C/P, PgUp/PgDn, F-keys das ferramentas, Ctrl+U, Ctrl+A, F4/Shift+F4, + numérico).
-2. **Área de trabalho estilo CorelDRAW** — caixa de ferramentas vertical à esquerda com flyouts, paleta de tintas à direita (esquerdo = preenchimento, direito = contorno), barra de status com X/Y do cursor, descrição e amostras, página branca sobre mesa clara.
-3. **Barra de propriedades padrão** — X/Y/L/A/escala/travar/ângulo/espelhar sempre no começo; estado sem seleção com nudge e distância de duplicação.
-4. **Guias e Ajustar a** — arrastar guia da régua, menu "Ajustar a" (grade, guias, objetos, página), guias dinâmicas.
-5. **Dockers** — Objetos (camadas), Alinhar e distribuir, Transformações.
-6. **Cotas persistentes** na Dieline e no Layout (paralela, horizontal/vertical, angular).
-7. **Curvas** — Bézier/caneta, ferramenta Forma (nós), converter em curvas, combinar/separar.
+| # | Etapa | Situação |
+|---|---|---|
+| 1 | Atalhos e gestos (seção 3 e 4) | Feito — PR #2 |
+| 2 | Área de trabalho: caixa de ferramentas à esquerda com flyouts, paleta à direita, barra de status, página branca sobre a mesa | Feito — PR #3 |
+| 3 | Barra de propriedades: escala %, espelhar, estado sem seleção | Feito — PR #3 |
+| 4 | "Ajustar a" (grade, guias, objetos, página), Alt+Z / Ctrl+Y | Feito — PR #4. Guias arrastadas da régua já existiam |
+| 5 | Dockers: Objetos, Alinhar e distribuir, Transformações (com Cópias) | Feito — PR #5 |
+| 6 | Cotas persistentes: paralela, horizontal, vertical | Feito — PR #6 |
+| 7 | Curvas: Bézier, Mão livre, Forma (nós), Ctrl+Q / Ctrl+L / Ctrl+K | Feito — PR #7 |
+
+### Ainda não coberto (próximas rodadas, por ordem de valor)
+
+- **Guias dinâmicas** (linhas temporárias de alinhamento durante o arrasto).
+- **Cota angular** e **cota de segmento**; chamada de 3 pontos (hoje o Callout cobre o uso).
+- **Faca editável na tela Dieline** com a ferramenta Forma (hoje a faca vem só das medidas).
+- **Soldar / Aparar / Interseção** (operações booleanas entre formas).
+- **Clique duplo pra girar/inclinar** (no Autoline a rotação é pela alça redonda).
+- **Zoom (Z) e Mão (H)** como ferramentas; hoje é roda do mouse e botão do meio.
+- **Cores CMYK/Pantone** e separação: a paleta usa as tintas da legenda.
+- O envio ao CorelDRAW de **curvas, cotas e espelho** foi escrito pela API documentada e testado
+  com um objeto COM falso; falta conferir com o CorelDRAW aberto.

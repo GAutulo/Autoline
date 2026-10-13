@@ -46,6 +46,7 @@ from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota, criar_cota
+from .mockup_curva import curva_de_caminho_cena
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
@@ -626,8 +627,25 @@ class JanelaPrincipal(QMainWindow):
                 FerramentaMockup.MOVER_PRECISO,
             ),
         )
+        flyout(
+            ferramenta(
+                "ferramenta_forma",
+                "Forma (F10) — edita os nós de uma curva: arraste nó/alça; duplo clique na curva adiciona nó, "
+                "no nó remove; S alterna canto/suave; Delete remove o nó",
+                FerramentaMockup.FORMA,
+            )
+        )
         barra.addSeparator()
-        flyout(ferramenta("ferramenta_linha", "Linha (F5) — clique e arraste (Ctrl = ângulo em passos de 15°)", FerramentaMockup.LINHA))
+        flyout(
+            ferramenta("ferramenta_mao_livre", "Mão livre (F5) — arraste pra desenhar à mão", FerramentaMockup.MAO_LIVRE),
+            ferramenta("ferramenta_linha", "Linha de 2 pontos — clique e arraste (Ctrl = ângulo em passos de 15°)", FerramentaMockup.LINHA),
+            ferramenta(
+                "ferramenta_bezier",
+                "Bézier — clique = nó de canto, clique e arraste = nó suave; clique no 1º nó fecha, "
+                "duplo clique/Enter termina aberta, Esc cancela",
+                FerramentaMockup.BEZIER,
+            ),
+        )
         flyout(
             ferramenta(
                 "ferramenta_retangulo",
@@ -690,6 +708,8 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.retangulo_desenhado.connect(self._criar_retangulo_por_arrasto)
         self.canvas.linha_desenhada.connect(self._criar_linha_por_arrasto)
         self.canvas.cota_desenhada.connect(self._criar_cota_por_arrasto)
+        self.canvas.curva_desenhada.connect(self._criar_curva)
+        self.canvas.mensagem_status.connect(lambda texto: self.statusBar().showMessage(texto, 6000))
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
         self.canvas.elipse_desenhada.connect(self._criar_elipse_por_arrasto)
@@ -735,6 +755,10 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
         self._acao_icone(barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados())
+        barra.addSeparator()
+        self._acao_icone(barra, "converter_curvas", "Converter em curvas (Ctrl+Q)", lambda: self.canvas.converter_selecionados_em_curvas())
+        self._acao_icone(barra, "combinar", "Combinar (Ctrl+L)", lambda: self.canvas.combinar_selecionados())
+        self._acao_icone(barra, "separar", "Separar (Ctrl+K)", lambda: self.canvas.separar_selecionados())
         barra.addSeparator()
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
@@ -966,6 +990,16 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.adicionar_elemento_mockup(elemento, (p1 + p2) / 2 - origem)
         elemento.setRotation(angulo)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
+
+    def _criar_curva(self, caminho_cena) -> None:
+        curva = curva_de_caminho_cena(caminho_cena, cor_tinta=self._cor_tinta_padrao())
+        if curva is None:
+            return
+        pos = curva.pos()
+        self.canvas.adicionar_elemento_mockup(curva, pos)
+        self.canvas.cena.clearSelection()
+        curva.setSelected(True)
+        # Continua na ferramenta (Bézier/Mão livre), como no CorelDRAW.
 
     def _criar_cota_por_arrasto(self, p1: QPointF, p2: QPointF, tipo: str) -> None:
         pagina = self.canvas.retangulo_pagina()
