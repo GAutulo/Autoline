@@ -66,8 +66,8 @@ instalado nesta máquina). Texto resumido com palavras próprias.
 | # | Etapa | Situação |
 |---|---|---|
 | A | **Dobra 3D de qualquer faca**: faces achadas pelas linhas, vincos como dobradiças, face base, 90° padrão, faca editada no 3D | Feito — PR #13 |
-| B | **Ângulo por vinco e face base no 3D**: clicar no vinco (90° / −90° / 0°), clicar numa face pra ser a base | Próximo |
-| C | **Faca livre** ("Desenho livre" como tipo de caixa): começa vazia e é desenhada com as ferramentas da Faca | Próximo |
+| B | **Ângulo por vinco e face base no 3D**: clicar no vinco (90° / −90° / 0°), clicar numa face pra ser a base | Feito — PR #14 |
+| C | **Faca livre**: "Faca em branco" começa vazia e é desenhada com as ferramentas da Faca | Feito — PR #14 |
 | D | Ferramentas de desenho da faca: retângulo, linha com ângulo/comprimento digitados, paralela (offset), aparar/estender, arco | Depois |
 | E | **Estilos paramétricos**: faca definida por variáveis/expressões (C, L, A, espessura), salvar a própria faca como estilo, catálogo FEFCO básico (0201, 0427...) | Depois |
 | F | Espessura do papelão no 3D (folga de vinco), fibra/onda | Depois |

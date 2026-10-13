@@ -109,3 +109,64 @@ def test_faca_editada_usa_a_dobra_generica_no_3d():
     j.abas_tela.setCurrentIndex(2)
     assert j.visualizacao_3d.vista._modelo.descricao == "Maleta normal"
     j.close()
+
+
+def _janela():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.resize(1300, 850)
+    return j
+
+
+def test_faca_em_branco_desenhada_vira_3d_com_angulo_e_base():
+    j = _janela()
+    j._nova_faca_em_branco()
+    canvas = j.canvas
+    assert canvas.faca_editada and canvas.linhas_faca() == []
+    assert j._acoes_faca["corte"].isChecked()
+    j.abas_tela.setCurrentIndex(2)
+    assert j.visualizacao_3d.vista._modelo.vazio
+    j.abas_tela.setCurrentIndex(0)
+    canvas._aplicar_faca("cubo", _cruz_de_cubo())
+    j.abas_tela.setCurrentIndex(2)
+    vista = j.visualizacao_3d.vista
+    assert len(vista._modelo.paineis) == 6
+    assert j.visualizacao_3d._botoes_modo["dobra"].isEnabled()
+
+    # Modo "Ângulo da dobra": clicar num vinco alterna 90 → -90 → 0.
+    j.visualizacao_3d._botoes_modo["dobra"].click()
+    vista.resize(700, 500)
+    vista.grab()
+    a, b, linha, angulo = vista._dobradicas_tela[0]
+    assert angulo == 90.0
+    vista._clique((a + b) / 2)
+    assert j._angulos_dobra[linha] == -90.0
+    vista.grab()  # a dobradiça pode ter mudado de lugar na tela: procura de novo
+    a, b, _l, angulo = next(item for item in vista._dobradicas_tela if item[2] == linha)
+    assert angulo == -90.0
+    vista._clique((a + b) / 2)
+    assert j._angulos_dobra[linha] == 0.0
+    j.visualizacao_3d.campo_angulo.setValue(45.0)  # valor exato pelo campo
+    assert j._angulos_dobra[linha] == 45.0
+    assert next(p for p in vista._modelo.paineis if p.linha_origem == linha).angulo_fechado == 45.0
+
+    # Modo "Face base": clicar numa face a deixa parada.
+    j.visualizacao_3d._botoes_modo["base"].click()
+    vista.grab()
+    _prof, poligono, painel_id = min(vista._faces_tela, key=lambda item: item[0])  # a da frente
+    vista._clique(poligono.boundingRect().center())
+    assert [p.id for p in vista._modelo.paineis if p.pai is None] == [painel_id]
+    j.close()
+
+
+def test_ferramentas_de_dobra_desligadas_no_modelo_pronto():
+    j = _janela()
+    j.abas_tela.setCurrentIndex(2)
+    assert not j.visualizacao_3d._botoes_modo["dobra"].isEnabled()
+    assert not j.visualizacao_3d.aviso_dobras.isHidden()
+    j.close()
