@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from contextlib import contextmanager
 
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..layout_service import ServicoLayoutCaixa
-from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa
+from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa, TipoLinha
 from ..paineis import Painel, calcular_paineis
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
@@ -142,7 +143,23 @@ class JanelaPrincipal(QMainWindow):
         # faz esse espaço parecer intencional, não sobra.
         vbox.setSpacing(20)
 
+        # Aviso de faca editada à mão (ver `_ao_faca_editada`): as medidas
+        # ficam travadas até descartar as edições.
+        self.aviso_faca_editada = QWidget()
+        aviso = QVBoxLayout(self.aviso_faca_editada)
+        aviso.setContentsMargins(0, 0, 0, 0)
+        texto_aviso = QLabel("Faca editada à mão. As medidas estão travadas pra não desfazer a edição.")
+        texto_aviso.setWordWrap(True)
+        texto_aviso.setStyleSheet(f"color: {Cor.ERRO}; font-weight: 600;")
+        botao_descartar = QPushButton("Descartar edições da faca")
+        botao_descartar.clicked.connect(lambda: self.canvas.descartar_edicoes_faca())
+        aviso.addWidget(texto_aviso)
+        aviso.addWidget(botao_descartar)
+        self.aviso_faca_editada.hide()
+        vbox.addWidget(self.aviso_faca_editada)
+
         grupo_tipo = QGroupBox("Tipo de caixa")
+        self._grupo_tipo = grupo_tipo
         form_tipo = QFormLayout(grupo_tipo)
         form_tipo.setVerticalSpacing(10)
         self.combo_tipo = QComboBox()
@@ -153,6 +170,7 @@ class JanelaPrincipal(QMainWindow):
         vbox.addWidget(grupo_tipo)
 
         grupo_medidas = QGroupBox("Medidas C × L × A (mm)")
+        self._grupo_medidas_cla = grupo_medidas
         form_medidas = QFormLayout(grupo_medidas)
         form_medidas.setVerticalSpacing(12)
         self.spin_comprimento = self._criar_spin(300)
@@ -504,6 +522,11 @@ class JanelaPrincipal(QMainWindow):
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
+        self.barra_faca.setVisible(indice == 0)
+        self._atalho_editar_faca.setEnabled(indice == 0)  # no Layout, F10 é a Forma de curvas
+        if indice != 0:
+            self._acoes_faca["navegar"].setChecked(True)
+            self.canvas.definir_edicao_faca(False)
         self.barra_organizar.setVisible(modo_layout)
         self.barra_paleta.setVisible(modo_layout)
         # Dockers só na tela de Layout: ao sair, lembra quais estavam
@@ -724,6 +747,95 @@ class JanelaPrincipal(QMainWindow):
         self._montar_barra_organizar()
         self._montar_paleta_cores()
         self._montar_dockers()
+        self._montar_barra_faca()
+
+    def _montar_barra_faca(self) -> None:
+        """Edição da faca na tela Dieline (o "ajuste à mão com a ferramenta
+        Forma" que antes era feito no CorelDRAW): navegar, editar
+        linhas/pontas, desenhar linha nova de corte ou vinco, mudar o tipo
+        da linha selecionada e remover. Só aparece na tela Dieline."""
+        barra = QToolBar("Faca")
+        barra.setObjectName("paletaFerramentasMockup")
+        barra.setMovable(False)
+        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
+        self.barra_faca = barra
+
+        grupo = QActionGroup(self)
+        grupo.setExclusive(True)
+        self._acoes_faca: dict[str, QAction] = {}
+
+        def modo(chave: str, icone: str, dica: str) -> None:
+            acao = QAction(construir_icone(icone), dica, self)
+            acao.setCheckable(True)
+            acao.triggered.connect(lambda: self._definir_modo_faca(chave))
+            grupo.addAction(acao)
+            barra.addAction(acao)
+            self._acoes_faca[chave] = acao
+
+        modo("navegar", "navegar", "Navegar — arrastar move a visão (a faca não muda)")
+        modo(
+            "forma",
+            "ferramenta_forma",
+            "Editar faca (F10) — clique numa linha; arraste a linha ou uma ponta (as linhas ligadas acompanham; "
+            "Alt solta a ponta, Shift trava na horizontal/vertical). Delete remove a linha",
+        )
+        modo("corte", "linha_corte", "Nova linha de corte — arraste de um ponto a outro (Ctrl = 15°)")
+        modo("vinco", "linha_vinco", "Nova linha de vinco — arraste de um ponto a outro (Ctrl = 15°)")
+        self._acoes_faca["navegar"].setChecked(True)
+        barra.addSeparator()
+
+        self.combo_tipo_linha = QComboBox()
+        self.combo_tipo_linha.setToolTip("Tipo da linha selecionada")
+        for tipo, nome in (
+            (TipoLinha.CORTE, "Corte"),
+            (TipoLinha.VINCO, "Vinco"),
+            (TipoLinha.MEIO_CORTE, "Meio corte"),
+            (TipoLinha.CORTE_SERRA, "Corte de serra"),
+            (TipoLinha.DOBRA, "Dobra (auxiliar)"),
+        ):
+            self.combo_tipo_linha.addItem(nome, tipo)
+        self.combo_tipo_linha.setEnabled(False)
+        self.combo_tipo_linha.activated.connect(
+            lambda _i: self.canvas.definir_tipo_linha_selecionada(self.combo_tipo_linha.currentData())
+        )
+        barra.addWidget(self.combo_tipo_linha)
+        self._acao_remover_linha = self._acao_icone(
+            barra, "remover", "Remover a linha selecionada (Delete)", lambda: self.canvas.remover_linha_faca_selecionada()
+        )
+        self._acao_remover_linha.setEnabled(False)
+
+        self.canvas.linha_faca_selecionada.connect(self._ao_selecionar_linha_faca)
+        self.canvas.faca_editada_alterada.connect(self._ao_faca_editada)
+        atalho = QAction(self)
+        atalho.setShortcut(QKeySequence("F10"))
+        atalho.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        atalho.triggered.connect(lambda: self._acoes_faca["forma"].trigger())
+        self.addAction(atalho)
+        self._atalho_editar_faca = atalho
+
+    def _definir_modo_faca(self, chave: str) -> None:
+        if chave == "navegar":
+            self.canvas.definir_edicao_faca(False)
+        else:
+            self.canvas.definir_edicao_faca(True, chave)
+
+    def _ao_selecionar_linha_faca(self, tipo) -> None:
+        self.combo_tipo_linha.setEnabled(tipo is not None)
+        self._acao_remover_linha.setEnabled(tipo is not None)
+        if tipo is not None:
+            indice = self.combo_tipo_linha.findData(tipo)
+            if indice >= 0:
+                self.combo_tipo_linha.setCurrentIndex(indice)
+
+    def _ao_faca_editada(self, editada: bool) -> None:
+        """Faca editada à mão: trava tipo e medidas (mudar qualquer uma
+        recalcularia a faca e jogaria a edição fora sem aviso)."""
+        self.aviso_faca_editada.setVisible(editada)
+        for widget in (self._grupo_tipo, self._grupo_medidas_cla, self._grupo_medidas):
+            widget.setEnabled(not editada)
+        if editada:
+            self.statusBar().showMessage("Faca editada à mão — medidas travadas até descartar as edições.", 6000)
 
     def _montar_barra_organizar(self) -> None:
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
@@ -1267,7 +1379,9 @@ class JanelaPrincipal(QMainWindow):
                     self._corel_app = corel_bridge.conectar()
                 # Oculto no docker Objetos não sai, como no CorelDRAW.
                 visiveis = [el for el in self.canvas.elementos_mockup if el.isVisible()]
-                corel_bridge.desenhar_layout(self._corel_app, self.canvas.layout_atual, visiveis)
+                # Faca editada à mão vai como está na tela, não a calculada.
+                layout = dataclasses.replace(self.canvas.layout_atual, linhas=list(self.canvas.linhas_faca()))
+                corel_bridge.desenhar_layout(self._corel_app, layout, visiveis)
         except corel_bridge.CorelIndisponivel as exc:
             self._corel_app = None
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
