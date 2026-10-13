@@ -103,10 +103,11 @@ cotas persistentes, camadas Corte/Vinco/Arte, e edição de nós na faca.
 | 7 | Curvas: Bézier, Mão livre, Forma (nós), Ctrl+Q / Ctrl+L / Ctrl+K | Feito — PR #7 |
 | 8 | Faca editável na tela Dieline (linhas e pontas ligadas, linha nova, tipo, remover) | Feito — PR #8 |
 | 9 | Guias dinâmicas ao desenhar (Alt+Shift+D) | Feito — PR #9 |
+| 10 | Cota angular | Feito — PR #10 |
 
 ### Ainda não coberto (próximas rodadas, por ordem de valor)
 
-- **Cota angular** e **cota de segmento**; chamada de 3 pontos (hoje o Callout cobre o uso).
+- **Cota de segmento**; chamada de 3 pontos (hoje o Callout cobre o uso).
 - **Soldar / Aparar / Interseção** (operações booleanas entre formas).
 - **Clique duplo pra girar/inclinar** (no Autoline a rotação é pela alça redonda).
 - **Zoom (Z) e Mão (H)** como ferramentas; hoje é roda do mouse e botão do meio.
