@@ -106,12 +106,19 @@ def test_aba_3d_leva_a_arte_do_layout():
     vermelho = CorImpressao("VERMELHO", 255, 0, 0)
     j.canvas.adicionar_elemento_mockup(ElementoRetangulo(largura=50, altura=30, cor_tinta=vermelho, preenchido=True), QPointF(250, 120))
     j.abas_tela.setCurrentIndex(2)
-    arte = j.visualizacao_3d.vista._arte
-    assert arte is not None
-    px = float(arte.text("px_por_mm"))
-    cor = arte.pixelColor(int(275 * px), int(135 * px))
+    vista = j.visualizacao_3d.vista
+    vista.resize(800, 600)
+    vista.grab()  # pinta: as faces visíveis pedem a textura
+    imagem, k, retangulo = vista.textura_do_painel("frente")
+    assert imagem is not None
+    cor = imagem.pixelColor(int((275 - retangulo.left()) * k), int((135 - retangulo.top()) * k))
     assert (cor.red(), cor.green(), cor.blue(), cor.alpha()) == (255, 0, 0, 255)
-    assert arte.pixelColor(int(10 * px), int(10 * px)).alpha() == 0  # sem faca nem fundo na textura
-    j.visualizacao_3d.vista.resize(800, 600)
-    j.visualizacao_3d.vista.grab()
+    assert imagem.pixelColor(2, 2).alpha() == 0  # sem faca nem fundo na textura
+
+    # Aproximar a câmera pede a face de novo, mais nítida.
+    vista._zoom = 4.0
+    vista.grab()
+    vista._gerar_texturas_pendentes()
+    _imagem, k_perto, _r = vista.textura_do_painel("frente")
+    assert k_perto > k * 2
     j.close()
