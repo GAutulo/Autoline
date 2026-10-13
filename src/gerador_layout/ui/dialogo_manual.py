@@ -51,6 +51,26 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Editar a faca (tela Dieline)",
+                """
+                <p>A barra <b>Faca</b> no topo da tela Dieline faz o ajuste à mão que
+                antes ia pro CorelDRAW. <b>Navegar</b> é o normal (arrastar move a
+                visão). <b>Editar faca</b> (F10): clique numa linha pra selecionar;
+                arraste a linha ou uma ponta — as linhas ligadas acompanham (pontas
+                em comum e junções em "T"), então a faca não abre. <b>Alt</b> solta a
+                ponta das vizinhas e <b>Shift</b> trava na horizontal/vertical. As
+                pontas grudam nas outras pontas da faca.</p>
+                <p><b>Nova linha de corte / de vinco</b>: arraste de um ponto a outro
+                (Ctrl = 15°). Com uma linha selecionada, a caixa da barra muda o tipo
+                (corte, vinco, meio corte, serra, dobra) e <b>Delete</b> remove.</p>
+                <p>Com a faca editada, o tipo de caixa e as medidas ficam
+                <b>travados</b> (mudar recalcularia a faca e perderia a edição). O
+                botão "Descartar edições da faca" volta pra faca calculada — e
+                Ctrl+Z desfaz cada passo. A faca editada é a que sai na exportação e
+                no envio pro CorelDRAW.</p>
+                """,
+            ),
+            (
                 "Navegar no canvas",
                 """
                 <p><b>Zoom:</b> roda do mouse.</p>
