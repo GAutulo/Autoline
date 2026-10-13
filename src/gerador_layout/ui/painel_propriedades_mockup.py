@@ -103,6 +103,7 @@ class PainelPropriedadesMockup(QWidget):
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
         self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
+        self.modelar_solicitado: Callable[[str], None] | None = None
         # Tamanho da página (chapa da dieline) em mm, pro estado "nada
         # selecionado" da barra — ligado de fora, como os callbacks acima.
         self.obter_tamanho_pagina: Callable[[], tuple[float, float] | None] | None = None
@@ -358,6 +359,20 @@ class PainelPropriedadesMockup(QWidget):
             botao.clicked.connect(
                 lambda _c=False, a=alinhamento: self.alinhar_multiplos_solicitado and self.alinhar_multiplos_solicitado(a)
             )
+
+        # Modelar, como na barra de propriedades do CorelDRAW com vários
+        # objetos selecionados (ver `modelagem.py`).
+        self._separador(forte=True)
+        for operacao, dica in (
+            ("soldar", "Soldar — junta as formas numa só"),
+            ("aparar", "Aparar — recorta o objeto de baixo com os de cima (os de cima ficam)"),
+            ("intersecao", "Interseção — cria a forma da área em comum (os originais ficam)"),
+            ("frente_menos_atras", "Frente menos atrás — o de cima menos os de baixo"),
+            ("atras_menos_frente", "Atrás menos frente — o de baixo menos os de cima"),
+        ):
+            botao = self._botao_icone(f"modelar_{operacao}", dica)
+            botao.setObjectName(f"modelar_{operacao}")
+            botao.clicked.connect(lambda _c=False, op=operacao: self.modelar_solicitado and self.modelar_solicitado(op))
 
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_campos_geometria(self, elemento: ElementoMockup) -> None:

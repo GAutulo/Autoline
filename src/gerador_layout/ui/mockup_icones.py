@@ -140,6 +140,30 @@ def construir_icone(tipo: str) -> QIcon:
         else:
             painter.drawRect(QRectF(8.5, 8.5, 7, 7))
             painter.drawLine(QPointF(6, 15), QPointF(3, 15))
+    elif tipo.startswith("modelar_"):
+        # Dois quadrados sobrepostos; o preenchido mostra o que sobra.
+        a = QRectF(2.5, 2.5, 9, 9)
+        b = QRectF(6.5, 6.5, 9, 9)
+        pa, pb = QPainterPath(), QPainterPath()
+        pa.addRect(a)
+        pb.addRect(b)
+        resultado = {
+            "modelar_soldar": pa.united(pb),
+            "modelar_aparar": pa.subtracted(pb),
+            "modelar_intersecao": pa.intersected(pb),
+            "modelar_frente_menos_atras": pb.subtracted(pa),
+            "modelar_atras_menos_frente": pa.subtracted(pb),
+        }.get(tipo, pa)
+        painter.setBrush(QBrush(cor))
+        painter.drawPath(resultado)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        contorno = QPen(cor, 0.8, Qt.PenStyle.DotLine)
+        painter.setPen(contorno)
+        painter.drawRect(a)
+        painter.drawRect(b)
+        if tipo == "modelar_aparar":
+            painter.setPen(caneta)
+            painter.drawRect(b)  # no Aparar o de cima continua inteiro
     elif tipo == "cota_angular":
         # Dois braços saindo do vértice e o arco com setas entre eles.
         painter.drawLine(QPointF(3, 15), QPointF(16, 15))

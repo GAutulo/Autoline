@@ -59,6 +59,7 @@ from .mockup_simbolos import ElementoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO, PainelPropriedadesMockup
+from .modelagem import OPERACOES
 from .preview_canvas import AJUSTAR_A, FerramentaMockup, PainelLegendaCores, PreviewCanvas
 from .segmented_row import LinhaTrechos
 
@@ -454,6 +455,16 @@ class JanelaPrincipal(QMainWindow):
         acao_sair.setShortcut("Alt+F4")
         acao_sair.triggered.connect(self.close)
 
+        menu_objeto = self.menuBar().addMenu("&Objeto")
+        menu_objeto.addAction("Converter em curvas\tCtrl+Q", lambda: self.canvas.converter_selecionados_em_curvas())
+        menu_objeto.addAction("Combinar\tCtrl+L", lambda: self.canvas.combinar_selecionados())
+        menu_objeto.addAction("Separar\tCtrl+K", lambda: self.canvas.separar_selecionados())
+        menu_modelar = menu_objeto.addMenu("Modelar")
+        for operacao, nome in OPERACOES.items():
+            menu_modelar.addAction(construir_icone(f"modelar_{operacao}"), nome, lambda op=operacao: self.canvas.modelar_selecionados(op))
+        # Só faz sentido na tela de Layout (ver `_trocar_tela`).
+        self._menu_objeto = menu_objeto
+
         menu_exibir = self.menuBar().addMenu("&Exibir")
         acao_grade = menu_exibir.addAction("Grade do canvas")
         acao_grade.setCheckable(True)
@@ -552,6 +563,7 @@ class JanelaPrincipal(QMainWindow):
                 dock.hide()
         self._estava_no_layout = modo_layout
         self._menu_dockers.setEnabled(modo_layout)
+        self._menu_objeto.setEnabled(modo_layout)
         for acao in self._acoes_docker:
             acao.setEnabled(modo_layout)
         self.barra_propriedades_mockup.setVisible(modo_layout)
@@ -581,6 +593,7 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
+        self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
 
         # Quebra de linha de propósito, mesmo motivo de `_montar_barra_mockup`:
         # sem isso o Qt tenta encaixar essa barra na mesma linha da barra

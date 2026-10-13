@@ -56,6 +56,7 @@ from .mockup_curva import (
     curva_de_caminho_cena,
 )
 from .mockup_itens import ElementoMockup, GrupoMockup, _estado_recursivo
+from .modelagem import OPERACOES, modelar, objetos_afetados
 from .mockup_reguas import GuiaCanvas
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO
 
@@ -2721,6 +2722,38 @@ class PreviewCanvas(QGraphicsView):
             painter.drawLine(QPointF(origem.x() - marca, origem.y() - marca), QPointF(origem.x() + marca, origem.y() + marca))
             painter.drawLine(QPointF(origem.x() - marca, origem.y() + marca), QPointF(origem.x() + marca, origem.y() - marca))
         painter.restore()
+
+    def modelar_selecionados(self, operacao: str) -> ElementoCurva | None:
+        """Objeto > Modelar (CorelDRAW): Soldar, Aparar, Interseção, Frente
+        menos atrás, Atrás menos frente. O "alvo" é o objeto de baixo (ou o
+        de cima, em Frente menos atrás) e empresta a aparência ao resultado,
+        que vira uma curva. Um passo só de desfazer."""
+        candidatos = [el for el in self._selecionados_mockup() if self._caminho_cena_de(el) is not None]
+        if len(candidatos) < 2:
+            self.mensagem_status.emit(f"{OPERACOES[operacao]}: selecione 2 ou mais formas (texto e curvas valem; imagem não).")
+            return None
+        ordem = sorted(candidatos, key=lambda el: el.zValue())
+        resultado_cena = modelar(operacao, [self._caminho_cena_de(el) for el in ordem])
+        if resultado_cena.isEmpty():
+            self.mensagem_status.emit(f"{OPERACOES[operacao]}: as formas não se sobrepõem — nada a fazer.")
+            return None
+        indices_removidos, indice_aparencia = objetos_afetados(operacao, len(ordem))
+        modelo = ordem[indice_aparencia]
+        aparencia = caminho_local_de(modelo)
+        resultado = curva_de_caminho_cena(
+            resultado_cena,
+            cor_tinta=getattr(modelo, "cor_tinta", None),
+            preenchido=aparencia[1] if aparencia else True,
+            largura_traco=aparencia[2] if aparencia else 0.5,
+        )
+        if resultado is None:
+            return None
+        if operacao == "intersecao":
+            resultado.setZValue(max(el.zValue() for el in ordem) + 1)
+        else:
+            resultado.setZValue(modelo.zValue())
+        self._trocar_elementos(OPERACOES[operacao], [ordem[i] for i in indices_removidos], [resultado])
+        return resultado
 
     def nos_de_encaixe(self) -> list[QPointF]:
         """Pontos onde uma cota gruda: pontas das linhas da faca, cantos e
