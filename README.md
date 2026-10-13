@@ -21,6 +21,11 @@ visualização agora é nativa do próprio aplicativo.
 - [x] Envio do layout pro CorelDRAW por automação COM (igual ao sistema
       original em C#) — conecta numa instância aberta ou abre uma nova,
       e desenha as linhas técnicas direto no documento ativo.
+- [x] Interface das telas Dieline e Layout no padrão do CorelDRAW: atalhos
+      e gestos, caixa de ferramentas com flyouts, paleta de cores, barra de
+      status, "Ajustar a", dockers (Objetos, Alinhar e distribuir,
+      Transformações), cotas persistentes e curvas Bézier editáveis por nós
+      (ver `REFERENCIA_CORELDRAW.md`).
 - [ ] Camada de elementos gráficos (textos, símbolos, logos) posicionáveis
       sobre o layout.
 - [ ] Visualização 3D da caixa montada, a partir do mesmo layout 2D.
