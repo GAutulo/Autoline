@@ -251,6 +251,13 @@ QPushButton[primario="true"]:pressed {{
     background: {Cor.PRIMARIA_ATIVA};
     border-color: {Cor.PRIMARIA_ATIVA};
 }}
+/* Botão de modo (ex.: Girar / Ângulo da dobra / Face base no 3D): o
+   escolhido fica com o acento, pra saber em que modo o clique está. */
+QPushButton:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+    border: 1px solid {Cor.PRIMARIA};
+    color: {Cor.PRIMARIA_ATIVA};
+}}
 
 QPushButton:flat {{
     border: none;
