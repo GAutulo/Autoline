@@ -319,7 +319,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
-                "Cotas (paralela, horizontal, vertical)",
+                "Cotas (paralela, horizontal, vertical, angular)",
                 """
                 <p>Como as ferramentas de cota do CorelDRAW (no mesmo grupo da Medida,
                 na caixa de ferramentas): arraste de um ponto a outro e a cota fica
@@ -329,6 +329,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 15°); <b>horizontal</b> mede só o Δx e <b>vertical</b> só o Δy. As duas
                 últimas vão sozinhas pro lado de fora da chapa. As pontas grudam nos
                 cantos da faca, dos objetos e da chapa quando o encaixe está ligado.</p>
+                <p><b>Cota angular</b>: clique no vértice, depois num ponto de cada
+                braço — mede o menor ângulo entre eles (até 180°), com o arco e o
+                valor em graus. Esc cancela no meio. Na barra de propriedades: raio do
+                arco, altura do texto e tinta.</p>
                 <p>A cota é um objeto como os outros: o valor acompanha quando você a
                 redimensiona, e a barra de propriedades muda o afastamento da linha,
                 a altura do texto e a tinta. A ferramenta continua ativa depois de
