@@ -151,9 +151,18 @@ class PainelDobravel:
     # fechada (0 = face externa). A pintura por profundidade usa isso pra
     # não deixar uma aba de baixo vazar por cima da face que a cobre.
     camada: int = 0
+    # Faces que não são retângulo (dobra genérica, ver `dobra_generica.py`):
+    # o contorno real, os furos e um ponto garantidamente dentro. Sem isso
+    # o painel é o retângulo x1..x2 × y1..y2.
+    poligono: tuple[tuple[float, float], ...] | None = None
+    furos: tuple[tuple[tuple[float, float], ...], ...] = ()
+    ponto_interno: tuple[float, float] | None = None
+    linha_origem: int | None = None  # índice da linha da faca que é a dobradiça
 
     @property
     def cantos(self) -> list[tuple[float, float]]:
+        if self.poligono is not None:
+            return list(self.poligono)
         return [(self.x1, self.y1), (self.x2, self.y1), (self.x2, self.y2), (self.x1, self.y2)]
 
 
@@ -169,6 +178,9 @@ class ModeloCaixa3D:
     # plana de frente, pelo lado impresso — ver `ui/visualizacao_3d.py`.
     pitch_planificada: float = 0.0
     descricao: str = ""
+    # Caixa fechada vira sólido (lado de dentro nunca aparece montada). Faca
+    # livre pode ser aberta (bandeja, display), então desliga isso.
+    solido_fechado: bool = True
 
     @property
     def vazio(self) -> bool:
@@ -224,7 +236,12 @@ def _eixo_para_cima(a: Vetor, b: Vetor, painel: PainelDobravel) -> Vetor:
     painel pra +z (regra da mão direita), seja qual for o lado do pai em
     que ele está."""
     d = normalizar(_sub(b, a))
-    centro: Vetor = ((painel.x1 + painel.x2) / 2.0, (painel.y1 + painel.y2) / 2.0, 0.0)
+    if painel.ponto_interno is not None:
+        # Face não retangular: o centro da caixa envolvente pode cair fora
+        # dela (do outro lado da dobradiça); o ponto interno nunca cai.
+        centro: Vetor = (painel.ponto_interno[0], painel.ponto_interno[1], 0.0)
+    else:
+        centro = ((painel.x1 + painel.x2) / 2.0, (painel.y1 + painel.y2) / 2.0, 0.0)
     rel = _sub(centro, a)
     radial = _sub(rel, _escala(d, produto_escalar(rel, d)))
     return d if produto_vetorial(d, radial)[2] >= 0 else _escala(d, -1.0)
