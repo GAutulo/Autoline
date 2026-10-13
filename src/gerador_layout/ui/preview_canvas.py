@@ -74,6 +74,18 @@ class FerramentaMockup(Enum):
     SIMBOLO = auto()
     LACO_SELECAO = auto()
     MOVER_PRECISO = auto()
+    COTA_PARALELA = auto()
+    COTA_HORIZONTAL = auto()
+    COTA_VERTICAL = auto()
+
+
+# Cotas persistentes (CorelDRAW): mesmo gesto da Linha — clicar no 1º
+# ponto e arrastar até o 2º. Ver `mockup_cota.py`.
+FERRAMENTAS_COTA: dict[FerramentaMockup, str] = {
+    FerramentaMockup.COTA_PARALELA: "paralela",
+    FerramentaMockup.COTA_HORIZONTAL: "horizontal",
+    FerramentaMockup.COTA_VERTICAL: "vertical",
+}
 
 
 # Ferramentas que desenham por clique+arrasto de um retângulo (a forma
@@ -125,6 +137,9 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.SIMBOLO: Qt.CursorShape.CrossCursor,
     FerramentaMockup.LACO_SELECAO: Qt.CursorShape.CrossCursor,
     FerramentaMockup.MOVER_PRECISO: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.COTA_PARALELA: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.COTA_HORIZONTAL: Qt.CursorShape.CrossCursor,
+    FerramentaMockup.COTA_VERTICAL: Qt.CursorShape.CrossCursor,
 }
 
 # Cor das linhas técnicas na pré-visualização: a cor de texto do tema
@@ -414,6 +429,7 @@ class PreviewCanvas(QGraphicsView):
     # de verdade (cor de tinta padrão etc.) é `main_window.py`.
     retangulo_desenhado = Signal(QRectF)
     linha_desenhada = Signal(QPointF, QPointF)
+    cota_desenhada = Signal(QPointF, QPointF, str)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
     elipse_desenhada = Signal(QRectF)
@@ -948,9 +964,13 @@ class PreviewCanvas(QGraphicsView):
             return
 
         self._criando = True
+        if self._ferramenta in FERRAMENTAS_COTA:
+            # Cota começa grudada no nó mais próximo (canto da faca, de um
+            # objeto ou da chapa), como a cota do CorelDRAW.
+            self._ponto_inicial_criacao = self.encaixar_ponto(self._ponto_inicial_criacao)
         if self._ferramenta in _FERRAMENTAS_RETANGULO_ARRASTO:
             self._item_preview_criacao = QGraphicsRectItem()
-        elif self._ferramenta in (FerramentaMockup.LINHA, FerramentaMockup.MEDIR):
+        elif self._ferramenta in (FerramentaMockup.LINHA, FerramentaMockup.MEDIR) or self._ferramenta in FERRAMENTAS_COTA:
             self._item_preview_criacao = QGraphicsLineItem()
         else:
             self._criando = False
@@ -985,7 +1005,10 @@ class PreviewCanvas(QGraphicsView):
         return QRectF(self._ponto_inicial_criacao, self._ponto_inicial_criacao + diagonal).normalized()
 
     def _fim_linha_de_criacao(self, atual: QPointF, modificadores: Qt.KeyboardModifier) -> QPointF:
-        """Ctrl prende o ângulo da linha em passos de 15° (CorelDRAW)."""
+        """Ctrl prende o ângulo da linha em passos de 15° (CorelDRAW). Nas
+        cotas, o ponto final também gruda no nó mais próximo."""
+        if self._ferramenta in FERRAMENTAS_COTA and not modificadores & Qt.KeyboardModifier.ControlModifier:
+            return self.encaixar_ponto(atual)
         if not modificadores & Qt.KeyboardModifier.ControlModifier:
             return atual
         linha = QLineF(self._ponto_inicial_criacao, atual)
@@ -1049,6 +1072,10 @@ class PreviewCanvas(QGraphicsView):
             atual = self._fim_linha_de_criacao(atual, modificadores)
             if QLineF(self._ponto_inicial_criacao, atual).length() >= 2.0:
                 self.linha_desenhada.emit(self._ponto_inicial_criacao, atual)
+        elif self._ferramenta in FERRAMENTAS_COTA:
+            atual = self._fim_linha_de_criacao(atual, modificadores)
+            if QLineF(self._ponto_inicial_criacao, atual).length() >= 2.0:
+                self.cota_desenhada.emit(self._ponto_inicial_criacao, atual, FERRAMENTAS_COTA[self._ferramenta])
 
     def _cancelar_criacao(self) -> None:
         self._criando = False
@@ -1767,6 +1794,36 @@ class PreviewCanvas(QGraphicsView):
                 el.setPos(el.pos() + delta)
 
         self._com_undo_geometria("Centralizar na página", aplicar)
+
+    def nos_de_encaixe(self) -> list[QPointF]:
+        """Pontos onde uma cota gruda: pontas das linhas da faca, cantos e
+        centro de cada objeto e cantos da chapa."""
+        pontos: list[QPointF] = []
+        if self._layout is not None:
+            for linha in self._layout.linhas:
+                pontos.append(QPointF(linha.x1, linha.y1))
+                pontos.append(QPointF(linha.x2, linha.y2))
+        for el in self._elementos_mockup:
+            r = QRectF(0.0, 0.0, el.largura, el.altura)
+            for canto in (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(), r.center()):
+                pontos.append(el.mapToScene(canto))
+        pagina = self.retangulo_pagina()
+        if pagina is not None:
+            pontos.extend((pagina.topLeft(), pagina.topRight(), pagina.bottomRight(), pagina.bottomLeft()))
+        return pontos
+
+    def encaixar_ponto(self, ponto: QPointF) -> QPointF:
+        """Nó mais próximo dentro do limiar de encaixe, ou o próprio ponto
+        (com o encaixe desligado, nunca mexe)."""
+        if not self._snap_ativo:
+            return ponto
+        limiar = configuracoes.limiar_snap_mm()
+        melhor, menor = ponto, limiar
+        for no in self.nos_de_encaixe():
+            distancia = math.hypot(no.x() - ponto.x(), no.y() - ponto.y())
+            if distancia < menor:
+                melhor, menor = QPointF(no), distancia
+        return melhor
 
     def selecionados_mockup(self) -> list[ElementoMockup]:
         return self._selecionados_mockup()
