@@ -28,7 +28,9 @@ visualização agora é nativa do próprio aplicativo.
       (ver `REFERENCIA_CORELDRAW.md`).
 - [ ] Camada de elementos gráficos (textos, símbolos, logos) posicionáveis
       sobre o layout.
-- [ ] Visualização 3D da caixa montada, a partir do mesmo layout 2D.
+- [x] Visualização 3D da caixa montada, a partir do mesmo layout 2D (aba
+      **3D**): gira com o mouse e anima entre a faca plana e a caixa
+      fechada, acompanhando as medidas ao vivo.
 
 ## Rodando localmente
 
@@ -51,14 +53,18 @@ pytest                              # roda os testes
 src/gerador_layout/
 ├── models.py            # modelos de dados (MedidasCaixa, LayoutCaixa, ...)
 ├── layout_service.py    # cálculo das linhas técnicas por tipo de caixa
+├── paineis.py           # faces da caixa aberta (onde cada arte "mora")
+├── dobra3d.py           # dobras de cada painel: dieline plana → caixa montada
 ├── main.py               # ponto de entrada do aplicativo
 └── ui/
     ├── main_window.py    # janela principal (formulário de medidas)
     ├── preview_canvas.py # canvas 2D (QGraphicsView) com zoom/pan + legenda de cores
+    ├── visualizacao_3d.py # caixa em 3D (QPainter), planificar/montar animado
     ├── exportacao.py     # exportação para SVG/PDF/JPG
     └── corel_bridge.py   # automação COM com o CorelDRAW (só Windows)
 tests/
-└── test_layout_service.py
+├── test_layout_service.py
+└── test_dobra3d.py
 ```
 
 ## Regras do domínio
