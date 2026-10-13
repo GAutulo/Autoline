@@ -36,8 +36,16 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 de corte/vinco calculada automaticamente. É aqui que a caixa nasce.</p>
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
                 posicionar texto, formas, imagens, logotipo e símbolos de manuseio por
-                cima (o "mockup"). É aqui que a paleta de ferramentas e a barra de
-                propriedades aparecem.</p>
+                cima (o "mockup").</p>
+                <p>A disposição segue o CorelDRAW: a <b>caixa de ferramentas</b> fica
+                na borda esquerda (botões com triângulo no canto agrupam ferramentas
+                irmãs: segure o clique ou clique no triângulo pra escolher), a
+                <b>barra de propriedades</b> logo abaixo do topo, a <b>paleta de
+                cores</b> na borda direita (clique = preenchimento, botão direito =
+                contorno, X = sem preenchimento; a tinta usada entra na legenda) e a
+                <b>barra de status</b> embaixo mostra a posição do cursor em mm e o
+                objeto selecionado com as amostras de preenchimento e contorno. A
+                chapa aparece como uma página branca sobre a mesa cinza.</p>
                 <p>Editar as medidas sempre volta pra tela de Dieline; os elementos de
                 mockup que você já posicionou na tela de Layout continuam lá.</p>
                 """,

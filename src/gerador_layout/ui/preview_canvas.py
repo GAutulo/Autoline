@@ -131,7 +131,10 @@ _CURSOR_POR_FERRAMENTA = {
 # (`Cor.TEXTO`), não preto fixo — em tema escuro, "preto" literal
 # desapareceria contra o fundo escuro do canvas. `Cor.TEXTO` já é claro
 # no tema escuro e escuro no tema claro, então acompanha automaticamente.
-_COR_LINHA = QColor(Cor.TEXTO)
+# Desde a área de trabalho estilo CorelDRAW (página branca sobre a mesa,
+# ver `drawBackground`), a faca é preta em qualquer tema — igual sai na
+# gráfica e igual o CorelDRAW mostra.
+_COR_LINHA = QColor(0, 0, 0)
 _ESTILO_POR_TIPO: dict[TipoLinha, tuple[QColor, Qt.PenStyle, float]] = {
     TipoLinha.CORTE: (_COR_LINHA, Qt.PenStyle.SolidLine, 0.6),
     TipoLinha.VINCO: (_COR_LINHA, Qt.PenStyle.DashLine, 0.5),
@@ -187,8 +190,14 @@ _TECLA_FERRAMENTA_CORELDRAW: dict[Qt.Key, FerramentaMockup] = {
 # espessura com o zoom) e cor quase invisível de propósito: é textura de
 # fundo, não pode competir com as linhas do próprio layout. Vem de
 # `Cor` (ver estilo.py) pra também inverter certo no tema escuro.
-_COR_FUNDO_CANVAS = QColor(*Cor.CANVAS_FUNDO_RGB)
-_COR_GRADE = QColor(*Cor.CANVAS_GRADE_RGBA)
+_COR_GRADE = QColor(30, 26, 22, 18)
+# Área de trabalho do CorelDRAW: "mesa" cinza-clara com a página branca
+# (aqui, a chapa da dieline) e uma sombra curta embaixo/à direita. Fixo,
+# não segue o tema do app — é a superfície de desenho, não a moldura.
+_COR_MESA = QColor("#E3E3E1")
+_COR_PAGINA = QColor(255, 255, 255)
+_COR_SOMBRA_PAGINA = QColor(0, 0, 0, 46)
+_DESLOCAMENTO_SOMBRA_PX = 4
 # Espaçamento da grade agora é preferência do usuário — ver
 # `configuracoes.passo_grade_mm()` (lido ao vivo em cada ponto de uso
 # abaixo, mesmo motivo do traço do vinco: mudar na tela de Configurações
@@ -386,6 +395,7 @@ class PreviewCanvas(QGraphicsView):
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
     zoom_alterado = Signal(float)
+    cursor_movido = Signal(object)  # QPointF em mm, ou None quando o mouse sai do canvas (barra de status)
     # Emitidos quando uma ferramenta de criação termina um gesto de
     # clique/arrasto no canvas vazio (ver `_finalizar_criacao` abaixo) —
     # o canvas só sabe a GEOMETRIA (onde/tamanho); quem monta o elemento
@@ -412,7 +422,7 @@ class PreviewCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setBackgroundBrush(QBrush(_COR_FUNDO_CANVAS))
+        self.setBackgroundBrush(QBrush(_COR_MESA))
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         # Precisa pra `mouseMoveEvent` disparar sem nenhum botão pressionado
         # (hover puro) — usado pelo sub-modo Atributos da ferramenta Medida.
@@ -607,7 +617,15 @@ class PreviewCanvas(QGraphicsView):
         self.viewport().update()
 
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
-        painter.fillRect(rect, _COR_FUNDO_CANVAS)
+        painter.fillRect(rect, _COR_MESA)
+        pagina = self.retangulo_pagina()
+        if pagina is not None:
+            # Sombra com deslocamento constante em PIXELS (não mm), como no
+            # CorelDRAW: não cresce nem some com o zoom.
+            escala = self.transform().m11() or 1.0
+            d = _DESLOCAMENTO_SOMBRA_PX / escala
+            painter.fillRect(pagina.translated(d, d), _COR_SOMBRA_PAGINA)
+            painter.fillRect(pagina, _COR_PAGINA)
         if not self._grade_visivel:
             return
 
@@ -817,7 +835,12 @@ class PreviewCanvas(QGraphicsView):
             return
         super().mousePressEvent(event)
 
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.cursor_movido.emit(None)
+        super().leaveEvent(event)
+
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        self.cursor_movido.emit(self.mapToScene(event.position().toPoint()))
         if self._panorama_ativo:
             ponto = event.position()
             delta = ponto - self._panorama_ultimo_ponto
