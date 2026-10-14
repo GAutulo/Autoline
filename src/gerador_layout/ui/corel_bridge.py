@@ -451,7 +451,10 @@ def _desenhar_imagem_cdr(app, layer, elemento, altura_total: float) -> None:
     layer.Import(elemento.caminho_arquivo, 0, None)
     if layer.Shapes.Count == antes:
         return  # import falhou — não trava a exportação inteira por causa de 1 imagem
-    shape = layer.Shapes.Item(layer.Shapes.Count)
+    # Item(1) é o mais recente (topo da pilha), não Item(Count): com
+    # Count, o tamanho ia pra primeira linha da faca e a imagem ficava no
+    # tamanho original (logo gigante fora do lugar).
+    shape = layer.Shapes.Item(1)
     shape.SetSize(elemento.largura, elemento.altura)
     shape.SetPosition(x - elemento.largura / 2, y + elemento.altura / 2)
     if angulo:
