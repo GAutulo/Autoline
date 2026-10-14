@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from ..models import CorImpressao, LayoutCaixa, TipoLinha
 from . import configuracoes
+from .mockup_itens import cache_desligado
 
 # Legenda de cores: tamanho configurável em Configurações (não escala com
 # o tamanho do layout — um fator proporcional ainda deixava a legenda
@@ -292,6 +293,8 @@ def exportar_svg(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
     rect, legenda = _rect_com_legenda(scene, layout)
     selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
+    sem_cache = cache_desligado(scene)
+    sem_cache.__enter__()  # vetorial de verdade, não a imagem do cache de tela
     try:
         # QSvgGenerator só aceita resolução em DPI inteiro. Pra converter
         # "unidades da cena = mm" em tamanho físico SEM erro de arredondamento,
@@ -327,6 +330,7 @@ def exportar_svg(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
         finally:
             painter.end()
     finally:
+        sem_cache.__exit__(None, None, None)
         penas.restaurar()
         selecao.restaurar()
         legenda.remover()
@@ -336,6 +340,8 @@ def exportar_pdf(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
     rect, legenda = _rect_com_legenda(scene, layout)
     selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
+    sem_cache = cache_desligado(scene)
+    sem_cache.__enter__()  # vetorial de verdade, não a imagem do cache de tela
     try:
         # As coordenadas da cena já são em mm — a página do PDF sai com o
         # tamanho exato do layout, então o desenho fica na escala real 1:1,
@@ -361,6 +367,7 @@ def exportar_pdf(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
         finally:
             painter.end()
     finally:
+        sem_cache.__exit__(None, None, None)
         penas.restaurar()
         selecao.restaurar()
         legenda.remover()
@@ -386,6 +393,8 @@ def exportar_jpg(
     rect, legenda = _rect_com_legenda(scene, layout)
     selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
+    sem_cache = cache_desligado(scene)
+    sem_cache.__enter__()  # vetorial de verdade, não a imagem do cache de tela
     try:
         pixels_por_mm = dpi / 25.4
         largura = max(1, round(rect.width() * pixels_por_mm))
@@ -415,6 +424,7 @@ def exportar_jpg(
         finally:
             painter.end()
     finally:
+        sem_cache.__exit__(None, None, None)
         penas.restaurar()
         selecao.restaurar()
         legenda.remover()
