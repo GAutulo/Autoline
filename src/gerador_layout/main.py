@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QFontDatabase, QIcon
+from PySide6.QtGui import QFontDatabase, QIcon, QPixmapCache
 from PySide6.QtWidgets import QApplication
 
 from .ui.estilo import FOLHA_DE_ESTILO
@@ -52,6 +52,10 @@ def main() -> None:
     _carregar_fontes()
     app.setWindowIcon(_carregar_icone())
     app.setStyleSheet(FOLHA_DE_ESTILO)
+    # O cache de desenho de cada elemento (ver ElementoMockup) mora no
+    # QPixmapCache, que por padrão tem só 10 MB — pouco pra um layout com
+    # logos grandes em zoom alto.
+    QPixmapCache.setCacheLimit(256 * 1024)  # KB
     janela = JanelaPrincipal()
     # Maximizado, não só .show(): o tamanho padrão da janela (ver
     # JanelaPrincipal.__init__) é só o tamanho de fallback pra quando o

@@ -99,3 +99,19 @@ def test_guia_nao_estraga_o_ajustar_a_tela(janela):
         _processar()
     canvas.ajustar_a_tela()
     assert canvas.transform().m11() == pytest.approx(zoom, rel=0.05)
+
+
+def test_zoom_nao_prende_o_desenho_no_canto(janela):
+    canvas = janela.canvas
+    janela.spin_comprimento.setValue(80)
+    janela.spin_largura.setValue(50)
+    janela.spin_altura.setValue(30)
+    _processar()
+    canvas.ajustar_a_tela()
+    canvas.scale(3, 3)
+    pagina = canvas.retangulo_pagina()
+    for alvo in (pagina.topLeft(), pagina.bottomRight(), pagina.center()):
+        canvas.centerOn(alvo)
+        centro_tela = canvas.mapToScene(canvas.viewport().rect().center())
+        # dá pra centralizar qualquer canto da chapa na tela (a mesa vai além)
+        assert abs(centro_tela.x() - alvo.x()) < 2 and abs(centro_tela.y() - alvo.y()) < 2

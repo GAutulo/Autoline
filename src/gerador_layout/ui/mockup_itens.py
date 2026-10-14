@@ -30,12 +30,30 @@ congelado, usando só `QTransform` pra rotação — sem acumular erro.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
+
+
+@contextmanager
+def cache_desligado(cena):
+    """Durante exportação (SVG/PDF/JPG) e textura do 3D: desliga o cache de
+    desenho dos elementos — com ele ligado, `scene.render` copia a imagem em
+    cache (resolução de tela) em vez de desenhar vetorial."""
+    itens = [it for it in cena.items() if it.cacheMode() != QGraphicsItem.CacheMode.NoCache]
+    modos = [(it, it.cacheMode()) for it in itens]
+    for it in itens:
+        it.setCacheMode(QGraphicsItem.CacheMode.NoCache)
+    try:
+        yield
+    finally:
+        for it, modo in modos:
+            it.setCacheMode(modo)
 
 
 def desenhar_texto_escalado(painter: QPainter, pos: QPointF, fonte: QFont, texto: str) -> None:
@@ -177,6 +195,13 @@ class ElementoMockup(QGraphicsObject):
         # enquanto o usuário arrasta, não só depois de soltar o mouse.
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
+        # Desempenho: o desenho do elemento (SVG, texto, símbolo...) vira
+        # uma imagem em cache NA RESOLUÇÃO DA TELA; arrastar só move a
+        # imagem pronta em vez de redesenhar o conteúdo a cada quadro. O
+        # cache se refaz sozinho no zoom e a cada `update()` (mudança de
+        # aparência). Exportação e textura do 3D (`scene.render`) não usam
+        # esse cache — saem vetoriais/na resolução pedida.
+        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
 
         # Painel "dono" do elemento (frente, lateral, tampa...) — pura
         # etiqueta informativa, sem nenhum recorte/trava associada: o
