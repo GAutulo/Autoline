@@ -718,6 +718,9 @@ class PreviewCanvas(QGraphicsView):
         # próximo, em vez de já criar no ponto clicado.
         self._painel_offset = _PainelOffsetEndpoint(self)
         self.zoom_alterado.connect(self._atualizar_escala_tela)
+        # Fundo (mesa, página, grade) em cache: arrastar um elemento não
+        # redesenha milhares de linhas de grade a cada quadro.
+        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self._painel_offset.confirmado.connect(self._ao_confirmar_offset_endpoint)
         self._painel_offset.cancelado.connect(self._painel_offset.hide)
         self._offset_referencia_cena = QPointF()
@@ -748,6 +751,7 @@ class PreviewCanvas(QGraphicsView):
                 self._faca_sel = None
                 self.faca_editada_alterada.emit(False)
         self._layout = layout
+        self.resetCachedContent()  # página mudou de tamanho
         self._redesenhar()
         self._ajuste_pendente = True
         self.ajustar_a_tela()
@@ -833,11 +837,11 @@ class PreviewCanvas(QGraphicsView):
     # ── Fundo ───────────────────────────────────────────────────────
     def definir_grade_visivel(self, visivel: bool) -> None:
         self._grade_visivel = visivel
-        self.viewport().update()
+        self._fundo_mudou()
 
     def definir_zona_segura_visivel(self, visivel: bool) -> None:
         self._zona_segura_visivel = visivel
-        self.viewport().update()
+        self._fundo_mudou()
 
     def definir_paineis(self, paineis: list[Painel]) -> None:
         """Faces da caixa atual (ver `paineis.py`) — usadas só pra
@@ -845,6 +849,12 @@ class PreviewCanvas(QGraphicsView):
         ao canto de cada painel, em vez de uma grade só cobrindo o
         canvas inteiro sem relação com onde as faces realmente estão)."""
         self._paineis = list(paineis)
+        self._fundo_mudou()
+
+    def _fundo_mudou(self) -> None:
+        """O fundo (mesa, página, grade, zonas seguras) fica em cache; quem
+        muda qualquer coisa dele chama isto."""
+        self.resetCachedContent()
         self.viewport().update()
 
     def drawBackground(self, painter, rect) -> None:  # noqa: N802
@@ -877,15 +887,16 @@ class PreviewCanvas(QGraphicsView):
         calcular qualquer layout (sem painel nenhum ainda pra encaixar
         a grade)."""
         passo = self.passo_grade()
+        linhas = []
         x = math.floor(rect.left() / passo) * passo
         while x < rect.right():
-            painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+            linhas.append(QLineF(x, rect.top(), x, rect.bottom()))
             x += passo
-
         y = math.floor(rect.top() / passo) * passo
         while y < rect.bottom():
-            painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+            linhas.append(QLineF(rect.left(), y, rect.right(), y))
             y += passo
+        painter.drawLines(linhas)  # uma chamada só (era uma por linha)
 
     def _desenhar_grade_por_painel(self, painter, rect, pen) -> None:
         """Uma grade por face, começando do canto de CADA painel (não de
@@ -896,20 +907,21 @@ class PreviewCanvas(QGraphicsView):
         passo = self.passo_grade()
         for painel in self._paineis:
             area = QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
-            if not area.intersects(rect):
+            visivel = area.intersected(rect)
+            if visivel.isEmpty():
                 continue
-            painter.save()
-            painter.setClipRect(area)
-            painter.setPen(pen)
-            x = painel.x1
-            while x <= painel.x2:
-                painter.drawLine(QLineF(x, painel.y1, x, painel.y2))
+            # Só as linhas que caem na parte visível, numa chamada só.
+            linhas = []
+            x = painel.x1 + math.ceil((visivel.left() - painel.x1) / passo) * passo
+            while x <= visivel.right():
+                linhas.append(QLineF(x, visivel.top(), x, visivel.bottom()))
                 x += passo
-            y = painel.y1
-            while y <= painel.y2:
-                painter.drawLine(QLineF(painel.x1, y, painel.x2, y))
+            y = painel.y1 + math.ceil((visivel.top() - painel.y1) / passo) * passo
+            while y <= visivel.bottom():
+                linhas.append(QLineF(visivel.left(), y, visivel.right(), y))
                 y += passo
-            painter.restore()
+            painter.setPen(pen)
+            painter.drawLines(linhas)
 
     def _desenhar_zonas_seguras(self, painter, rect) -> None:
         """Faixa de aviso (recuo de `_MARGEM_ZONA_SEGURA_MM` a partir do
@@ -1510,6 +1522,17 @@ class PreviewCanvas(QGraphicsView):
         self._painel_dimensao.show()
 
     # ── Desenho ─────────────────────────────────────────────────────
+    def _atualizar_area_rolagem(self) -> None:
+        """Mesa grande em volta da chapa (3× o tamanho dela pra cada lado,
+        no mínimo 500 mm), como a área de trabalho do CorelDRAW. Sem isso a
+        área de rolagem era só o tamanho do desenho: dando zoom, a vista não
+        passava da borda e o desenho ficava "preso" num canto da tela."""
+        desenho = self.retangulo_do_desenho()
+        if desenho.isEmpty():
+            return
+        folga = max(500.0, 3.0 * max(desenho.width(), desenho.height()))
+        self.setSceneRect(desenho.adjusted(-folga, -folga, folga, folga))
+
     def _redesenhar(self) -> None:
         for item in self._itens_dieline:
             self._scene.removeItem(item)
@@ -1524,6 +1547,7 @@ class PreviewCanvas(QGraphicsView):
             return
 
         self._desenhar_linhas_tecnicas()
+        self._atualizar_area_rolagem()
         self._atualizar_painel_dimensao()
         self._reposicionar_paineis()
 
