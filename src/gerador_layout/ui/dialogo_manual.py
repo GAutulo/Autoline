@@ -108,6 +108,12 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Navegar no 3D</b>: arrastar gira; botão do meio, botão direito
                 ou Shift + arrastar move a vista; a roda aproxima no ponto onde está
                 o mouse; duplo clique (ou "Vista inicial") volta.</p>
+                <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, cartão,
+                micro-ondulado E, onda B, C ou dupla BC. Com espessura, o lado de
+                dentro de cada face fica pra dentro e a borda cortada do papelão
+                aparece nas abas, fendas e na boca da caixa aberta (com a caixa
+                fechada, as bordas ficam escondidas nas emendas). A faca de um estilo
+                do catálogo já escolhe o papelão da espessura E usada nas contas.</p>
                 <p>Nesse caso a aba 3D ganha as ferramentas do ArtiosCAD: <b>Ângulo da
                 dobra</b> — clique num vinco pra alternar 90° → −90° → 0° (duplo
                 clique conta dois), ou digite o valor exato no campo ao lado; e
