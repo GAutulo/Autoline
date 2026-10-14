@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -912,6 +913,21 @@ class JanelaPrincipal(QMainWindow):
         )
         modo("corte", "linha_corte", "Nova linha de corte — arraste de um ponto a outro (Ctrl = 15°)")
         modo("vinco", "linha_vinco", "Nova linha de vinco — arraste de um ponto a outro (Ctrl = 15°)")
+        modo("retangulo", "ferramenta_retangulo", "Retângulo — arraste de um canto ao oposto: 4 linhas do tipo novo")
+        modo(
+            "medida",
+            "medida",
+            "Linha por medida (ArtiosCAD) — clique o ponto inicial e digite comprimento e ângulo "
+            "(0° = direita, 90° = cima), Enter. A próxima começa onde esta acabou; Esc para",
+        )
+        modo(
+            "arco",
+            "faca_arco",
+            "Arco — arraste de uma ponta à outra, solte, mova o mouse para curvar e clique para confirmar (Ctrl = 15°)",
+        )
+        modo("aparar", "faca_aparar", "Aparar — clique no trecho da linha que passa do cruzamento para cortá-lo fora")
+        modo("estender", "faca_estender", "Estender — clique perto da ponta: a linha cresce até a próxima linha no caminho")
+        modo("arredondar", "faca_arredondar", "Arredondar canto — clique no canto onde duas retas se encontram (raio ao lado)")
         self._acoes_faca["navegar"].setChecked(True)
         self._acao_icone(barra, "mais", "Faca em branco — começar a faca do zero (desenho livre)", self._nova_faca_em_branco)
         barra.addSeparator()
@@ -931,10 +947,35 @@ class JanelaPrincipal(QMainWindow):
             lambda _i: self.canvas.definir_tipo_linha_selecionada(self.combo_tipo_linha.currentData())
         )
         barra.addWidget(self.combo_tipo_linha)
+        self._acao_paralela = self._acao_icone(
+            barra, "faca_paralela", "Paralela — cópia da linha selecionada a uma distância (negativo = outro lado)", self._criar_paralela
+        )
+        self._acao_paralela.setEnabled(False)
         self._acao_remover_linha = self._acao_icone(
             barra, "remover", "Remover a linha selecionada (Delete)", lambda: self.canvas.remover_linha_faca_selecionada()
         )
         self._acao_remover_linha.setEnabled(False)
+        barra.addSeparator()
+
+        barra.addWidget(QLabel(" Linha nova: "))
+        self.combo_tipo_novo = QComboBox()
+        self.combo_tipo_novo.setToolTip("Tipo das linhas que o retângulo, a medida e o arco criam")
+        for i in range(self.combo_tipo_linha.count()):
+            self.combo_tipo_novo.addItem(self.combo_tipo_linha.itemText(i), self.combo_tipo_linha.itemData(i))
+        self.combo_tipo_novo.activated.connect(
+            lambda _i: self.canvas.definir_tipo_linha_nova(self.combo_tipo_novo.currentData())
+        )
+        barra.addWidget(self.combo_tipo_novo)
+        barra.addWidget(QLabel(" Raio: "))
+        self.spin_raio_faca = QDoubleSpinBox()
+        self.spin_raio_faca.setRange(0.1, 1000.0)
+        self.spin_raio_faca.setDecimals(2)
+        self.spin_raio_faca.setSuffix(" mm")
+        self.spin_raio_faca.setValue(5.0)
+        self.spin_raio_faca.setToolTip("Raio do Arredondar canto")
+        self.spin_raio_faca.valueChanged.connect(self.canvas.definir_raio_arredondar)
+        barra.addWidget(self.spin_raio_faca)
+        self._distancia_paralela = 3.0
 
         self.canvas.linha_faca_selecionada.connect(self._ao_selecionar_linha_faca)
         self.canvas.faca_editada_alterada.connect(self._ao_faca_editada)
@@ -950,10 +991,24 @@ class JanelaPrincipal(QMainWindow):
             self.canvas.definir_edicao_faca(False)
         else:
             self.canvas.definir_edicao_faca(True, chave)
+        if chave in ("corte", "vinco"):
+            indice = self.combo_tipo_novo.findData(TipoLinha.VINCO if chave == "vinco" else TipoLinha.CORTE)
+            self.combo_tipo_novo.setCurrentIndex(indice)
+        else:
+            self.canvas.definir_tipo_linha_nova(self.combo_tipo_novo.currentData())
+
+    def _criar_paralela(self) -> None:
+        distancia, ok = QInputDialog.getDouble(
+            self, "Paralela", "Distância (mm) — negativo cria do outro lado:", self._distancia_paralela, -10000.0, 10000.0, 2
+        )
+        if ok and distancia != 0:
+            self._distancia_paralela = distancia
+            self.canvas.criar_paralela_selecionada(distancia)
 
     def _ao_selecionar_linha_faca(self, tipo) -> None:
         self.combo_tipo_linha.setEnabled(tipo is not None)
         self._acao_remover_linha.setEnabled(tipo is not None)
+        self._acao_paralela.setEnabled(tipo is not None)
         if tipo is not None:
             indice = self.combo_tipo_linha.findData(tipo)
             if indice >= 0:

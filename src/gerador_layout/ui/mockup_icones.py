@@ -99,6 +99,44 @@ def construir_icone(tipo: str) -> QIcon:
         painter.setBrush(QBrush(cor))
         painter.drawRect(QRectF(1.5, 13.5, 3, 3))
         painter.drawRect(QRectF(13.5, 1.5, 3, 3))
+    elif tipo == "faca_arco":
+        # Arco por 2 pontas + curvatura, pontas marcadas.
+        painter.drawArc(QRectF(3, 5, 12, 16), 0, 180 * 16)
+        painter.setBrush(QBrush(cor))
+        painter.drawRect(QRectF(1.5, 11.5, 3, 3))
+        painter.drawRect(QRectF(13.5, 11.5, 3, 3))
+    elif tipo in ("faca_aparar", "faca_estender"):
+        # Linha-limite vertical; a linha horizontal passa dela (aparar,
+        # trecho cortado tracejado) ou chega até ela (estender, com seta).
+        painter.drawLine(QPointF(12, 2), QPointF(12, 16))
+        if tipo == "faca_aparar":
+            painter.drawLine(QPointF(2, 9), QPointF(12, 9))
+            painter.setPen(QPen(cor, 1.2, Qt.PenStyle.DotLine))
+            painter.drawLine(QPointF(12, 9), QPointF(16.5, 9))
+        else:
+            painter.drawLine(QPointF(2, 9), QPointF(6, 9))
+            painter.setPen(QPen(cor, 1.2, Qt.PenStyle.DotLine))
+            painter.drawLine(QPointF(6, 9), QPointF(11, 9))
+            painter.setPen(caneta)
+            _seta(painter, QPointF(8, 9), QPointF(11.5, 9), 3)
+    elif tipo == "faca_arredondar":
+        # Canto com o raio no lugar da quina.
+        caminho = QPainterPath(QPointF(3, 15))
+        caminho.lineTo(3, 9)
+        caminho.quadTo(3, 3, 9, 3)
+        caminho.lineTo(15, 3)
+        painter.drawPath(caminho)
+        painter.setPen(QPen(cor, 1.0, Qt.PenStyle.DotLine))
+        painter.drawLine(QPointF(3, 9), QPointF(3, 3))
+        painter.drawLine(QPointF(3, 3), QPointF(9, 3))
+    elif tipo == "faca_paralela":
+        # Duas linhas paralelas com a distância entre elas.
+        painter.drawLine(QPointF(2, 6), QPointF(16, 6))
+        painter.setPen(QPen(cor, 1.4, Qt.PenStyle.DashLine))
+        painter.drawLine(QPointF(2, 14), QPointF(16, 14))
+        painter.setPen(caneta)
+        _seta(painter, QPointF(9, 10), QPointF(9, 14), 2.5)
+        _seta(painter, QPointF(9, 10), QPointF(9, 6), 2.5)
     elif tipo == "navegar":
         # Mão aberta (mover a visão).
         painter.drawRoundedRect(QRectF(4, 8, 10, 8), 3, 3)
