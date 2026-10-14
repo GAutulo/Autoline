@@ -63,6 +63,12 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Nova linha de corte / de vinco</b>: arraste de um ponto a outro
                 (Ctrl = 15°). Com uma linha selecionada, a caixa da barra muda o tipo
                 (corte, vinco, meio corte, serra, dobra) e <b>Delete</b> remove.</p>
+                <p><b>Precisão</b>: ao arrastar uma linha ou ponta, ela gruda nos nós
+                parados (com o nome do ponto) e alinha na horizontal/vertical com
+                eles, com uma guia tracejada até o nó com quem está alinhada. Ao lado
+                do cursor aparece a medida: o deslocamento (Δx, Δy) ao mover a linha,
+                o comprimento e o ângulo ao mover a ponta ou desenhar linha nova, e
+                largura × altura no retângulo.</p>
                 <p><b>Ferramentas de desenho</b> (como no ArtiosCAD). As linhas que
                 elas criam são do tipo escolhido em <b>Linha nova</b>:</p>
                 <ul>
@@ -263,8 +269,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 inferior-esquerdo dela — pra anotações técnicas de revisão, tipo "aqui
                 precisa de sangria" ou "cor Pantone tal", marcando pra perto de onde
                 aponta.</p>
-                <p>Clique no canvas, digite direto (igual a ferramenta Texto), clique
-                fora pra confirmar. A cauda é sempre relativa ao próprio balão (não é
+                <p>Clique no canvas e digite direto no balão, sem caixa de texto (como
+                o texto do CorelDRAW): o "Observação" já vem selecionado, então
+                digitar substitui, e o balão cresce com o texto. Enter, Esc ou clique
+                fora confirmam; duplo clique edita de novo. Apagar tudo remove o
+                callout (Ctrl+Z devolve). A cauda é sempre relativa ao próprio balão (não é
                 um segundo ponto de controle) — isso é o que deixa o Callout compatível
                 com mover/redimensionar/rotacionar/encaixe igual qualquer outro
                 elemento, sem precisar de um caso especial.</p>
@@ -411,7 +420,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 linhas vermelhas mostram em mm a distância do objeto até o vizinho mais
                 próximo em cada direção, até as bordas da face e até as bordas da
                 chapa. Com um objeto selecionado, segure <b>Alt</b> para ver as mesmas
-                medidas sem arrastar.</p>
+                medidas sem arrastar; com o Alt segurado, as <b>setas</b> movem o
+                objeto e as medidas acompanham (como no Figma). Soltou o Alt, somem.</p>
                 <p>Liga/desliga pelo menu Exibir &gt; "Encaixe (snap) ao arrastar". O
                 limiar de distância e o espaçamento da grade são preferências em
                 Configurações &gt; Ferramentas.</p>
