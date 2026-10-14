@@ -293,3 +293,32 @@ def test_3d_mover_a_vista_e_aproximar_onde_esta_o_mouse():
     vista.grab()
     vista.vista_inicial()
     assert vista._pan == QPointF(0, 0) and vista._zoom == 1.0
+
+
+def test_espessura_do_papelao_no_3d():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.estilos import Estilo
+    from gerador_layout.estilos_catalogo import CATALOGO
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.abas_tela.setCurrentIndex(2)
+    vista = j.visualizacao_3d.vista
+    vista.resize(800, 600)
+    assert vista.espessura == 0.0  # padrão: folha fina, como antes
+    j.visualizacao_3d.combo_papelao.setCurrentIndex(3)
+    assert vista.espessura == 3.0
+    vista._progresso = 0.5
+    vista.grab()  # aberta: desenha as faixas da borda sem erro
+    vista._progresso = 1.0
+    vista.grab()
+    j.visualizacao_3d.definir_espessura(2.2)  # fora da lista: personalizado
+    assert vista.espessura == 2.2 and "2,2" in j.visualizacao_3d.combo_papelao.currentText()
+    # estilo com E = 4 mm: o 3D passa a mostrar Onda C
+    estilo = next(Estilo(d) for d in CATALOGO if d["codigo"] == "FEFCO 0201")
+    valores = {"C": 300, "L": 200, "A": 150, "E": 4, "G": 30}
+    j.aplicar_estilo(estilo, valores, estilo.gerar(valores))
+    assert vista.espessura == 4.0 and "Onda C" in j.visualizacao_3d.combo_papelao.currentText()
