@@ -56,6 +56,7 @@ from .mockup_curva import (
     curva_de_caminho_cena,
 )
 from .mockup_itens import ElementoMockup, GrupoMockup, _estado_recursivo
+from .mockup_texto import ElementoTexto
 from .modelagem import OPERACOES, modelar, objetos_afetados
 from .mockup_reguas import GuiaCanvas
 from .painel_propriedades_mockup import NOME_TIPO_ELEMENTO
@@ -457,6 +458,18 @@ class _ComandoAlterarGeometria(QUndoCommand):
             item.setPos(pos)
             item.setRotation(rotacao)
             item.definir_espelho(espelho_h, espelho_v)
+
+
+class _ComandoEditarTexto(QUndoCommand):
+    def __init__(self, texto, antes: tuple, depois: tuple) -> None:
+        super().__init__("Editar texto")
+        self._texto, self._antes, self._depois = texto, antes, depois
+
+    def redo(self) -> None:  # noqa: N802
+        self._texto.definir_estado_texto(self._depois)
+
+    def undo(self) -> None:  # noqa: N802
+        self._texto.definir_estado_texto(self._antes)
 
 
 class _ComandoEditarCurva(QUndoCommand):
@@ -983,7 +996,7 @@ class PreviewCanvas(QGraphicsView):
         # "ajustar à tela" de conveniência quando o clique foi em área
         # vazia do canvas, senão os dois efeitos brigavam (editar texto
         # E mudar o zoom no mesmo clique).
-        item = self.itemAt(event.pos())
+        item = self.itemAt(event.position().toPoint())
         super().mouseDoubleClickEvent(event)
         if self._modo_mockup and (item is not None or self._pontos_laco or self._ponto_pega_mover_preciso is not None):
             # Também não deveria "ajustar à tela" no meio de um laço de
@@ -1088,8 +1101,8 @@ class PreviewCanvas(QGraphicsView):
             # um deslocamento numérico a partir do ponto de referência
             # mais próximo, em vez de já iniciar com o clique visual (ver
             # `_PainelOffsetEndpoint`/`_ao_confirmar_offset_endpoint`).
-            self._offset_referencia_cena = self._ponto_referencia_proximo(event.pos())
-            self._painel_offset.iniciar(event.pos())
+            self._offset_referencia_cena = self._ponto_referencia_proximo(event.position().toPoint())
+            self._painel_offset.iniciar(event.position().toPoint())
             event.accept()
             return
         if self._editando_faca and not self._modo_mockup and event.button() == Qt.MouseButton.LeftButton:
@@ -1105,7 +1118,7 @@ class PreviewCanvas(QGraphicsView):
             and self._ferramenta != FerramentaMockup.SELECIONAR
             and event.button() == Qt.MouseButton.LeftButton
         ):
-            self._iniciar_criacao(event.pos())
+            self._iniciar_criacao(event.position().toPoint())
             event.accept()
             return
         super().mousePressEvent(event)
@@ -1135,7 +1148,7 @@ class PreviewCanvas(QGraphicsView):
         if self._modo_mockup and self._ferramenta in _FERRAMENTAS_CURVA:
             self._curva_mouse_move(self.mapToScene(event.position().toPoint()), event.buttons())
         if self._criando:
-            self._atualizar_criacao(event.pos(), event.modifiers())
+            self._atualizar_criacao(event.position().toPoint(), event.modifiers())
             event.accept()
             return
         if (
@@ -1146,19 +1159,19 @@ class PreviewCanvas(QGraphicsView):
             # Sub-modo Atributos: passar o mouse por cima já mostra a
             # leitura (não precisa clicar/arrastar) — clicar só FIXA ela
             # na tela (ver `_iniciar_criacao`).
-            texto = self._texto_atributos_sob_cursor(event.pos())
+            texto = self._texto_atributos_sob_cursor(event.position().toPoint())
             if texto is None:
                 self._rotulo_medida.hide()
             else:
                 self._rotulo_medida.setText(texto)
                 self._rotulo_medida.adjustSize()
-                pos = event.pos()
+                pos = event.position().toPoint()
                 self._rotulo_medida.move(pos.x() + 14, pos.y() - self._rotulo_medida.height() - 10)
                 self._rotulo_medida.show()
         if self._pontos_laco:
-            self._atualizar_preview_laco(self.mapToScene(event.pos()))
+            self._atualizar_preview_laco(self.mapToScene(event.position().toPoint()))
         if self._ponto_pega_mover_preciso is not None:
-            self._atualizar_preview_mover_preciso(event.pos())
+            self._atualizar_preview_mover_preciso(event.position().toPoint())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -1179,7 +1192,7 @@ class PreviewCanvas(QGraphicsView):
             event.accept()
             return
         if self._criando and event.button() == Qt.MouseButton.LeftButton:
-            self._finalizar_criacao(event.pos(), event.modifiers())
+            self._finalizar_criacao(event.position().toPoint(), event.modifiers())
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -1207,6 +1220,15 @@ class PreviewCanvas(QGraphicsView):
                 FerramentaMockup.TABELA: self.tabela_solicitada,
                 FerramentaMockup.SIMBOLO: self.simbolo_solicitado,
             }
+            if self._ferramenta == FerramentaMockup.TEXTO:
+                # Como no CorelDRAW: clicar num texto com a ferramenta Texto
+                # edita ele (cursor onde clicou), em vez de criar outro.
+                alvo = self._elemento_raiz_em(self._ponto_inicial_criacao)
+                if isinstance(alvo, ElementoTexto):
+                    self._scene.clearSelection()
+                    alvo.setSelected(True)
+                    alvo.iniciar_edicao(alvo.mapFromScene(self._ponto_inicial_criacao))
+                    return
             sinais_clique_unico[self._ferramenta].emit(self._ponto_inicial_criacao)
             return
         if self._ferramenta == FerramentaMockup.MEDIR and self._modo_medida == "atributos":
@@ -1597,6 +1619,33 @@ class PreviewCanvas(QGraphicsView):
     def pilha_desfazer(self) -> QUndoStack:
         return self._pilha_desfazer
 
+    def iniciar_texto_novo(self, texto: "ElementoTexto", pos: QPointF) -> None:
+        """Texto da ferramenta Texto: entra na cena e já em edição, mas só
+        vira passo de desfazer quando a digitação termina — e se terminar
+        vazio some sem deixar rastro, como no CorelDRAW."""
+        self._scene.addItem(texto)
+        texto.setPos(pos)
+        self._registrar_elemento_mockup(texto)
+        self._scene.clearSelection()
+        texto.setSelected(True)
+        texto.iniciar_edicao(recem_criado=True)
+
+    def _ao_terminar_edicao_texto(self, texto, antes: tuple, depois: tuple, era_novo: bool) -> None:
+        vazio = not depois[0].strip()
+        if era_novo:
+            if vazio:
+                self._retirar_elemento(texto)
+            else:
+                self._pilha_desfazer.push(_ComandoAdicionarElemento(self, texto, "Texto"))
+            return
+        if vazio:
+            # Apagou tudo de um texto que existia: some, com desfazer que
+            # devolve o texto como era.
+            texto.definir_estado_texto(antes)
+            self._pilha_desfazer.push(_ComandoRemoverElementos(self, [texto], "Apagar texto"))
+        elif antes != depois:
+            self._pilha_desfazer.push(_ComandoEditarTexto(texto, antes, depois))
+
     def adicionar_elemento_mockup(self, elemento: ElementoMockup, pos: QPointF | None = None) -> None:
         self._scene.addItem(elemento)
         if pos is not None:
@@ -1611,6 +1660,8 @@ class PreviewCanvas(QGraphicsView):
         elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
         self.elementos_alterados.emit()
+        if isinstance(elemento, ElementoTexto):
+            elemento.ao_terminar_edicao = self._ao_terminar_edicao_texto
         elemento.definir_calculador_snap(self._calcular_snap)
         elemento.definir_solicitador_duplicata(self._duplicar_no_lugar)
         elemento.definir_registrador_undo(self._registrar_comando_geometria)
@@ -3105,10 +3156,11 @@ class PreviewCanvas(QGraphicsView):
         return True
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        if isinstance(self._scene.focusItem(), QGraphicsProxyWidget):
-            # Editando texto no lugar (campo embutido, ver `mockup_texto.py`):
-            # toda tecla é do campo — senão L/R/T/B/E/C/P (atalhos de
-            # alinhar do CorelDRAW abaixo) roubariam letras digitadas.
+        foco = self._scene.focusItem()
+        if isinstance(foco, QGraphicsProxyWidget) or getattr(foco, "editando", False):
+            # Digitando um texto no desenho (ver `mockup_texto.py`) ou num
+            # campo embutido: toda tecla é do texto — senão L/R/T/B/E/C/P
+            # (atalhos de alinhar do CorelDRAW) roubariam letras digitadas.
             super().keyPressEvent(event)
             return
         if self._editando_faca and not self._modo_mockup and self._tecla_faca(event):
