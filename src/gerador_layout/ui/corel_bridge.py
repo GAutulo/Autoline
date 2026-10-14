@@ -15,6 +15,7 @@ import math
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QFont, QFontMetricsF
 
+from .. import geometria_faca
 from ..models import LayoutCaixa, TipoLinha
 from . import configuracoes
 from .mockup_acabamento import ElementoAcabamento
@@ -155,7 +156,11 @@ def desenhar_layout(
         # orientação que já aparece no app.
         y1 = altura - linha.y1
         y2 = altura - linha.y2
-        shape = layer.CreateLineSegment(linha.x1, y1, linha.x2, y2)
+        shape = (
+            _desenhar_arco_faca(app, layer, linha, altura)
+            if geometria_faca.e_arco(linha)
+            else layer.CreateLineSegment(linha.x1, y1, linha.x2, y2)
+        )
         shape.Outline.Color = cor_linha
         shape.Outline.Width = _LARGURA_LINHA_MM
 
@@ -203,6 +208,25 @@ def desenhar_layout(
 _TAMANHO_FONTE_REFERENCIA_CDR = 200.0
 
 # ── Helpers de geometria/cor compartilhados entre os desenhistas ───────
+
+
+def _desenhar_arco_faca(app, layer, linha, altura: float):
+    """Arco da faca como curva do CorelDRAW (Béziers, até 90° cada). Se a API
+    de curva não responder, cai pra segmentos retos curtos."""
+    try:
+        curva = app.ActiveDocument.CreateCurve()
+        trechos = geometria_faca.em_cubicas(linha)
+        subcaminho = curva.CreateSubPath(trechos[0][0][0], altura - trechos[0][0][1])
+        for _p0, c1, c2, p3 in trechos:
+            subcaminho.AppendCurveSegment2(p3[0], altura - p3[1], c1[0], altura - c1[1], c2[0], altura - c2[1])
+        return layer.CreateCurve(curva)
+    except Exception:  # noqa: BLE001
+        pontos = geometria_faca.pontos(linha, 2.0)
+        formas = [layer.CreateLineSegment(a[0], altura - a[1], b[0], altura - b[1]) for a, b in zip(pontos, pontos[1:])]
+        grupo = app.CreateShapeRange()
+        for forma in formas:
+            grupo.Add(forma)
+        return grupo
 
 
 def _rotacao_absoluta_graus(elemento: ElementoMockup) -> float:

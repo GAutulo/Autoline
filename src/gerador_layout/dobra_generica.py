@@ -24,6 +24,7 @@ import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
+from . import geometria_faca
 from .dobra3d import ModeloCaixa3D, PainelDobravel
 from .models import LinhaDesenho, TipoLinha
 
@@ -81,7 +82,14 @@ class _Aresta:
 
 
 def _arestas_planas(linhas: list[LinhaDesenho]) -> list[_Aresta]:
-    segmentos = [((l.x1, l.y1), (l.x2, l.y2)) for l in linhas]
+    # Arco vira polilinha fina (cada trecho lembra de qual linha veio).
+    segmentos: list[tuple[Ponto, Ponto]] = []
+    origem_de: list[int] = []
+    for i, l in enumerate(linhas):
+        pts = geometria_faca.pontos(l, 3.0)
+        for a, b in zip(pts, pts[1:]):
+            segmentos.append((a, b))
+            origem_de.append(i)
     cortes_em: list[set[float]] = [{0.0, 1.0} for _ in segmentos]
     for i, (a, b) in enumerate(segmentos):
         for j in range(i + 1, len(segmentos)):
@@ -96,7 +104,8 @@ def _arestas_planas(linhas: list[LinhaDesenho]) -> list[_Aresta]:
                 if t is not None:
                     cortes_em[k].add(t)
     arestas: dict[tuple[Ponto, Ponto], _Aresta] = {}
-    for i, ((a, b), ts) in enumerate(zip(segmentos, cortes_em)):
+    for s_i, ((a, b), ts) in enumerate(zip(segmentos, cortes_em)):
+        i = origem_de[s_i]
         pontos = [_chave(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) for t in sorted(ts)]
         corte = linhas[i].tipo not in TIPOS_DOBRA
         for p, q in zip(pontos, pontos[1:]):

@@ -50,13 +50,17 @@ NOME_EXIBICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
 
 @dataclass
 class LinhaDesenho:
-    """Um segmento de linha a ser desenhado (em milímetros)."""
+    """Um segmento de linha a ser desenhado (em milímetros).
+
+    `bojo` diferente de zero faz dela um ARCO de (x1, y1) a (x2, y2) — a
+    convenção "bulge" do DXF, bojo = tan(θ/4). Ver `geometria_faca.py`."""
 
     x1: float
     y1: float
     x2: float
     y2: float
     tipo: TipoLinha
+    bojo: float = 0.0
 
 
 @dataclass

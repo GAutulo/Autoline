@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
 from ..paineis import Painel
 from . import configuracoes
@@ -307,7 +308,7 @@ class _PainelOffsetEndpoint(QWidget):
     confirmado = Signal(float, float)
     cancelado = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, sufixos: tuple[str, str] = (" X mm", " Y mm")) -> None:
         super().__init__(parent)
         self.setStyleSheet(_ESTILO_PAINEL + f"background: {Cor.CARTAO};")
         layout = QHBoxLayout(self)
@@ -315,7 +316,7 @@ class _PainelOffsetEndpoint(QWidget):
         layout.setSpacing(4)
         self._spin_x = QDoubleSpinBox()
         self._spin_y = QDoubleSpinBox()
-        for spin, sufixo in ((self._spin_x, " X mm"), (self._spin_y, " Y mm")):
+        for spin, sufixo in ((self._spin_x, sufixos[0]), (self._spin_y, sufixos[1])):
             spin.setRange(-100000.0, 100000.0)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
@@ -325,11 +326,11 @@ class _PainelOffsetEndpoint(QWidget):
         self.setFocusProxy(self._spin_x)
         self.hide()
 
-    def iniciar(self, pos_viewport) -> None:
+    def iniciar(self, pos_viewport, valores: tuple[float, float] = (0.0, 0.0)) -> None:
         self._spin_x.blockSignals(True)
         self._spin_y.blockSignals(True)
-        self._spin_x.setValue(0.0)
-        self._spin_y.setValue(0.0)
+        self._spin_x.setValue(valores[0])
+        self._spin_y.setValue(valores[1])
         self._spin_x.blockSignals(False)
         self._spin_y.blockSignals(False)
         self.adjustSize()
@@ -525,7 +526,18 @@ class _ComandoEditarFaca(QUndoCommand):
 def _copiar_linhas(linhas) -> list[LinhaDesenho] | None:
     if linhas is None:
         return None
-    return [LinhaDesenho(l.x1, l.y1, l.x2, l.y2, l.tipo) for l in linhas]
+    return [LinhaDesenho(l.x1, l.y1, l.x2, l.y2, l.tipo, l.bojo) for l in linhas]
+
+
+def caminho_da_linha(l: LinhaDesenho) -> QPainterPath:
+    """Reta, ou arco como Béziers cúbicas (curva de verdade no SVG/PDF)."""
+    caminho = QPainterPath(QPointF(l.x1, l.y1))
+    if not geo.e_arco(l):
+        caminho.lineTo(QPointF(l.x2, l.y2))
+        return caminho
+    for _p0, c1, c2, p3 in geo.em_cubicas(l):
+        caminho.cubicTo(QPointF(*c1), QPointF(*c2), QPointF(*p3))
+    return caminho
 
 
 def _mesmo_ponto(ax: float, ay: float, bx: float, by: float) -> bool:
@@ -639,7 +651,13 @@ class PreviewCanvas(QGraphicsView):
         # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
         self._linhas_editadas: list[LinhaDesenho] | None = None
         self._editando_faca = False
-        self._faca_ferramenta = "forma"  # "forma" | "corte" | "vinco"
+        # "forma" | "corte" | "vinco" | "retangulo" | "medida" | "arco" |
+        # "aparar" | "estender" | "arredondar" (ver `definir_edicao_faca`)
+        self._faca_ferramenta = "forma"
+        self._faca_tipo_novo = TipoLinha.CORTE  # retângulo, medida e arco nascem deste tipo
+        self._raio_arredondar = 5.0
+        self._ultima_medida = (50.0, 0.0)  # comprimento, ângulo
+        self._medida_origem: QPointF | None = None
         self._faca_sel: int | None = None
         self._faca_arrasto: tuple | None = None
         self._faca_antes = None
@@ -738,6 +756,10 @@ class PreviewCanvas(QGraphicsView):
         # Fundo (mesa, página, grade) em cache: arrastar um elemento não
         # redesenha milhares de linhas de grade a cada quadro.
         self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        # Linha por medida da faca: comprimento e ângulo (0° → direita, 90° → cima).
+        self._painel_medida = _PainelOffsetEndpoint(self, sufixos=(" mm", " °"))
+        self._painel_medida.confirmado.connect(self._ao_confirmar_medida)
+        self._painel_medida.cancelado.connect(lambda: setattr(self, "_medida_origem", None))
         self._painel_offset.confirmado.connect(self._ao_confirmar_offset_endpoint)
         self._painel_offset.cancelado.connect(self._painel_offset.hide)
         self._offset_referencia_cena = QPointF()
@@ -1601,7 +1623,10 @@ class PreviewCanvas(QGraphicsView):
             )
             pen = QPen(cor, largura, estilo)
             pen.setCosmetic(True)  # espessura constante independente do zoom
-            item = QGraphicsLineItem(QLineF(linha.x1, linha.y1, linha.x2, linha.y2))
+            if geo.e_arco(linha):
+                item = QGraphicsPathItem(caminho_da_linha(linha))
+            else:
+                item = QGraphicsLineItem(QLineF(linha.x1, linha.y1, linha.x2, linha.y2))
             item.setPen(pen)
             item.setData(0, linha.tipo)  # lido por `_PenasExportacao` em exportacao.py
             self._scene.addItem(item)
@@ -2195,7 +2220,39 @@ class PreviewCanvas(QGraphicsView):
             self.viewport().setCursor(
                 Qt.CursorShape.ArrowCursor if ferramenta == "forma" else Qt.CursorShape.CrossCursor
             )
+        if ferramenta in ("corte", "vinco"):
+            self._faca_tipo_novo = TipoLinha.VINCO if ferramenta == "vinco" else TipoLinha.CORTE
+        self._atualizar_preview_curva(None)
+        self._painel_medida.hide()
+        self._medida_origem = None
         self.viewport().update()
+
+    def criar_paralela_selecionada(self, distancia_mm: float) -> bool:
+        """Paralela da linha selecionada (positivo = um lado, negativo = o
+        outro; no arco, pra fora/pra dentro). A nova fica selecionada."""
+        if self._faca_sel is None:
+            return False
+        linhas = self._linhas_para_editar()
+        linhas.append(geo.paralela(linhas[self._faca_sel], distancia_mm))
+        self._aplicar_faca("Paralela", linhas)
+        self._selecionar_linha_faca(len(linhas) - 1)
+        return True
+
+    def _ao_confirmar_medida(self, comprimento: float, angulo: float) -> None:
+        """Linha por medida (ArtiosCAD: ângulo e comprimento digitados). A
+        próxima começa onde esta terminou — dá pra desenhar a faca inteira
+        só digitando; Esc para."""
+        origem = self._medida_origem
+        if origem is None or comprimento <= 0:
+            return
+        self._ultima_medida = (comprimento, angulo)
+        nova = geo.linha_por_medida((origem.x(), origem.y()), comprimento, angulo, self._faca_tipo_novo)
+        linhas = self._linhas_para_editar()
+        linhas.append(nova)
+        self._aplicar_faca("Linha por medida", linhas)
+        self._selecionar_linha_faca(len(linhas) - 1)
+        self._medida_origem = QPointF(nova.x2, nova.y2)
+        self._painel_medida.iniciar(self.mapFromScene(self._medida_origem), self._ultima_medida)
 
     def _selecionar_linha_faca(self, indice: int | None) -> None:
         self._faca_sel = indice
@@ -2272,12 +2329,80 @@ class PreviewCanvas(QGraphicsView):
                     return ("ponta", i, qual)
         melhor, menor = None, tol
         for i, l in enumerate(linhas):
-            d = _distancia_ao_segmento(ponto, QPointF(l.x1, l.y1), QPointF(l.x2, l.y2))
+            d = geo.distancia((ponto.x(), ponto.y()), l)
             if d <= menor:
                 melhor, menor = ("linha", i), d
         return melhor
 
+    def definir_tipo_linha_nova(self, tipo: TipoLinha) -> None:
+        self._faca_tipo_novo = tipo
+
+    def definir_raio_arredondar(self, raio: float) -> None:
+        self._raio_arredondar = max(0.1, raio)
+
+    def _ponto_de_desenho(self, ponto: QPointF, *extras: QPointF) -> QPointF:
+        encaixado = self._encaixar_na_faca(ponto)
+        return encaixado if encaixado != ponto else self._ajustar_guias_dinamicas(ponto, extras)
+
+    def _faca_ferramenta_de_clique(self, ponto: QPointF) -> bool:
+        """Aparar / estender / arredondar: um clique só, sobre a linha (ou o
+        canto). Devolve True se tratou o clique."""
+        ferramenta = self._faca_ferramenta
+        if ferramenta not in ("aparar", "estender", "arredondar"):
+            return False
+        linhas = self._linhas_para_editar()
+        clique = (ponto.x(), ponto.y())
+        if ferramenta == "arredondar":
+            canto = self._encaixar_na_faca(ponto)
+            resultado = geo.arredondar(linhas, (canto.x(), canto.y()), self._raio_arredondar)
+            if resultado is None:
+                self.mensagem_status.emit(
+                    "Arredondar: clique num canto onde duas retas se encontram (e o raio precisa caber nelas)."
+                )
+                return True
+            self._aplicar_faca("Arredondar canto", resultado)
+            self._selecionar_linha_faca(len(resultado) - 1)
+            return True
+        acerto = self._faca_acertar(ponto)
+        if acerto is None:
+            return True
+        operacao = geo.aparar if ferramenta == "aparar" else geo.estender
+        resultado = operacao(linhas, acerto[1], clique)
+        if resultado is None:
+            self.mensagem_status.emit(
+                "Aparar: a linha precisa cruzar outra (e ser reta)."
+                if ferramenta == "aparar"
+                else "Estender: não há linha no caminho dessa ponta (ou a linha é arco)."
+            )
+            return True
+        self._selecionar_linha_faca(None)
+        self._aplicar_faca("Aparar linha" if ferramenta == "aparar" else "Estender linha", resultado)
+        return True
+
     def _faca_mouse_press(self, ponto: QPointF, modificadores) -> None:
+        if self._faca_ferramenta_de_clique(ponto):
+            return
+        if self._faca_arrasto is not None and self._faca_arrasto[0] == "arco_curvar":
+            # 3º clique do arco: confirma a curvatura.
+            _t, a, b, bojo = self._faca_arrasto
+            self._faca_arrasto = None
+            self._atualizar_preview_curva(None)
+            self._limpar_guias_dinamicas()
+            linhas = self._linhas_para_editar()
+            linhas.append(LinhaDesenho(a.x(), a.y(), b.x(), b.y(), self._faca_tipo_novo, bojo))
+            self._aplicar_faca("Arco na faca", linhas)
+            self._selecionar_linha_faca(len(linhas) - 1)
+            return
+        if self._faca_ferramenta == "medida":
+            self._medida_origem = self._ponto_de_desenho(ponto)
+            self._limpar_guias_dinamicas()
+            self._painel_medida.iniciar(self.mapFromScene(self._medida_origem), self._ultima_medida)
+            return
+        if self._faca_ferramenta in ("retangulo", "arco"):
+            inicio = self._ponto_de_desenho(ponto)
+            self._faca_arrasto = (self._faca_ferramenta, inicio, inicio)
+            self._atualizar_preview_curva(QPainterPath(inicio))
+            return
         if self._faca_ferramenta in ("corte", "vinco"):
             inicio = self._encaixar_na_faca(ponto)
             if inicio == ponto:
@@ -2307,18 +2432,40 @@ class PreviewCanvas(QGraphicsView):
                 # Pontas ligadas: as que coincidem com as da linha E as que
                 # encostam no meio dela (junção em "T", ex.: vinco vertical
                 # chegando no vinco horizontal) — todas andam junto.
-                a, b = QPointF(l.x1, l.y1), QPointF(l.x2, l.y2)
                 for k, outra in enumerate(linhas):
                     if k == i:
                         continue
                     for qual, (x, y) in ((1, (outra.x1, outra.y1)), (2, (outra.x2, outra.y2))):
-                        if _distancia_ao_segmento(QPointF(x, y), a, b) < 0.01:
+                        if geo.distancia((x, y), l) < 0.01:
                             pontas.add((k, qual))
             self._faca_arrasto = ("linha", sorted(pontas), QPointF(ponto), self._linhas_para_editar())
 
     def _faca_mouse_move(self, ponto: QPointF, modificadores) -> None:
         arrasto = self._faca_arrasto
         if arrasto is None:
+            return
+        if arrasto[0] in ("retangulo", "arco"):
+            fim = self._ponto_de_desenho(ponto, arrasto[1])
+            if arrasto[0] == "arco" and modificadores & Qt.KeyboardModifier.ControlModifier:
+                linha = QLineF(arrasto[1], ponto)
+                linha.setAngle(round(linha.angle() / 15.0) * 15.0)
+                fim = linha.p2()
+            self._faca_arrasto = (arrasto[0], arrasto[1], fim)
+            if arrasto[0] == "retangulo":
+                caminho = QPainterPath()
+                caminho.addRect(QRectF(arrasto[1], fim).normalized())
+            else:
+                caminho = QPainterPath(arrasto[1])
+                caminho.lineTo(fim)
+            self._atualizar_preview_curva(caminho)
+            return
+        if arrasto[0] == "arco_curvar":
+            # Depois de soltar a corda: mexer o mouse curva o arco, que passa
+            # pelo cursor; o próximo clique confirma.
+            _t, a, b, _bojo = arrasto
+            bojo = geo.bojo_por_tres_pontos((a.x(), a.y()), (ponto.x(), ponto.y()), (b.x(), b.y()))
+            self._faca_arrasto = ("arco_curvar", a, b, bojo)
+            self._atualizar_preview_curva(caminho_da_linha(LinhaDesenho(a.x(), a.y(), b.x(), b.y(), self._faca_tipo_novo, bojo)))
             return
         if arrasto[0] == "nova":
             fim = self._encaixar_na_faca(ponto)
@@ -2363,6 +2510,25 @@ class PreviewCanvas(QGraphicsView):
         arrasto, self._faca_arrasto = self._faca_arrasto, None
         if arrasto is None:
             return
+        if arrasto[0] == "arco_curvar":
+            self._faca_arrasto = arrasto  # continua esperando o clique que confirma
+            return
+        if arrasto[0] in ("retangulo", "arco"):
+            _t, a, b = arrasto
+            if QLineF(a, b).length() < 1.0:
+                self._atualizar_preview_curva(None)
+                return
+            if arrasto[0] == "arco":
+                self._faca_arrasto = ("arco_curvar", a, b, 0.0)
+                self.mensagem_status.emit("Arco: mexa o mouse pra curvar e clique pra confirmar (Esc cancela).")
+                return
+            self._atualizar_preview_curva(None)
+            if abs(a.x() - b.x()) < 1.0 or abs(a.y() - b.y()) < 1.0:
+                return
+            linhas = self._linhas_para_editar()
+            linhas += geo.retangulo((a.x(), a.y()), (b.x(), b.y()), self._faca_tipo_novo)
+            self._aplicar_faca("Retângulo na faca", linhas)
+            return
         if arrasto[0] == "nova":
             self._atualizar_preview_curva(None)
             _t, inicio, fim = arrasto
@@ -2388,6 +2554,10 @@ class PreviewCanvas(QGraphicsView):
             self.remover_linha_faca_selecionada()
             return True
         if event.key() == Qt.Key.Key_Escape:
+            if self._faca_arrasto is not None and self._faca_arrasto[0] in ("retangulo", "arco", "arco_curvar", "nova"):
+                self._faca_arrasto = None
+                self._atualizar_preview_curva(None)
+                return True
             if self._faca_arrasto is not None:
                 self._faca_arrasto = None
                 self._atualizar_preview_curva(None)
@@ -2420,7 +2590,8 @@ class PreviewCanvas(QGraphicsView):
             destaque = QPen(QColor(Cor.PRIMARIA), 3.0)
             destaque.setCosmetic(True)
             painter.setPen(destaque)
-            painter.drawLine(QLineF(l.x1, l.y1, l.x2, l.y2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(caminho_da_linha(l))
             painter.setPen(caneta)
             painter.setBrush(QBrush(QColor(Cor.PRIMARIA)))
             for x, y in ((l.x1, l.y1), (l.x2, l.y2)):
