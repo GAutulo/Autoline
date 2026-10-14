@@ -629,6 +629,13 @@ class PainelPropriedadesMockup(QWidget):
                 # vez que troca de elemento — achado testando de verdade,
                 # não só teórico (mostrava várias trava-de-proporção juntas
                 # ao selecionar elementos em sequência rápida).
+                # `hide()` ANTES de tirar o pai: o layout agenda um "mostrar
+                # se não estiver escondido" pra cada widget que entra nele; se
+                # a barra é refeita duas vezes no mesmo clique (seleção muda
+                # 2x), esse aviso chegava com o widget já sem pai e ele
+                # aparecia como janela solta piscando na tela. Escondido de
+                # propósito, o Qt não mostra mais.
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
 
