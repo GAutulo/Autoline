@@ -37,7 +37,7 @@ from enum import Enum, auto
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTransform
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
+from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
 
 
 @contextmanager
@@ -236,6 +236,8 @@ class ElementoMockup(QGraphicsObject):
         # confunde a conta interna dele — ver comentário lá).
         self._calculador_snap = None
         self._arrastando_corpo = False
+        self._arrasto_corpo_iniciado = False
+        self._arrasto_corpo_tela_inicial = QPointF()
 
         # Callback opcional (ver `definir_solicitador_duplicata`) que o
         # canvas liga em todo elemento — pedido quando o usuário começa a
@@ -535,6 +537,11 @@ class ElementoMockup(QGraphicsObject):
             self._arrastando_corpo = True
             self._deixar_copia_ao_soltar = False
             self._arrasto_corpo_ponto_inicial_cena = event.scenePos()
+            # Só vira arrasto depois de o mouse andar alguns pixels (como no
+            # CorelDRAW): a tremida de um clique pra selecionar não mexe o
+            # objeto nem dispara o encaixe ao vivo.
+            self._arrasto_corpo_tela_inicial = event.screenPos()
+            self._arrasto_corpo_iniciado = False
             # Congela a posição de largada de TODOS os itens selecionados
             # agora (não só `self`) — arrastar um item de uma seleção
             # múltipla move o grupo inteiro junto, mesmo comportamento que
@@ -582,6 +589,11 @@ class ElementoMockup(QGraphicsObject):
             self._redimensionar_para(event.scenePos(), event.modifiers())
             return
         if self._arrastando_corpo:
+            if not self._arrasto_corpo_iniciado:
+                andou = (event.screenPos() - self._arrasto_corpo_tela_inicial).manhattanLength()
+                if andou < QApplication.startDragDistance():
+                    return
+                self._arrasto_corpo_iniciado = True
             delta = event.scenePos() - self._arrasto_corpo_ponto_inicial_cena
             if event.modifiers() & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier):
                 # Restringe a UM eixo — o que tiver o maior deslocamento
@@ -607,7 +619,7 @@ class ElementoMockup(QGraphicsObject):
         if self._arrastando_corpo:
             self._arrastando_corpo = False
             super().mouseReleaseEvent(event)
-            if self._calculador_snap is not None and not self._encaixou_ao_vivo:
+            if self._calculador_snap is not None and not self._encaixou_ao_vivo and self._arrasto_corpo_iniciado:
                 # Encaixe só ao SOLTAR o botão, não durante o arrasto —
                 # aplicado a partir de `self` (o item realmente clicado),
                 # o ajuste resultante é então somado a TODO o grupo que se

@@ -170,3 +170,39 @@ def test_alt_setas_movem_e_medidas_acompanham_e_somem_sem_alt(janela, monkeypatc
     monkeypatch.setattr(modulo.QApplication, "queryKeyboardModifiers", staticmethod(lambda: Qt.KeyboardModifier.NoModifier))
     canvas._conferir_alt()
     assert canvas._medidas_distancia == [] and not canvas._alt_distancias
+
+
+def test_clique_com_tremida_nao_move_nem_encaixa(janela):
+    """Bug relatado: clicar pra selecionar deslocava o objeto. A tremida
+    de 1 px do clique fazia o encaixe ao vivo grudar num ponto perto."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    canvas = _layout(janela)
+    canvas._snap_ativo = True
+    el = ElementoRetangulo(largura=10, altura=10, cor_tinta=PRETO)
+    centro_chapa = canvas.retangulo_pagina().center()
+    # centro do objeto a meio limiar do centro da chapa: o encaixe pegaria
+    canvas.adicionar_elemento_mockup(el, centro_chapa - QPointF(5, 5) + QPointF(canvas.limiar_snap() * 0.5, 0))
+    antes = QPointF(el.pos())
+
+    def mouse(tipo, p, botao, botoes):
+        pos = QPointF(canvas.mapFromScene(p))
+        QApplication.sendEvent(
+            canvas.viewport(),
+            QMouseEvent(tipo, pos, canvas.viewport().mapToGlobal(pos), botao, botoes, Qt.KeyboardModifier.NoModifier),
+        )
+
+    px = 1.0 / canvas.transform().m11()
+    p = el.mapToScene(2, 2)
+    esq, nada = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    mouse(QEvent.Type.MouseButtonPress, p, esq, esq)
+    mouse(QEvent.Type.MouseMove, p + QPointF(px, 0), nada, esq)
+    mouse(QEvent.Type.MouseButtonRelease, p + QPointF(px, 0), esq, nada)
+    assert el.isSelected()
+    assert el.pos() == antes
+    # arrastando de verdade, o encaixe continua funcionando
+    mouse(QEvent.Type.MouseButtonPress, p, esq, esq)
+    mouse(QEvent.Type.MouseMove, p + QPointF(20 * px, 0), nada, esq)
+    mouse(QEvent.Type.MouseButtonRelease, p + QPointF(20 * px, 0), esq, nada)
+    assert el.pos() != antes
