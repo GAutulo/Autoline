@@ -101,7 +101,7 @@ def test_faca_editada_usa_a_dobra_generica_no_3d():
     j.abas_tela.setCurrentIndex(2)
     modelo = j.visualizacao_3d.vista._modelo
     assert modelo.descricao == "Faca editada" and not modelo.vazio
-    assert not modelo.solido_fechado
+    assert modelo.solido_fechado  # veio da maleta: fecha como ela (sem piscar nas abas)
     j.visualizacao_3d.vista.resize(600, 400)
     j.visualizacao_3d.vista.grab()  # desenha faces em polígono sem erro
     canvas.descartar_edicoes_faca()
@@ -170,3 +170,126 @@ def test_ferramentas_de_dobra_desligadas_no_modelo_pronto():
     assert not j.visualizacao_3d._botoes_modo["dobra"].isEnabled()
     assert not j.visualizacao_3d.aviso_dobras.isHidden()
     j.close()
+
+
+def _referencia(tipo):
+    from gerador_layout.dobra3d import montar_modelo
+
+    layout = ServicoLayoutCaixa().calcular(MedidasCaixa(tipo=tipo, comprimento=300, largura=200, altura=150))
+    return layout, montar_modelo(tipo, layout.segmentos_impressora, layout.segmentos_riscador)
+
+
+def _posicoes(modelo, t=1.0):
+    return sorted(
+        tuple(round(c, 1) for c in pp.ponto(*pp.painel.ponto_interno))
+        if pp.painel.ponto_interno
+        else tuple(round(c, 1) for c in pp.ponto((pp.painel.x1 + pp.painel.x2) / 2, (pp.painel.y1 + pp.painel.y2) / 2))
+        for pp in posicionar(modelo, t)
+    )
+
+
+@pytest.mark.parametrize("tipo", list(TipoCaixa))
+def test_faca_editada_herda_o_fechamento_do_tipo(tipo):
+    """Mexer no corte de uma aba não pode mudar como a caixa fecha: cada
+    dobra herda o ângulo e a ordem de montagem do modelo calculado."""
+    layout, referencia = _referencia(tipo)
+    sem_mexer = montar_modelo_generico(layout.linhas, referencia=referencia)
+    base = [p for p in sem_mexer.paineis if p.pai is None][0]
+    raiz = [p for p in referencia.paineis if p.pai is None][0]
+    assert (base.x1, base.y1, base.x2, base.y2) == pytest.approx((raiz.x1, raiz.y1, raiz.x2, raiz.y2))
+    # mesmo ângulo e mesma janela de montagem em cada dobra que existe nos dois
+    por_ref = {}
+    for p in sem_mexer.paineis:
+        if p.pai is None:
+            continue
+        x, y = p.ponto_interno
+        dono = min(
+            (r for r in referencia.paineis if r.x1 <= x <= r.x2 and r.y1 <= y <= r.y2),
+            key=lambda r: (r.x2 - r.x1) * (r.y2 - r.y1),
+            default=None,
+        )
+        if dono is None:
+            continue  # pedaço que o modelo calculado não representa: dobra padrão
+        por_ref[p.id] = dono
+        assert p.angulo_fechado == pytest.approx(dono.angulo_fechado)
+        assert (p.inicio, p.fim) == pytest.approx((dono.inicio, dono.fim))
+    if len(por_ref) == len(sem_mexer.paineis) - 1:  # todo pedaço tem par no modelo
+        assert _dimensoes(sem_mexer) == pytest.approx(_dimensoes(referencia), abs=2.0)
+
+
+def test_mudar_corte_da_aba_nao_muda_o_fechamento():
+    layout, referencia = _referencia(TipoCaixa.MALETA_NORMAL)
+    antes = montar_modelo_generico(layout.linhas, referencia=referencia)
+    # chanfra a ponta de um corte de aba (o "mudar o corte das abas" relatado)
+    linhas = list(layout.linhas)
+    i = max(
+        (k for k, l in enumerate(linhas) if l.tipo == TipoLinha.CORTE and abs(l.y1 - l.y2) < 1e-6),
+        key=lambda k: linhas[k].x2 - linhas[k].x1 if linhas[k].y1 < 1 else -1,
+    )
+    l = linhas[i]
+    linhas[i] = LinhaDesenho(l.x1 + 5, l.y1, l.x2, l.y2, l.tipo)
+    linhas.append(LinhaDesenho(l.x1, l.y1 + 5, l.x1 + 5, l.y1, l.tipo))
+    depois = montar_modelo_generico(linhas, referencia=referencia)
+    assert len(depois.paineis) == len(antes.paineis)
+    angulos = lambda m: sorted(round(p.angulo_fechado, 3) for p in m.paineis if p.pai)  # noqa: E731
+    assert angulos(depois) == angulos(antes)
+    assert _dimensoes(depois) == pytest.approx(_dimensoes(antes), abs=2.0)
+
+
+def test_vinco_novo_dobra_e_vinco_virado_corte_solta_a_aba():
+    layout, referencia = _referencia(TipoCaixa.MALETA_NORMAL)
+    antes = montar_modelo_generico(layout.linhas, referencia=referencia)
+    linhas = list(layout.linhas)
+    # vinco horizontal mais alto (aba de cima) vira corte: a aba solta some
+    k = min((k for k, l in enumerate(linhas) if l.tipo == TipoLinha.VINCO and abs(l.y1 - l.y2) < 1e-6), key=lambda k: linhas[k].y1)
+    cortado = list(linhas)
+    l = cortado[k]
+    cortado[k] = LinhaDesenho(l.x1, l.y1, l.x2, l.y2, TipoLinha.CORTE)
+    sem_aba = montar_modelo_generico(cortado, referencia=referencia)
+    assert len(sem_aba.paineis) < len(antes.paineis)
+    # vinco novo no meio da face base: ela vira duas e a nova dobra fecha a 90°
+    base = [p for p in antes.paineis if p.pai is None][0]
+    meio = (base.y1 + base.y2) / 2
+    com_vinco = linhas + [LinhaDesenho(base.x1, meio, base.x2, meio, TipoLinha.VINCO)]
+    novo = montar_modelo_generico(com_vinco, referencia=referencia)
+    assert len(novo.paineis) == len(antes.paineis) + 1
+    nova = [p for p in novo.paineis if p.linha_origem == len(com_vinco) - 1]
+    assert nova and nova[0].angulo_fechado == pytest.approx(90.0)
+
+
+def test_3d_mover_a_vista_e_aproximar_onde_esta_o_mouse():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent, QWheelEvent
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.abas_tela.setCurrentIndex(2)
+    vista = j.visualizacao_3d.vista
+    vista.resize(800, 600)
+
+    def mouse(tipo, x, y, botao, botoes):
+        p = QPointF(x, y)
+        QApplication.sendEvent(vista, QMouseEvent(tipo, p, vista.mapToGlobal(p), botao, botoes, Qt.KeyboardModifier.NoModifier))
+
+    meio = Qt.MouseButton.MiddleButton
+    mouse(QEvent.Type.MouseButtonPress, 400, 300, meio, meio)
+    mouse(QEvent.Type.MouseMove, 450, 280, Qt.MouseButton.NoButton, meio)
+    mouse(QEvent.Type.MouseButtonRelease, 450, 280, meio, Qt.MouseButton.NoButton)
+    assert vista._pan == QPointF(50, -20)
+    yaw = vista._yaw_usuario
+    assert yaw == 0.0  # mover não gira
+
+    cursor = QPointF(600, 150)
+    roda = QWheelEvent(cursor, vista.mapToGlobal(cursor), QPoint(), QPoint(0, 120), Qt.MouseButton.NoButton,
+                       Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    antes = cursor - QPointF(400, 300) - vista._pan
+    QApplication.sendEvent(vista, roda)
+    depois = cursor - QPointF(400, 300) - vista._pan
+    assert depois.x() == pytest.approx(antes.x() * 1.12) and depois.y() == pytest.approx(antes.y() * 1.12)
+    vista.grab()
+    vista.vista_inicial()
+    assert vista._pan == QPointF(0, 0) and vista._zoom == 1.0

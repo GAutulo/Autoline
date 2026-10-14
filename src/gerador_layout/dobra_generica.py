@@ -312,15 +312,35 @@ def _ponto_medio_de(ciclo: list[Ponto]) -> Ponto:
     return ((a[0] + b[0]) / 2 + 1e-4, (a[1] + b[1]) / 2 + 1e-4)
 
 
+def _painel_de_referencia(ponto: Ponto, referencia: ModeloCaixa3D) -> PainelDobravel | None:
+    """Painel do modelo calculado onde cai o ponto (o menor que o contém)."""
+    candidatos = []
+    for p in referencia.paineis:
+        if p.poligono:
+            dentro = _dentro(ponto, list(p.poligono))
+        else:
+            dentro = p.x1 - 1e-6 <= ponto[0] <= p.x2 + 1e-6 and p.y1 - 1e-6 <= ponto[1] <= p.y2 + 1e-6
+        if dentro:
+            candidatos.append(p)
+    return min(candidatos, key=lambda p: (p.x2 - p.x1) * (p.y2 - p.y1), default=None)
+
+
 def montar_modelo_generico(
     linhas: list[LinhaDesenho],
     angulos: dict[int, float] | None = None,
     base: int | None = None,
     descricao: str = "Faca livre",
+    referencia: ModeloCaixa3D | None = None,
 ) -> ModeloCaixa3D:
     """`angulos`: ângulo por índice de linha da faca (padrão 90°; negativo
     dobra pro outro lado; 0 deixa plano). `base`: índice da face base
-    (padrão: a que tem mais vincos; empate, a maior)."""
+    (padrão: a que tem mais vincos; empate, a maior).
+
+    `referencia`: o modelo calculado do tipo de caixa de onde a faca veio.
+    Mexer na faca (o formato de uma aba, um corte) não muda o fechamento:
+    cada face herda do painel onde está a face base, o ângulo de cada dobra
+    e a ordem de montagem. Vinco novo (sem par no modelo) dobra 90°; aba
+    que ficou solta por um corte não aparece."""
     resultado = achar_faces(linhas)
     faces = resultado.faces
     if not faces:
@@ -330,20 +350,54 @@ def montar_modelo_generico(
     for fa, fb, a, b, origem in resultado.dobradicas:
         vizinhos[fa].append((fb, a, b, origem))
         vizinhos[fb].append((fa, a, b, origem))
+
+    ref_de: dict[int, PainelDobravel] = {}
+    if referencia is not None and referencia.paineis:
+        for i, face in enumerate(faces):
+            achado = _painel_de_referencia(ponto_interno(face.poligono, face.furos), referencia)
+            if achado is not None:
+                ref_de[i] = achado
+
+    def herdado(f: int, g: int) -> PainelDobravel | None:
+        """Painel filho do modelo calculado na dobra entre as faces f e g
+        (a dobra existe lá: um é pai do outro)."""
+        pf, pg = ref_de.get(f), ref_de.get(g)
+        if pf is None or pg is None or pf is pg:
+            return None
+        if pg.pai == pf.id:
+            return pg
+        if pf.pai == pg.id:
+            return pf
+        return None
+
     if base is None or not (0 <= base < len(faces)):
-        # A face com mais vincos é a mais "central" da faca (o fundo da
-        # cruz de um cubo, a frente de uma maleta); empate: a maior.
-        base = max(range(len(faces)), key=lambda i: (len(vizinhos[i]), faces[i].area))
+        raiz_ref = [i for i, p in ref_de.items() if p.pai is None]
+        if raiz_ref:
+            base = max(raiz_ref, key=lambda i: faces[i].area)
+        else:
+            # A face com mais vincos é a mais "central" da faca (o fundo da
+            # cruz de um cubo, a frente de uma maleta); empate: a maior.
+            base = max(range(len(faces)), key=lambda i: (len(vizinhos[i]), faces[i].area))
+    # Árvore das dobradiças a partir da base. Dobras que existem no modelo
+    # calculado vêm primeiro (custo 0), pra árvore seguir a da caixa; um
+    # vinco novo que divide um painel também (a parte nova dobra nele).
     pai: dict[int, tuple[int, Ponto, Ponto, int]] = {}
     profundidade = {base: 0}
+    custo = {base: 0}
     fila = deque([base])
     while fila:
         f = fila.popleft()
         for g, a, b, origem in sorted(vizinhos[f], key=lambda item: item[0]):
-            if g not in profundidade:
+            mesmo_painel = ref_de.get(f) is not None and ref_de.get(f) is ref_de.get(g)
+            c = custo[f] + (0 if mesmo_painel or herdado(f, g) is not None else 1)
+            if g not in custo or c < custo[g]:
+                custo[g] = c
                 profundidade[g] = profundidade[f] + 1
                 pai[g] = (f, a, b, origem)
-                fila.append(g)
+                if c == custo[f]:
+                    fila.appendleft(g)
+                else:
+                    fila.append(g)
     maior = max(profundidade.values()) or 1
 
     paineis = []
@@ -365,20 +419,38 @@ def montar_modelo_generico(
             continue
         f_pai, a, b, origem = pai[i]
         d = profundidade[i]
+        modelo_ref = herdado(f_pai, i)
+        if modelo_ref is not None:
+            angulo, inicio, fim = modelo_ref.angulo_fechado, modelo_ref.inicio, modelo_ref.fim
+        else:
+            angulo, inicio, fim = ANGULO_PADRAO, (d - 1) / maior, d / maior
+        # Quem fica por cima de quem na caixa fechada (abas sobrepostas).
+        camada = ref_de[i].camada if i in ref_de else 0
         paineis.append(
             PainelDobravel(
                 **comum,
                 pai=f"face_{f_pai}",
                 dobradica=(a, b),
-                angulo_fechado=angulos.get(origem, ANGULO_PADRAO),
-                inicio=(d - 1) / maior,
-                fim=d / maior,
+                angulo_fechado=angulos.get(origem, angulo),
+                inicio=inicio,
+                fim=fim,
                 linha_origem=origem,
+                camada=camada,
             )
         )
     # Ordem dos painéis: pais antes dos filhos (posicionar() resolve, mas
     # assim a lista sai legível).
     paineis.sort(key=lambda p: profundidade[int(p.id.split("_")[1])])
+    if ref_de.get(base) is not None and ref_de[base].pai is None:
+        # Mesma base do modelo calculado: mesma câmera da caixa.
+        return ModeloCaixa3D(
+            paineis=paineis,
+            cima=referencia.cima,
+            frente=referencia.frente,
+            pitch_planificada=referencia.pitch_planificada,
+            descricao=descricao,
+            solido_fechado=referencia.solido_fechado,
+        )
     return ModeloCaixa3D(
         paineis=paineis,
         cima=(0.0, -1.0, 0.0),  # "cima" da faca na tela

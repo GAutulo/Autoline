@@ -202,6 +202,10 @@ class VistaCaixa3D(QWidget):
         self._yaw_usuario = 0.0
         self._pitch_usuario = 0.0
         self._zoom = 1.0
+        # Deslocamento da vista em pixels de tela (arrastar com o botão do
+        # meio, o direito ou Shift): aproximar não fica preso no centro.
+        self._pan = QPointF(0.0, 0.0)
+        self._arrasto_pan: tuple[QPointF, QPointF] | None = None
         self._arrasto: tuple[QPointF, float, float] | None = None
         self._modo = "girar"  # "girar" | "dobra" | "base"
         self._dobra_destacada: int | None = None
@@ -300,6 +304,7 @@ class VistaCaixa3D(QWidget):
         self._pitch_usuario = 0.0
         self._giro_auto = 0.0
         self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
         self.update()
 
     # ── Giro automático ──────────────────────────────────────────────
@@ -372,7 +377,7 @@ class VistaCaixa3D(QWidget):
 
         olho, direita, cima, olhar = self._camera()
         escala = (min(self.width(), self.height()) / 2.0) / math.tan(math.radians(_FOV_GRAUS) / 2.0)
-        cx, cy = self.width() / 2.0, self.height() / 2.0
+        cx, cy = self.width() / 2.0 + self._pan.x(), self.height() / 2.0 + self._pan.y()
 
         def para_camera(ponto: Vetor) -> Vetor:
             v = (ponto[0] - olho[0], ponto[1] - olho[1], ponto[2] - olho[2])
@@ -649,11 +654,20 @@ class VistaCaixa3D(QWidget):
         p.drawText(
             margem,
             self.height() - margem,
-            "Arraste para girar  ·  roda do mouse para aproximar  ·  duplo clique volta à vista inicial",
+            "Arraste para girar  ·  botão do meio, direito ou Shift + arrastar move  ·  roda aproxima onde está o mouse  ·  duplo clique volta à vista inicial",
         )
 
     # ── Mouse ────────────────────────────────────────────────────────
+    def _quer_mover(self, evento) -> bool:
+        return evento.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton) or (
+            evento.button() == Qt.MouseButton.LeftButton and bool(evento.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        )
+
     def mousePressEvent(self, evento) -> None:  # noqa: N802
+        if self._quer_mover(evento):
+            self._arrasto_pan = (evento.position(), QPointF(self._pan))
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         if evento.button() == Qt.MouseButton.LeftButton:
             self._ponto_clique = evento.position()
             self._arrasto = (evento.position(), self._yaw_usuario, self._pitch_usuario)
@@ -661,6 +675,11 @@ class VistaCaixa3D(QWidget):
             self._atualizar_timer_giro()
 
     def mouseMoveEvent(self, evento) -> None:  # noqa: N802
+        if self._arrasto_pan is not None:
+            inicio, pan0 = self._arrasto_pan
+            self._pan = pan0 + (evento.position() - inicio)
+            self.update()
+            return
         if self._arrasto is None:
             return
         inicio, yaw0, pitch0 = self._arrasto
@@ -670,6 +689,10 @@ class VistaCaixa3D(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, evento) -> None:  # noqa: N802
+        if self._arrasto_pan is not None:
+            self._arrasto_pan = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            return
         inicio = getattr(self, "_ponto_clique", None)
         if self._modo != "girar" and inicio is not None and (evento.position() - inicio).manhattanLength() < 4:
             # Clique sem arrastar: escolhe vinco/face; arrastar continua girando.
@@ -690,7 +713,13 @@ class VistaCaixa3D(QWidget):
 
     def wheelEvent(self, evento) -> None:  # noqa: N802
         passos = evento.angleDelta().y() / 120.0
-        self._zoom = max(0.4, min(4.0, self._zoom * (1.12**passos)))
+        novo = max(0.4, min(12.0, self._zoom * (1.12**passos)))
+        fator = novo / self._zoom
+        # Aproxima onde está o mouse (como no CorelDRAW/Figma): o ponto sob
+        # o cursor fica sob o cursor.
+        cursor = evento.position() - QPointF(self.width() / 2.0, self.height() / 2.0)
+        self._pan = cursor - (cursor - self._pan) * fator
+        self._zoom = novo
         self.update()
 
 
