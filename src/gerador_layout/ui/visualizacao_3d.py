@@ -31,7 +31,7 @@ import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
-from PySide6.QtWidgets import QButtonGroup, QComboBox, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QComboBox, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 
 from ..dobra3d import (
     ModeloCaixa3D,
@@ -938,6 +938,10 @@ class Visualizacao3D(QWidget):
         ferramentas.addWidget(self.combo_papelao)
         self.aviso_dobras = QLabel("Ângulo por vinco e face base: na faca editada à mão ou em branco.")
         self.aviso_dobras.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
+        # O aviso é longo: pode encolher (e cortar) em vez de forçar a janela
+        # inteira a ficar larga numa tela pequena.
+        self.aviso_dobras.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.aviso_dobras.setToolTip(self.aviso_dobras.text())
         ferramentas.addWidget(self.aviso_dobras)
         ferramentas.addStretch(1)
 
