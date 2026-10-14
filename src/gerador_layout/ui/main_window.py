@@ -636,6 +636,7 @@ class JanelaPrincipal(QMainWindow):
         calculada sai, as medidas travam e a ferramenta de corte já fica
         ativa. Ctrl+Z volta; "Descartar edições" volta pra faca calculada."""
         self.abas_tela.setCurrentIndex(0)
+        self._faca_do_zero = True  # não herda o fechamento do tipo de caixa
         self.canvas._aplicar_faca("Nova faca em branco", [])
         self._acoes_faca["corte"].trigger()
         self.statusBar().showMessage(
@@ -660,8 +661,17 @@ class JanelaPrincipal(QMainWindow):
                 self._assinatura_faca_3d = assinatura
                 self._angulos_dobra = {}
                 self._face_base_3d = None
+            # Faca vinda do tipo de caixa: herda o fechamento dele (mexer no
+            # corte de uma aba não muda como a caixa fecha).
+            referencia = None
+            if not getattr(self, "_faca_do_zero", False):
+                referencia = montar_modelo(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
             modelo = montar_modelo_generico(
-                linhas, angulos=self._angulos_dobra, base=self._face_base_3d, descricao="Faca editada"
+                linhas,
+                angulos=self._angulos_dobra,
+                base=self._face_base_3d,
+                descricao="Faca editada",
+                referencia=referencia,
             )
             texto = ""
         else:
@@ -1021,6 +1031,8 @@ class JanelaPrincipal(QMainWindow):
         """Faca editada à mão: trava tipo e medidas (mudar qualquer uma
         recalcularia a faca e jogaria a edição fora sem aviso)."""
         self.aviso_faca_editada.setVisible(editada)
+        if not editada:
+            self._faca_do_zero = False
         for widget in (self._grupo_tipo, self._grupo_medidas_cla, self._grupo_medidas):
             widget.setEnabled(not editada)
         if editada:
