@@ -325,12 +325,34 @@ def _painel_de_referencia(ponto: Ponto, referencia: ModeloCaixa3D) -> PainelDobr
     return min(candidatos, key=lambda p: (p.x2 - p.x1) * (p.y2 - p.y1), default=None)
 
 
+def _dobra_do_estilo(a: Ponto, b: Ponto, dobras: list):
+    """O vinco do estilo que contém a dobradiça a–b (colinear e cobrindo)."""
+    for d in dobras:
+        dx, dy = d.x2 - d.x1, d.y2 - d.y1
+        n = math.hypot(dx, dy)
+        if n < 1e-9:
+            continue
+        ok = True
+        for px, py in (a, b):
+            # distância à reta e posição ao longo do vinco
+            dist = abs((px - d.x1) * dy - (py - d.y1) * dx) / n
+            t = ((px - d.x1) * dx + (py - d.y1) * dy) / (n * n)
+            if dist > 0.05 or not (-1e-3 <= t <= 1 + 1e-3):
+                ok = False
+                break
+        if ok:
+            return d
+    return None
+
+
 def montar_modelo_generico(
     linhas: list[LinhaDesenho],
     angulos: dict[int, float] | None = None,
     base: int | None = None,
     descricao: str = "Faca livre",
     referencia: ModeloCaixa3D | None = None,
+    dobras_estilo: list | None = None,
+    ponto_base: Ponto | None = None,
 ) -> ModeloCaixa3D:
     """`angulos`: ângulo por índice de linha da faca (padrão 90°; negativo
     dobra pro outro lado; 0 deixa plano). `base`: índice da face base
@@ -340,7 +362,13 @@ def montar_modelo_generico(
     Mexer na faca (o formato de uma aba, um corte) não muda o fechamento:
     cada face herda do painel onde está a face base, o ângulo de cada dobra
     e a ordem de montagem. Vinco novo (sem par no modelo) dobra 90°; aba
-    que ficou solta por um corte não aparece."""
+    que ficou solta por um corte não aparece.
+
+    `dobras_estilo` (ver `estilos.DobraDoEstilo`): ângulo e janela de
+    montagem de cada vinco de um estilo paramétrico, casados pela
+    GEOMETRIA (o vinco da faca que está em cima do vinco do estilo), então
+    continuam valendo depois de editar a faca. `ponto_base`: ponto dentro
+    da face que fica parada."""
     resultado = achar_faces(linhas)
     faces = resultado.faces
     if not faces:
@@ -370,6 +398,13 @@ def montar_modelo_generico(
             return pf
         return None
 
+    if (base is None or not (0 <= base < len(faces))) and ponto_base is not None:
+        dentro = [
+            i for i, f in enumerate(faces)
+            if _dentro(ponto_base, f.poligono) and not any(_dentro(ponto_base, furo) for furo in f.furos)
+        ]
+        if dentro:
+            base = dentro[0]
     if base is None or not (0 <= base < len(faces)):
         raiz_ref = [i for i, p in ref_de.items() if p.pai is None]
         if raiz_ref:
@@ -420,7 +455,10 @@ def montar_modelo_generico(
         f_pai, a, b, origem = pai[i]
         d = profundidade[i]
         modelo_ref = herdado(f_pai, i)
-        if modelo_ref is not None:
+        do_estilo = _dobra_do_estilo(a, b, dobras_estilo) if dobras_estilo else None
+        if do_estilo is not None:
+            angulo, inicio, fim = do_estilo.angulo, do_estilo.inicio, do_estilo.fim
+        elif modelo_ref is not None:
             angulo, inicio, fim = modelo_ref.angulo_fechado, modelo_ref.inicio, modelo_ref.fim
         else:
             angulo, inicio, fim = ANGULO_PADRAO, (d - 1) / maior, d / maior
