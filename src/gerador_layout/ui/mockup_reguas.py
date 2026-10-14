@@ -62,7 +62,11 @@ class GuiaCanvas(QGraphicsObject):
         return self.pos().y() if self._orientacao == "h" else self.pos().x()
 
     def boundingRect(self) -> QRectF:
-        margem = 1.5  # área de clique um pouco maior que o traço de 1px, mais fácil de selecionar/arrastar
+        # Área de clique de ~4 px de tela pra cada lado (acompanha o zoom e a
+        # escala do desenho, ver `ElementoMockup.mm_por_px`).
+        from .mockup_itens import ElementoMockup
+
+        margem = 4.0 * ElementoMockup.mm_por_px
         if self._orientacao == "h":
             return QRectF(-_EXTENSAO_GUIA_MM, -margem, 2 * _EXTENSAO_GUIA_MM, margem * 2)
         return QRectF(-margem, -_EXTENSAO_GUIA_MM, margem * 2, 2 * _EXTENSAO_GUIA_MM)
