@@ -6,7 +6,7 @@ import dataclasses
 import math
 from contextlib import contextmanager
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -609,7 +609,14 @@ class JanelaPrincipal(QMainWindow):
         # antes da troca fica deslocada (às vezes "presa" perto do canto
         # superior esquerdo) porque o zoom/posição antigos não fazem mais
         # sentido pro novo tamanho de viewport.
-        self.canvas.ajustar_a_tela()
+        # Na aba 3D o canvas fica escondido (tamanho zero): ajustar ali
+        # levava o zoom a ~0% e o desenho "sumia" na volta. Ajusta só nas
+        # telas do canvas, e depois que o layout assentar o tamanho novo.
+        if not modo_3d:
+            # Duas vezes: logo depois e quando barras/painéis que aparecem ou
+            # somem nesta troca já tiverem reorganizado a janela.
+            QTimer.singleShot(0, self.canvas.ajustar_a_tela)
+            QTimer.singleShot(150, self.canvas.ajustar_a_tela)
         if modo_3d:
             self._atualizar_modelo_3d()  # a faca pode ter sido editada na Dieline
             self._atualizar_arte_3d()

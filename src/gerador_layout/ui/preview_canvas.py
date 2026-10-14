@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 from enum import Enum, auto
 
-from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
@@ -266,7 +266,7 @@ _COR_PAGINA = QColor(255, 255, 255)
 _COR_SOMBRA_PAGINA = QColor(0, 0, 0, 46)
 _DESLOCAMENTO_SOMBRA_PX = 4
 # Espaçamento da grade agora é preferência do usuário — ver
-# `configuracoes.passo_grade_mm()` (lido ao vivo em cada ponto de uso
+# `self.passo_grade()` (lido ao vivo em cada ponto de uso
 # abaixo, mesmo motivo do traço do vinco: mudar na tela de Configurações
 # já vale na hora, sem reiniciar), não uma constante fixa mais.
 
@@ -717,6 +717,7 @@ class PreviewCanvas(QGraphicsView):
         # deslocamento numérico a partir do ponto de referência mais
         # próximo, em vez de já criar no ponto clicado.
         self._painel_offset = _PainelOffsetEndpoint(self)
+        self.zoom_alterado.connect(self._atualizar_escala_tela)
         self._painel_offset.confirmado.connect(self._ao_confirmar_offset_endpoint)
         self._painel_offset.cancelado.connect(self._painel_offset.hide)
         self._offset_referencia_cena = QPointF()
@@ -751,13 +752,68 @@ class PreviewCanvas(QGraphicsView):
         self._ajuste_pendente = True
         self.ajustar_a_tela()
 
+    def _atualizar_escala_tela(self, zoom: float) -> None:
+        """Alças e outras coisas "de tela" acompanham o zoom (ver
+        `ElementoMockup.definir_escala_tela`)."""
+        if zoom > 0:
+            itens = [it for it in self._scene.items() if isinstance(it, (ElementoMockup, GuiaCanvas))]
+            ElementoMockup.definir_escala_tela(1.0 / zoom, itens)
+
+    def mm_por_px(self) -> float:
+        return 1.0 / (self.transform().m11() or 1.0)
+
+    def passo_grade(self) -> float:
+        """Passo da grade que de fato aparece: o de Configurações quando dá
+        entre 12 e 120 px na tela; fora disso, o número "redondo" (1/2/5 ×
+        10^n mm) mais perto que caiba — assim a grade acompanha a escala do
+        desenho (caixa desenhada em 1:10, por exemplo) e o zoom."""
+        px_por_mm = self.transform().m11() or 1.0
+        preferido = configuracoes.passo_grade_mm()
+        if 12.0 <= preferido * px_por_mm <= 120.0:
+            return preferido
+        for expoente in range(-3, 5):
+            for base in (1.0, 2.0, 5.0):
+                passo = base * 10.0**expoente
+                if passo * px_por_mm >= 12.0:
+                    return passo
+        return preferido
+
+    def limiar_snap(self) -> float:
+        """Distância de encaixe: a de Configurações, mas nunca mais que ~10 px
+        de tela — num desenho em escala reduzida, 2 mm pode ser meia caixa."""
+        return min(configuracoes.limiar_snap_mm(), 10.0 * self.mm_por_px())
+
+    def retangulo_do_desenho(self) -> QRectF:
+        """O que "ajustar à tela" enquadra: faca, chapa e elementos do Layout.
+        Nunca as guias — elas atravessam a cena inteira (2 km de propósito) e,
+        somadas, levavam o zoom a ~0% e o desenho "sumia"."""
+        rect = QRectF()
+        for item in self._itens_dieline:
+            rect = rect.united(item.sceneBoundingRect())
+        pagina = self.retangulo_pagina()
+        if pagina is not None:
+            rect = rect.united(pagina)
+        for el in self._elementos_mockup:
+            if el.isVisible():
+                rect = rect.united(el.retangulo_conteudo_cena())
+        return rect if not rect.isEmpty() else self._scene.itemsBoundingRect()
+
     def ajustar_a_tela(self) -> None:
         if not self._scene.items():
             return
+        if self.viewport().width() < 50 or self.viewport().height() < 50 or not self.isVisible():
+            # Canvas escondido ou ainda sem tamanho (ex.: aba 3D aberta):
+            # encaixar agora daria zoom ~0. Fica pendente e o próximo
+            # resizeEvent/exibição faz o encaixe de verdade.
+            self._ajuste_pendente = True
+            return
         self.resetTransform()
         self._zoom_atual = 1.0
-        margem = 20
-        rect = self._scene.itemsBoundingRect().adjusted(-margem, -margem, margem, margem)
+        desenho = self.retangulo_do_desenho()
+        # Folga proporcional ao desenho (não 20 mm fixos: numa caixa
+        # desenhada em escala reduzida isso era quase a caixa inteira).
+        margem = max(desenho.width(), desenho.height()) * 0.04 or 1.0
+        rect = desenho.adjusted(-margem, -margem, margem, margem)
         # `fitInView` escala via `scale()` por baixo, que respeita
         # `transformationAnchor` — com `AnchorUnderMouse` (usado pro zoom
         # da roda do mouse), o resultado ancora onde o mouse estava da
@@ -820,7 +876,7 @@ class PreviewCanvas(QGraphicsView):
         """Grade contínua cobrindo todo o canvas — usada só antes de
         calcular qualquer layout (sem painel nenhum ainda pra encaixar
         a grade)."""
-        passo = configuracoes.passo_grade_mm()
+        passo = self.passo_grade()
         x = math.floor(rect.left() / passo) * passo
         while x < rect.right():
             painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
@@ -837,7 +893,7 @@ class PreviewCanvas(QGraphicsView):
         borda desta face" em vez de uma origem arbitrária do desenho
         inteiro, que é o que realmente ajuda a posicionar arte numa face
         específica."""
-        passo = configuracoes.passo_grade_mm()
+        passo = self.passo_grade()
         for painel in self._paineis:
             area = QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
             if not area.intersects(rect):
@@ -925,6 +981,16 @@ class PreviewCanvas(QGraphicsView):
             # sem essa guarda o zoom resetava sozinho no meio do gesto.
             return
         self.ajustar_a_tela()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if self._ajuste_pendente:
+            QTimer.singleShot(0, self._ajuste_pendente_agora)
+
+    def _ajuste_pendente_agora(self) -> None:
+        if self._ajuste_pendente and self.viewport().width() >= 50:
+            self._ajuste_pendente = False
+            self.ajustar_a_tela()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -1611,11 +1677,11 @@ class PreviewCanvas(QGraphicsView):
             # peça "gruda" numa referência que a pessoa nem está vendo,
             # o que pareceria um bug ("por que não solta exatamente onde
             # eu larguei o mouse?").
-            passo = configuracoes.passo_grade_mm()
+            passo = self.passo_grade()
             candidatos.extend(round(borda / passo) * passo for borda in bordas)
 
         melhor_ajuste = 0.0
-        menor_distancia = configuracoes.limiar_snap_mm()
+        menor_distancia = self.limiar_snap()
         for borda in bordas:
             for alvo in candidatos:
                 distancia = abs(borda - alvo)
@@ -1631,11 +1697,11 @@ class PreviewCanvas(QGraphicsView):
         pra mover nada (ver `_atualizar_guia_snap_preview`)."""
         candidatos = list(alvos)
         if self._grade_visivel and self._ajustar_a["grade"]:
-            passo = configuracoes.passo_grade_mm()
+            passo = self.passo_grade()
             candidatos.extend(round(borda / passo) * passo for borda in bordas)
 
         melhor_alvo = None
-        menor_distancia = configuracoes.limiar_snap_mm()
+        menor_distancia = self.limiar_snap()
         for borda in bordas:
             for alvo in candidatos:
                 distancia = abs(borda - alvo)
@@ -2084,7 +2150,7 @@ class PreviewCanvas(QGraphicsView):
         arrastadas) — e, sem ponta por perto, no encaixe comum."""
         if not self._snap_ativo:
             return ponto
-        limiar = configuracoes.limiar_snap_mm()
+        limiar = self.limiar_snap()
         melhor, menor = None, limiar
         for i, l in enumerate(self.linhas_faca()):
             for qual, (x, y) in ((1, (l.x1, l.y1)), (2, (l.x2, l.y2))):
@@ -2777,7 +2843,7 @@ class PreviewCanvas(QGraphicsView):
         (com o encaixe desligado, nunca mexe)."""
         if not self._snap_ativo:
             return ponto
-        limiar = configuracoes.limiar_snap_mm()
+        limiar = self.limiar_snap()
         melhor, menor = ponto, limiar
         for no in self.nos_de_encaixe():
             distancia = math.hypot(no.x() - ponto.x(), no.y() - ponto.y())
