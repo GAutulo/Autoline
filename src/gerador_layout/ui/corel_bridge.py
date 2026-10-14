@@ -401,9 +401,12 @@ def _desenhar_linha_mockup_cdr(app, layer, elemento: ElementoLinha, altura_total
 
 
 def _desenhar_texto_cdr(app, layer, elemento: ElementoTexto, altura_total: float) -> None:
+    if not elemento.texto.strip():
+        return
     x, y, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
     shape = layer.CreateArtisticText(
-        0, 0, elemento.texto, Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR
+        # O CorelDRAW quebra linha com \r (texto artístico de várias linhas).
+        0, 0, elemento.texto.replace("\n", "\r"), Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR
     )
     shape.Text.Story.Bold = elemento.negrito
     _aplicar_cor_preenchimento(app, shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
