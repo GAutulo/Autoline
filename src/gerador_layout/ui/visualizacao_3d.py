@@ -113,6 +113,10 @@ def renderizar_arte_regioes(
     for item in selecionados:
         item.setSelected(False)
     resultado: list[QImage | None] = []
+    from .mockup_itens import cache_desligado
+
+    sem_cache = cache_desligado(cena)
+    sem_cache.__enter__()  # textura na resolução pedida, não a do cache de tela
     try:
         for retangulo, px_por_mm in pedidos:
             if retangulo.isEmpty() or not retangulo.intersects(area_arte):
@@ -137,6 +141,7 @@ def renderizar_arte_regioes(
             imagem.setText("y_mm", f"{retangulo.top()}")
             resultado.append(imagem)
     finally:
+        sem_cache.__exit__(None, None, None)
         for item in ocultos:
             item.setVisible(True)
         for item in selecionados:
