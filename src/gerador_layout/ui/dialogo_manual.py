@@ -377,9 +377,20 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 grade, as bordas/centro de outros elementos, a face (painel) e as
                 guias — o alvo mais próximo dentro de um limiar "gruda" ali. Fora do
                 limiar, a posição solta exatamente onde o mouse largou.</p>
-                <p>Uma linha-guia tracejada aparece DURANTE o arrasto mostrando pra
-                onde vai grudar, se soltar ali — o encaixe em si só é aplicado ao
-                soltar (não durante o arrasto).</p>
+                <p><b>Encaixe ao vivo</b> (como no CorelDRAW): durante o arrasto, se
+                um canto, o meio de uma borda ou o centro do objeto chega perto de um
+                ponto de encaixe, ele gruda ali na hora, e aparece um quadradinho azul
+                com o nome do ponto ("canto → nó", "centro → centro da chapa"...).
+                Pontos de encaixe: nós, pontos médios e interseções da faca; cantos,
+                meios das bordas e centro dos objetos; cantos e centro da chapa. Com
+                uma ferramenta de desenho, o mesmo nome aparece ao passar o cursor
+                sobre o ponto, então dá pra saber exatamente onde vai clicar.
+                Sem ponto perto, vale o encaixe ao soltar descrito acima.</p>
+                <p><b>Distâncias</b> (como no Illustrator/Figma): enquanto arrasta,
+                linhas vermelhas mostram em mm a distância do objeto até o vizinho mais
+                próximo em cada direção, até as bordas da face e até as bordas da
+                chapa. Com um objeto selecionado, segure <b>Alt</b> para ver as mesmas
+                medidas sem arrastar.</p>
                 <p>Liga/desliga pelo menu Exibir &gt; "Encaixe (snap) ao arrastar". O
                 limiar de distância e o espaçamento da grade são preferências em
                 Configurações &gt; Ferramentas.</p>
