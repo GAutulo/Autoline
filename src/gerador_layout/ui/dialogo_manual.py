@@ -100,6 +100,14 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 e a face com mais vincos fica parada como base. Furos e janelas
                 vazadas aparecem vazados; cortes soltos que não fecham uma região não
                 atrapalham.</p>
+                <p>Se a faca veio de um tipo de caixa, ela <b>fecha igual à caixa
+                calculada</b>: mesma face base, mesmo ângulo e mesma ordem em cada
+                dobra. Mudar o formato ou o corte de uma aba não muda o fechamento; um
+                vinco novo dobra 90°; um vinco que vira corte solta a aba, e ela some
+                do 3D. Na faca em branco, vale a dobra automática.</p>
+                <p><b>Navegar no 3D</b>: arrastar gira; botão do meio, botão direito
+                ou Shift + arrastar move a vista; a roda aproxima no ponto onde está
+                o mouse; duplo clique (ou "Vista inicial") volta.</p>
                 <p>Nesse caso a aba 3D ganha as ferramentas do ArtiosCAD: <b>Ângulo da
                 dobra</b> — clique num vinco pra alternar 90° → −90° → 0° (duplo
                 clique conta dois), ou digite o valor exato no campo ao lado; e
