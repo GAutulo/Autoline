@@ -1187,11 +1187,12 @@ class JanelaPrincipal(QMainWindow):
         return self.canvas.mapToScene(self.canvas.viewport().rect().center())
 
     def _adicionar_elemento_mockup_e_selecionar(self, elemento: ElementoMockup) -> None:
+        self._ajustar_ao_zoom(elemento)  # nasce do mesmo tamanho na tela em qualquer zoom
         # Cada elemento novo nasce um pouco deslocado do anterior (efeito
         # "cascata", igual colar em qualquer editor vetorial) — sem isso,
         # criar vários elementos seguidos empilha tudo exatamente no
         # centro, um em cima do outro, impossível de distinguir/clicar.
-        passo = 8.0 * (len(self.canvas.elementos_mockup) % 6)
+        passo = 8.0 * self._fator_zoom() * (len(self.canvas.elementos_mockup) % 6)
         pos = self._posicao_central_canvas() + QPointF(passo, passo)
         self.canvas.adicionar_elemento_mockup(
             elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2)
@@ -1264,13 +1265,26 @@ class JanelaPrincipal(QMainWindow):
         # Diferente das outras formas, a cota NÃO volta pro ponteiro: o
         # normal é cotar várias medidas em seguida, como no CorelDRAW.
 
+    def _fator_zoom(self) -> float:
+        """Quanto os elementos novos crescem/encolhem com o zoom: no zoom de
+        ~1,25 px/mm (uma caixa grande inteira na tela) vale 1; numa caixa
+        desenhada em escala reduzida, com mais zoom, eles nascem menores —
+        sempre do mesmo tamanho na TELA, como no CorelDRAW."""
+        return max(0.01, min(20.0, self.canvas.mm_por_px() / 0.8))
+
+    def _ajustar_ao_zoom(self, elemento: ElementoMockup) -> None:
+        f = self._fator_zoom()
+        elemento.definir_tamanho(elemento.largura * f, elemento.altura * f)
+
     def _criar_texto_por_clique(self, pos: QPointF) -> None:
+        """Ferramenta Texto, como no CorelDRAW: o clique é o começo da linha
+        de base, o cursor já pisca ali e é só digitar. A letra nasce com
+        ~24 px de altura na tela, em qualquer zoom."""
         elemento = ElementoTexto(
-            texto="Texto", fonte_familia=configuracoes.fonte_padrao_texto(), cor_tinta=self._cor_tinta_padrao()
+            texto="", fonte_familia=configuracoes.fonte_padrao_texto(), cor_tinta=self._cor_tinta_padrao()
         )
-        self.canvas.adicionar_elemento_mockup(elemento, pos)
-        self._selecionar_e_voltar_ao_ponteiro(elemento)
-        elemento.iniciar_edicao_inline()
+        elemento.definir_tamanho_pt(24.0 * self.canvas.mm_por_px() / (25.4 / 72.0))
+        self.canvas.iniciar_texto_novo(elemento, QPointF(pos.x(), pos.y() - elemento.altura))
 
     def _criar_elipse_por_arrasto(self, rect: QRectF) -> None:
         elemento = ElementoElipse(largura=rect.width(), altura=rect.height(), cor_tinta=self._cor_tinta_padrao())
@@ -1289,17 +1303,20 @@ class JanelaPrincipal(QMainWindow):
 
     def _criar_callout_por_clique(self, pos: QPointF) -> None:
         elemento = ElementoCallout(texto="Observação", cor_tinta=self._cor_tinta_padrao())
+        self._ajustar_ao_zoom(elemento)
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
         elemento.iniciar_edicao_inline()
 
     def _criar_tabela_por_clique(self, pos: QPointF) -> None:
         elemento = ElementoTabela(cor_tinta=self._cor_tinta_padrao())
+        self._ajustar_ao_zoom(elemento)
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
 
     def _criar_simbolo_por_clique(self, pos: QPointF) -> None:
         elemento = ElementoSimbolo(cor_tinta=self._cor_tinta_padrao())
+        self._ajustar_ao_zoom(elemento)
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
 

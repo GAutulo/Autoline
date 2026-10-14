@@ -246,4 +246,4 @@ def test_digitar_texto_nao_dispara_atalhos(janela):
     pos_antes = QPointF(texto.pos())
     QTest.keyClicks(janela.canvas, "LRPTB")
     assert texto.pos() == pos_antes
-    assert "LRPTB" in texto._campo_edicao.text()
+    assert "LRPTB" in texto.texto  # as letras foram pro texto, não viraram atalhos

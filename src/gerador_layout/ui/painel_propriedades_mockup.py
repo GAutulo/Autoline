@@ -17,8 +17,10 @@ from __future__ import annotations
 import warnings
 from typing import Callable
 
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
+    QFontComboBox,
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
@@ -670,18 +672,25 @@ class PainelPropriedadesMockup(QWidget):
         self._grupo("espessura", spin, "Espessura do traço")
 
     def _montar_campos_texto(self, el: ElementoTexto) -> None:
-        campo_texto = QLineEdit(el.texto)
-        campo_texto.setMaximumWidth(130)
-        campo_texto.textChanged.connect(el.definir_texto)
-        self._grupo("letra_a", campo_texto, "Conteúdo do texto")
-
-        combo_fonte = QComboBox()
-        combo_fonte.setMaximumWidth(100)
-        combo_fonte.addItems(_FONTES_DISPONIVEIS)
-        if el.fonte_familia in _FONTES_DISPONIVEIS:
-            combo_fonte.setCurrentText(el.fonte_familia)
-        combo_fonte.currentTextChanged.connect(el.definir_fonte)
+        # Como no CorelDRAW: o texto se edita no desenho (duplo clique ou
+        # ferramenta Texto); aqui ficam fonte (todas as instaladas), tamanho
+        # em pontos e negrito.
+        combo_fonte = QFontComboBox()
+        combo_fonte.setMaximumWidth(170)
+        combo_fonte.setCurrentFont(QFont(el.fonte_familia))
+        combo_fonte.currentFontChanged.connect(lambda fonte: el.definir_fonte(fonte.family()))
         self._grupo("fonte_aa", combo_fonte, "Fonte")
+
+        tamanho = QDoubleSpinBox()
+        tamanho.setRange(0.5, 2000.0)
+        tamanho.setDecimals(1)
+        tamanho.setSuffix(" pt")
+        tamanho.setValue(el.tamanho_pt)
+        tamanho.setKeyboardTracking(False)
+        tamanho.setMaximumWidth(78)
+        tamanho.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        tamanho.valueChanged.connect(el.definir_tamanho_pt)
+        self._grupo("letra_a", tamanho, "Tamanho da fonte (pontos)")
 
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
