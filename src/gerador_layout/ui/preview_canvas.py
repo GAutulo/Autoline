@@ -28,6 +28,7 @@ from enum import Enum, auto
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
+    QApplication,
     QDoubleSpinBox,
     QGraphicsItem,
     QGraphicsLineItem,
@@ -615,6 +616,7 @@ class PreviewCanvas(QGraphicsView):
         # sozinho (senão zoom/pan manual do usuário seria perdido a cada
         # redimensionamento da janela).
         self._ajuste_pendente = False
+        self._usuario_interagiu = False
 
         # Itens da dieline (linhas calculadas) ficam à parte dos itens de
         # mockup (adicionados/editados pelo usuário) — `_redesenhar` só
@@ -647,6 +649,10 @@ class PreviewCanvas(QGraphicsView):
         # (ponto, ponto, mm) desenhados por cima de tudo.
         self._indicador_encaixe: tuple[QPointF, str] | None = None
         self._medidas_distancia: list[tuple[QPointF, QPointF, float]] = []
+        # Medida ao vivo ao desenhar/arrastar a faca: (ponto do cursor, texto).
+        self._rotulo_faca: tuple[QPointF, str] | None = None
+        self._alt_distancias = False
+        self._timer_alt: QTimer | None = None
         self._linhas_dinamicas: list[tuple[QPointF, QPointF]] = []
         # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
         self._linhas_editadas: list[LinhaDesenho] | None = None
@@ -872,6 +878,7 @@ class PreviewCanvas(QGraphicsView):
         self.centerOn(rect.center())
         self._zoom_atual = self.transform().m11()
         self._vista_do_ajuste = (self._zoom_atual, self.mapToScene(self.viewport().rect().center()))
+        self._usuario_interagiu = False
         self.zoom_alterado.emit(self._zoom_atual)
 
     # ── Fundo ───────────────────────────────────────────────────────
@@ -1055,7 +1062,7 @@ class PreviewCanvas(QGraphicsView):
             # janela não mexe mais no zoom/posição que o usuário escolheu.
             self._ajuste_pendente = False
             self.ajustar_a_tela()
-        elif self._vista_ainda_ajustada(event.oldSize()):
+        elif self._vista_ainda_ajustada(event.oldSize()) and not self._usuario_interagiu:
             # Ninguém mexeu no zoom nem rolou desde o último "Ajustar à
             # tela": a janela mudou de tamanho (abrir maximizada, barra
             # quebrando linha), então reajusta. Depois que o usuário
@@ -1065,6 +1072,14 @@ class PreviewCanvas(QGraphicsView):
     def _vista_ainda_ajustada(self, tamanho_antigo) -> bool:
         ajuste = getattr(self, "_vista_do_ajuste", None)
         if ajuste is None or not self.isVisible() or self.viewport().width() < 50:
+            return False
+        # Só mudança de tamanho de verdade (maximizar, barra quebrando
+        # linha) e nunca no meio de um clique: selecionar um objeto mexe
+        # alguns pixels na barra de status, e reajustar ali mudava o zoom
+        # durante o arrasto, jogando o objeto longe.
+        if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
+            return False
+        if abs(self.width() - tamanho_antigo.width()) + abs(self.height() - tamanho_antigo.height()) < 40:
             return False
         zoom, centro = ajuste
         if abs(self.transform().m11() - zoom) > 1e-9:
@@ -1129,6 +1144,7 @@ class PreviewCanvas(QGraphicsView):
 
     # ── Pan com o botão do meio + ferramentas de criação ───────────────
     def mousePressEvent(self, event) -> None:  # noqa: N802
+        self._usuario_interagiu = True  # daqui pra frente o zoom/posição são do usuário
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panorama_ativo = True
             self._panorama_ultimo_ponto = event.position()
@@ -1725,7 +1741,7 @@ class PreviewCanvas(QGraphicsView):
         elemento ficar "mudo" pro encaixe sem ninguém notar na hora."""
         self._elementos_mockup.append(elemento)
         self.elementos_alterados.emit()
-        if isinstance(elemento, ElementoTexto):
+        if hasattr(elemento, "ao_terminar_edicao"):  # texto e callout
             elemento.ao_terminar_edicao = self._ao_terminar_edicao_texto
         elemento.definir_calculador_snap(self._calcular_snap)
         elemento.definir_ajustador_arrasto(self._ajustar_arrasto)
@@ -2231,6 +2247,7 @@ class PreviewCanvas(QGraphicsView):
         self._editando_faca = ativo and not self._modo_mockup
         self._faca_ferramenta = ferramenta
         self._faca_arrasto = None
+        self._rotulo_faca = None
         if not self._editando_faca:
             self._selecionar_linha_faca(None)
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag if not self._modo_mockup else self.dragMode())
@@ -2474,6 +2491,8 @@ class PreviewCanvas(QGraphicsView):
             if arrasto[0] == "retangulo":
                 caminho = QPainterPath()
                 caminho.addRect(QRectF(arrasto[1], fim).normalized())
+                r = QRectF(arrasto[1], fim).normalized()
+                self._rotulo_faca = (ponto, f"{r.width():.2f} × {r.height():.2f} mm".replace(".", ","))
             else:
                 caminho = QPainterPath(arrasto[1])
                 caminho.lineTo(fim)
@@ -2496,24 +2515,31 @@ class PreviewCanvas(QGraphicsView):
                 linha.setAngle(round(linha.angle() / 15.0) * 15.0)
                 fim = linha.p2()
             self._faca_arrasto = ("nova", arrasto[1], fim)
+            linha_nova = QLineF(arrasto[1], fim)
+            self._rotulo_faca = (ponto, f"{linha_nova.length():.2f} mm  {linha_nova.angle():.1f}°".replace(".", ","))
             caminho = QPainterPath(arrasto[1])
             caminho.lineTo(fim)
             self._atualizar_preview_curva(caminho)
             return
         tipo, pontas, inicio, originais = arrasto
-        if tipo == "ponta":
-            alvo = self._encaixar_na_faca(ponto, ignorar=set(pontas))
-            if alvo == ponto:
-                alvo = self._ajustar_guias_dinamicas(ponto, (inicio,))
-            if modificadores & Qt.KeyboardModifier.ShiftModifier:
-                # Shift: só na horizontal ou na vertical, como no CorelDRAW.
-                d = alvo - inicio
-                alvo = QPointF(alvo.x(), inicio.y()) if abs(d.x()) >= abs(d.y()) else QPointF(inicio.x(), alvo.y())
-            delta = alvo - inicio
-        else:
-            delta = ponto - inicio
-            if modificadores & Qt.KeyboardModifier.ShiftModifier:
-                delta = QPointF(delta.x(), 0.0) if abs(delta.x()) >= abs(delta.y()) else QPointF(0.0, delta.y())
+        delta = ponto - inicio
+        trava = None
+        if modificadores & Qt.KeyboardModifier.ShiftModifier:
+            # Shift: só na horizontal ou na vertical, como no CorelDRAW.
+            trava = "h" if abs(delta.x()) >= abs(delta.y()) else "v"
+            delta = QPointF(delta.x(), 0.0) if trava == "h" else QPointF(0.0, delta.y())
+        # Precisão (CorelDRAW): os pontos que se mexem grudam em nós e
+        # alinham na horizontal/vertical com os nós que ficam parados,
+        # com a guia tracejada mostrando com quem está alinhado.
+        moventes = []
+        for i, qual in pontas:
+            o = originais[i]
+            p = QPointF(o.x1, o.y1) if qual == 1 else QPointF(o.x2, o.y2)
+            if all(abs(p.x() - m.x()) > 1e-6 or abs(p.y() - m.y()) > 1e-6 for m in moventes):
+                moventes.append(p)
+        correcao = self._alinhar_pontos_faca([m + delta for m in moventes], self._nos_fixos_faca(originais, set(pontas)), trava)
+        delta += correcao
+        self._rotulo_faca = self._texto_medida_arrasto(tipo, pontas, originais, delta, ponto)
         linhas = _copiar_linhas(originais)
         for i, qual in pontas:
             l, o = linhas[i], originais[i]
@@ -2525,8 +2551,76 @@ class PreviewCanvas(QGraphicsView):
         self._redesenhar()
         self.viewport().update()
 
+    def _nos_fixos_faca(self, linhas, moventes: set) -> list[tuple[QPointF, str]]:
+        """Nós que NÃO se mexem no arrasto: pontas paradas da faca, meio das
+        linhas que ficam inteiras paradas, objetos e chapa."""
+        fixos: list[tuple[QPointF, str]] = []
+        for i, l in enumerate(linhas):
+            parada1, parada2 = (i, 1) not in moventes, (i, 2) not in moventes
+            if parada1:
+                fixos.append((QPointF(l.x1, l.y1), "nó"))
+            if parada2:
+                fixos.append((QPointF(l.x2, l.y2), "nó"))
+            if parada1 and parada2:
+                fixos.append((QPointF((l.x1 + l.x2) / 2, (l.y1 + l.y2) / 2), "ponto médio"))
+        fixos += self.nos_de_encaixe_com_tipo(incluir_faca=False)
+        return fixos
+
+    def _alinhar_pontos_faca(self, propostos: list[QPointF], fixos, trava: str | None = None) -> QPointF:
+        """Correção a somar no deslocamento: primeiro gruda num nó (2D, com
+        o nome dele na tela); senão alinha cada eixo com o nó parado mais
+        próximo e desenha a guia até ele."""
+        self._linhas_dinamicas = []
+        self._mostrar_indicador(None)
+        if not propostos:
+            return QPointF()
+        if self._snap_ativo and trava is None:
+            melhor, menor = None, self.limiar_snap()
+            for p in propostos:
+                for f, nome in fixos:
+                    d = math.hypot(f.x() - p.x(), f.y() - p.y())
+                    if d < menor:
+                        melhor, menor = (f - p, f, nome), d
+            if melhor is not None:
+                self._mostrar_indicador((QPointF(melhor[1]), melhor[2]))
+                return melhor[0]
+        if not self._guias_dinamicas:
+            return QPointF()
+        tol = self._tolerancia_mm()
+        bx = by = None  # (diferença, fixo, proposto)
+        for p in propostos:
+            for f, _nome in fixos:
+                dx, dy = f.x() - p.x(), f.y() - p.y()
+                if trava != "h" and abs(dx) < tol and (bx is None or abs(dx) < abs(bx[0])):
+                    bx = (dx, f, p)
+                if trava != "v" and abs(dy) < tol and (by is None or abs(dy) < abs(by[0])):
+                    by = (dy, f, p)
+        correcao = QPointF(bx[0] if bx else 0.0, by[0] if by else 0.0)
+        for achado in (bx, by):
+            if achado is not None:
+                self._linhas_dinamicas.append((QPointF(achado[1]), achado[2] + correcao))
+        self.viewport().update()
+        return correcao
+
+    def _texto_medida_arrasto(self, tipo, pontas, originais, delta: QPointF, cursor: QPointF):
+        """Rótulo ao lado do cursor: ao mover a linha, o deslocamento; ao
+        mover a ponta, o comprimento e o ângulo da linha."""
+        def mm(v: float) -> str:
+            return f"{v:.2f}".replace(".", ",")
+
+        if tipo == "linha":
+            return (cursor, f"Δx {mm(delta.x())}  Δy {mm(-delta.y())} mm")
+        i, qual = next(((i, q) for i, q in pontas if i == self._faca_sel), pontas[0])
+        o = originais[i]
+        a = QPointF(o.x2, o.y2) if qual == 1 else QPointF(o.x1, o.y1)
+        b = (QPointF(o.x1, o.y1) if qual == 1 else QPointF(o.x2, o.y2)) + delta
+        linha = QLineF(a, b)
+        return (cursor, f"{mm(linha.length())} mm  {linha.angle():.1f}°".replace(".", ","))
+
     def _faca_mouse_release(self) -> None:
         self._limpar_guias_dinamicas()
+        self._rotulo_faca = None
+        self._mostrar_indicador(None)
         arrasto, self._faca_arrasto = self._faca_arrasto, None
         if arrasto is None:
             return
@@ -2882,7 +2976,7 @@ class PreviewCanvas(QGraphicsView):
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
-        if self._indicador_encaixe is not None or self._medidas_distancia:
+        if self._indicador_encaixe is not None or self._medidas_distancia or self._rotulo_faca is not None:
             self._desenhar_indicadores(painter)
         if self._linhas_dinamicas:
             self._desenhar_guias_dinamicas(painter)
@@ -3110,14 +3204,14 @@ class PreviewCanvas(QGraphicsView):
         self._trocar_elementos(OPERACOES[operacao], [ordem[i] for i in indices_removidos], [resultado])
         return resultado
 
-    def nos_de_encaixe_com_tipo(self, ignorar: set | frozenset = frozenset()) -> list[tuple[QPointF, str]]:
+    def nos_de_encaixe_com_tipo(self, ignorar: set | frozenset = frozenset(), incluir_faca: bool = True) -> list[tuple[QPointF, str]]:
         """Pontos de encaixe com o NOME de cada um (o que aparece ao lado do
         cursor, como no CorelDRAW): nós, pontos médios e interseções da
         faca; cantos, meios das bordas e centro dos objetos; cantos e centro
         da chapa. `ignorar`: elementos que não contam (os que estão sendo
         arrastados)."""
         pontos: list[tuple[QPointF, str]] = []
-        if self._layout is not None:
+        if self._layout is not None and incluir_faca:
             linhas = self.linhas_faca()
             for linha in linhas:
                 pontos.append((QPointF(linha.x1, linha.y1), "nó"))
@@ -3267,14 +3361,30 @@ class PreviewCanvas(QGraphicsView):
 
     def mostrar_distancias_da_selecao(self, mostrar: bool) -> None:
         """Alt segurado com objeto selecionado: mostra as distâncias até as
-        bordas e vizinhos sem precisar arrastar (Illustrator/Figma)."""
+        bordas e vizinhos sem precisar arrastar, e as setas movem com as
+        medidas acompanhando (como no Figma). Soltou o Alt, somem."""
+        self._alt_distancias = mostrar
         selecionados = self._selecionados_mockup()
         if mostrar and len(selecionados) == 1:
             el = selecionados[0]
             self._medidas_distancia = self._distancias_da_caixa(el.retangulo_conteudo_cena(), ignorar={el})
         else:
             self._medidas_distancia = []
+        if mostrar:
+            # No Windows o "soltar Alt" vai pro menu e nunca chega aqui:
+            # confere o teclado de verdade enquanto estiver mostrando.
+            if self._timer_alt is None:
+                self._timer_alt = QTimer(self)
+                self._timer_alt.setInterval(80)
+                self._timer_alt.timeout.connect(self._conferir_alt)
+            self._timer_alt.start()
+        elif self._timer_alt is not None:
+            self._timer_alt.stop()
         self.viewport().update()
+
+    def _conferir_alt(self) -> None:
+        if not (QApplication.queryKeyboardModifiers() & Qt.KeyboardModifier.AltModifier):
+            self.mostrar_distancias_da_selecao(False)
 
     def _desenhar_indicadores(self, painter) -> None:
         """Marca do ponto de encaixe com o nome, e as medidas de distância
@@ -3297,6 +3407,9 @@ class PreviewCanvas(QGraphicsView):
                     else:
                         painter.drawLine(QPointF(p.x(), p.y() - ponta), QPointF(p.x(), p.y() + ponta))
                 self._rotulo_tela(painter, (a + b) / 2, f"{valor:.1f} mm".replace(".", ","), fonte, QColor(230, 40, 90))
+        if self._rotulo_faca is not None:
+            ponto, texto = self._rotulo_faca
+            self._rotulo_tela(painter, ponto + QPointF(14.0 / escala, 18.0 / escala), texto, fonte, QColor(40, 40, 40), alinhar_esquerda=True)
         if self._indicador_encaixe is not None:
             ponto, nome = self._indicador_encaixe
             lado = 7.0 / escala
@@ -3645,6 +3758,8 @@ class PreviewCanvas(QGraphicsView):
                     for item in selecionados:
                         depois.update(_estado_recursivo(item))
                     self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois, "Mover com seta"))
+                    if self._alt_distancias:
+                        self.mostrar_distancias_da_selecao(True)  # medidas acompanham
                     return
         super().keyPressEvent(event)
 

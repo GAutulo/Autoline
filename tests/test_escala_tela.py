@@ -139,3 +139,51 @@ def test_barra_da_faca_em_linha_propria(janela):
     janela.abas_tela.setCurrentIndex(0)
     _processar()
     assert janela.toolBarBreak(janela.barra_faca)
+
+
+def test_selecionar_objeto_nao_mexe_no_zoom_nem_desloca(janela):
+    """Bug relatado: selecionar o texto mexia a barra de status, o canvas
+    reajustava o zoom no meio do clique e o objeto pulava pra direita."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.ui.mockup_texto import ElementoTexto
+
+    canvas = janela.canvas
+    janela.spin_comprimento.setValue(30)
+    janela.spin_largura.setValue(20)
+    janela.spin_altura.setValue(15)
+    janela.abas_tela.setCurrentIndex(1)
+    _processar()
+    canvas.ajustar_a_tela()
+    _processar()
+    pagina = canvas.retangulo_pagina()
+    janela._criar_texto_por_clique(pagina.center())
+    QTest.keyClicks(canvas.viewport(), "GABINETE FLORA")
+    QTest.keyClick(canvas.viewport(), Qt.Key.Key_Escape)
+    _processar()
+    texto = next(e for e in canvas._elementos_mockup if isinstance(e, ElementoTexto))
+
+    def mouse(tipo, p, botao, botoes):
+        pos = QPointF(canvas.mapFromScene(p))
+        QApplication.sendEvent(
+            canvas.viewport(),
+            QMouseEvent(tipo, pos, canvas.viewport().mapToGlobal(pos), botao, botoes, Qt.KeyboardModifier.NoModifier),
+        )
+
+    esq, nada = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    QTest.qWait(250)  # deixa passar o ajuste agendado pela troca de aba
+    zoom = canvas.transform().m11()
+    for _ in range(4):
+        antes = QPointF(texto.pos())
+        p = texto.mapToScene(texto.largura * 0.3, texto.altura / 2)
+        mouse(QEvent.Type.MouseButtonPress, p, esq, esq)
+        mouse(QEvent.Type.MouseButtonRelease, p, esq, nada)
+        _processar()
+        fora = pagina.topLeft() - QPointF(3, 3)
+        mouse(QEvent.Type.MouseButtonPress, fora, esq, esq)
+        mouse(QEvent.Type.MouseButtonRelease, fora, esq, nada)
+        _processar()
+        assert texto.pos() == antes
+    assert canvas.transform().m11() == pytest.approx(zoom)
