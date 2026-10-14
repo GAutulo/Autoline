@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsLineItem,
     QGraphicsPathItem,
+    QGraphicsPathItem,
     QGraphicsScene,
 )
 
@@ -257,9 +258,12 @@ class _PenasExportacao:
     devia ser uniforme."""
 
     def __init__(self, scene: QGraphicsScene) -> None:
-        self._originais: list[tuple[QGraphicsLineItem, QPen]] = []
+        self._originais: list[tuple[QGraphicsLineItem | QGraphicsPathItem, QPen]] = []
         for item in scene.items():
-            if not isinstance(item, QGraphicsLineItem):
+            # Retas da faca são QGraphicsLineItem; ARCOS da faca são
+            # QGraphicsPathItem marcados com o tipo de linha em data(0).
+            arco = isinstance(item, QGraphicsPathItem) and isinstance(item.data(0), TipoLinha)
+            if not isinstance(item, QGraphicsLineItem) and not arco:
                 continue
             pen_original = item.pen()
             if not pen_original.isCosmetic():
@@ -274,7 +278,8 @@ class _PenasExportacao:
                 # direto — converte pra sair no tamanho ajustado calculado
                 # por `_traco_ajustado`. Lê de Configurações a cada chamada
                 # (não cacheia) pelo mesmo motivo de `_fonte_e_escala_legenda`.
-                traco, espaco = _traco_ajustado(item.line().length(), *configuracoes.traco_vinco_mm())
+                comprimento = item.path().length() if arco else item.line().length()
+                traco, espaco = _traco_ajustado(comprimento, *configuracoes.traco_vinco_mm())
                 pen_exportacao.setStyle(Qt.PenStyle.CustomDashLine)
                 pen_exportacao.setDashPattern([traco / _LARGURA_LINHA_MM, espaco / _LARGURA_LINHA_MM])
             else:
