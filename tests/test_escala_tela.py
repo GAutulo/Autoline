@@ -187,3 +187,9 @@ def test_selecionar_objeto_nao_mexe_no_zoom_nem_desloca(janela):
         _processar()
         assert texto.pos() == antes
     assert canvas.transform().m11() == pytest.approx(zoom)
+
+
+def test_janela_cabe_em_tela_pequena(janela):
+    """Barras e avisos não podem forçar a janela a ficar mais larga que
+    uma tela de notebook (o seletor de papelão do 3D chegou a pedir 1300 px)."""
+    assert janela.minimumSizeHint().width() <= 1100
