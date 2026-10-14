@@ -653,7 +653,7 @@ class JanelaPrincipal(QMainWindow):
         texto = f"{medidas.comprimento:g} × {medidas.largura:g} × {medidas.altura:g} mm"
         if self.canvas.faca_editada:
             linhas = list(self.canvas.linhas_faca())
-            assinatura = tuple((l.x1, l.y1, l.x2, l.y2, l.tipo) for l in linhas)
+            assinatura = tuple((l.x1, l.y1, l.x2, l.y2, l.tipo, l.bojo) for l in linhas)
             if assinatura != self._assinatura_faca_3d:
                 # A faca mudou: índices de linha e de face não valem mais.
                 self._assinatura_faca_3d = assinatura
