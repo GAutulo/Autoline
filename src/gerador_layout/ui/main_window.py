@@ -673,6 +673,9 @@ class JanelaPrincipal(QMainWindow):
         self._dobras_estilo = list(faca.dobras)
         self._base_estilo = faca.ponto_base
         self._assinatura_faca_3d = None
+        if "E" in faca.valores:
+            # O 3D mostra o papelão que o estilo usou nas contas.
+            self.visualizacao_3d.definir_espessura(faca.valores["E"])
         self.canvas.ajustar_a_tela()
         self._atualizar_modelo_3d()
         self.statusBar().showMessage(
@@ -1011,6 +1014,7 @@ class JanelaPrincipal(QMainWindow):
         ):
             self.combo_tipo_linha.addItem(nome, tipo)
         self.combo_tipo_linha.setEnabled(False)
+        self.combo_tipo_linha.setMaximumWidth(140)
         self.combo_tipo_linha.activated.connect(
             lambda _i: self.canvas.definir_tipo_linha_selecionada(self.combo_tipo_linha.currentData())
         )
@@ -1033,6 +1037,7 @@ class JanelaPrincipal(QMainWindow):
         self.combo_tipo_novo.activated.connect(
             lambda _i: self.canvas.definir_tipo_linha_nova(self.combo_tipo_novo.currentData())
         )
+        self.combo_tipo_novo.setMaximumWidth(140)
         barra.addWidget(self.combo_tipo_novo)
         barra.addWidget(QLabel(" Raio: "))
         self.spin_raio_faca = QDoubleSpinBox()
@@ -1041,6 +1046,7 @@ class JanelaPrincipal(QMainWindow):
         self.spin_raio_faca.setSuffix(" mm")
         self.spin_raio_faca.setValue(5.0)
         self.spin_raio_faca.setToolTip("Raio do Arredondar canto")
+        self.spin_raio_faca.setMaximumWidth(110)
         self.spin_raio_faca.valueChanged.connect(self.canvas.definir_raio_arredondar)
         barra.addWidget(self.spin_raio_faca)
         self._distancia_paralela = 3.0

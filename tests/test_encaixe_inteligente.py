@@ -206,3 +206,24 @@ def test_clique_com_tremida_nao_move_nem_encaixa(janela):
     mouse(QEvent.Type.MouseMove, p + QPointF(20 * px, 0), nada, esq)
     mouse(QEvent.Type.MouseButtonRelease, p + QPointF(20 * px, 0), esq, nada)
     assert el.pos() != antes
+
+
+def test_movimento_repetido_antes_do_arrasto_nao_move(janela):
+    """Selecionar mexe na barra de status, a vista muda de tamanho e o Qt
+    repete o último movimento do mouse sobre o item ANTES do arrasto
+    começar. O movimento nativo (ItemIsMovable) deslocava o objeto."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtWidgets import QGraphicsSceneMouseEvent
+
+    canvas = _layout(janela)
+    el = ElementoRetangulo(largura=10, altura=10, cor_tinta=PRETO)
+    canvas.adicionar_elemento_mockup(el, canvas.retangulo_pagina().center())
+    el.setSelected(True)
+    antes = QPointF(el.pos())
+    evento = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseMove)
+    evento.setButtons(Qt.MouseButton.LeftButton)
+    evento.setButtonDownScenePos(Qt.MouseButton.LeftButton, el.mapToScene(2, 2))
+    evento.setScenePos(el.mapToScene(2, 2) + QPointF(3, 1))
+    evento.setLastScenePos(el.mapToScene(2, 2))
+    el.mouseMoveEvent(evento)
+    assert el.pos() == antes
