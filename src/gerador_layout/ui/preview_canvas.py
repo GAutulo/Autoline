@@ -26,7 +26,7 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGraphicsItem,
@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
 from ..paineis import Painel
 from . import configuracoes
-from .estilo import Cor
+from .estilo import FONTE_MONO, Cor
 from .mockup_curva import (
     ElementoCurva,
     No,
@@ -631,6 +631,10 @@ class PreviewCanvas(QGraphicsView):
         # alinha na horizontal/vertical com os nós da faca, dos objetos, da
         # chapa e com o 1º ponto do gesto — ver `_ajustar_guias_dinamicas`.
         self._guias_dinamicas = True
+        # Ponto de encaixe atual (ponto, nome) e medidas de distância
+        # (ponto, ponto, mm) desenhados por cima de tudo.
+        self._indicador_encaixe: tuple[QPointF, str] | None = None
+        self._medidas_distancia: list[tuple[QPointF, QPointF, float]] = []
         self._linhas_dinamicas: list[tuple[QPointF, QPointF]] = []
         # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
         self._linhas_editadas: list[LinhaDesenho] | None = None
@@ -1125,6 +1129,8 @@ class PreviewCanvas(QGraphicsView):
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self.cursor_movido.emit(None)
+        if not self._criando and self._faca_arrasto is None:
+            self._mostrar_indicador(None)
         if self._faca_arrasto is None and not self._criando:
             self._limpar_guias_dinamicas()
         super().leaveEvent(event)
@@ -1140,7 +1146,13 @@ class PreviewCanvas(QGraphicsView):
             event.accept()
             return
         if not (event.buttons() & Qt.MouseButton.LeftButton) and self._mostra_guias_ao_pairar():
-            self._ajustar_guias_dinamicas(self.mapToScene(event.position().toPoint()))
+            sob_cursor = self.mapToScene(event.position().toPoint())
+            achado = self.encaixe_mais_proximo(sob_cursor)
+            self._mostrar_indicador(achado)
+            if achado is None:
+                self._ajustar_guias_dinamicas(sob_cursor)
+            else:
+                self._limpar_guias_dinamicas()
         if self._editando_faca and not self._modo_mockup and self._faca_arrasto is not None:
             self._faca_mouse_move(self.mapToScene(event.position().toPoint()), event.modifiers())
             event.accept()
@@ -1174,7 +1186,15 @@ class PreviewCanvas(QGraphicsView):
             self._atualizar_preview_mover_preciso(event.position().toPoint())
         super().mouseMoveEvent(event)
 
+    def _limpar_indicadores(self) -> None:
+        if self._indicador_encaixe is not None or self._medidas_distancia:
+            self._indicador_encaixe = None
+            self._medidas_distancia = []
+            self.viewport().update()
+
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            QTimer.singleShot(0, self._limpar_indicadores)  # depois do soltar do item
         if event.button() == Qt.MouseButton.MiddleButton and self._panorama_ativo:
             self._panorama_ativo = False
             # Restaura o cursor da ferramenta ativa, não `unsetCursor()`
@@ -1663,6 +1683,7 @@ class PreviewCanvas(QGraphicsView):
         if isinstance(elemento, ElementoTexto):
             elemento.ao_terminar_edicao = self._ao_terminar_edicao_texto
         elemento.definir_calculador_snap(self._calcular_snap)
+        elemento.definir_ajustador_arrasto(self._ajustar_arrasto)
         elemento.definir_solicitador_duplicata(self._duplicar_no_lugar)
         elemento.definir_registrador_undo(self._registrar_comando_geometria)
         # Linha-guia de encaixe (ver `_atualizar_guia_snap_preview`) —
@@ -2670,6 +2691,8 @@ class PreviewCanvas(QGraphicsView):
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
+        if self._indicador_encaixe is not None or self._medidas_distancia:
+            self._desenhar_indicadores(painter)
         if self._linhas_dinamicas:
             self._desenhar_guias_dinamicas(painter)
         if self._editando_faca and not self._modo_mockup:
@@ -2896,35 +2919,219 @@ class PreviewCanvas(QGraphicsView):
         self._trocar_elementos(OPERACOES[operacao], [ordem[i] for i in indices_removidos], [resultado])
         return resultado
 
-    def nos_de_encaixe(self) -> list[QPointF]:
-        """Pontos onde uma cota gruda: pontas das linhas da faca, cantos e
-        centro de cada objeto e cantos da chapa."""
-        pontos: list[QPointF] = []
+    def nos_de_encaixe_com_tipo(self, ignorar: set | frozenset = frozenset()) -> list[tuple[QPointF, str]]:
+        """Pontos de encaixe com o NOME de cada um (o que aparece ao lado do
+        cursor, como no CorelDRAW): nós, pontos médios e interseções da
+        faca; cantos, meios das bordas e centro dos objetos; cantos e centro
+        da chapa. `ignorar`: elementos que não contam (os que estão sendo
+        arrastados)."""
+        pontos: list[tuple[QPointF, str]] = []
         if self._layout is not None:
-            for linha in self.linhas_faca():
-                pontos.append(QPointF(linha.x1, linha.y1))
-                pontos.append(QPointF(linha.x2, linha.y2))
+            linhas = self.linhas_faca()
+            for linha in linhas:
+                pontos.append((QPointF(linha.x1, linha.y1), "nó"))
+                pontos.append((QPointF(linha.x2, linha.y2), "nó"))
+                pontos.append((QPointF((linha.x1 + linha.x2) / 2, (linha.y1 + linha.y2) / 2), "ponto médio"))
+            pontos.extend((p, "interseção") for p in self._intersecoes_da_faca(linhas))
         for el in self._elementos_mockup:
+            if el in ignorar or not el.isVisible():
+                continue
             r = QRectF(0.0, 0.0, el.largura, el.altura)
-            for canto in (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(), r.center()):
-                pontos.append(el.mapToScene(canto))
+            for canto in (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft()):
+                pontos.append((el.mapToScene(canto), "canto"))
+            for meio in (QPointF(r.center().x(), 0), QPointF(r.right(), r.center().y()), QPointF(r.center().x(), r.bottom()), QPointF(0, r.center().y())):
+                pontos.append((el.mapToScene(meio), "ponto médio"))
+            pontos.append((el.mapToScene(r.center()), "centro"))
         pagina = self.retangulo_pagina()
         if pagina is not None:
-            pontos.extend((pagina.topLeft(), pagina.topRight(), pagina.bottomRight(), pagina.bottomLeft()))
+            for canto in (pagina.topLeft(), pagina.topRight(), pagina.bottomRight(), pagina.bottomLeft()):
+                pontos.append((canto, "canto da chapa"))
+            pontos.append((pagina.center(), "centro da chapa"))
         return pontos
+
+    def _intersecoes_da_faca(self, linhas) -> list[QPointF]:
+        """Cruzamentos entre linhas da faca (fora das pontas) — guardados
+        enquanto a faca não muda."""
+        chave = tuple((l.x1, l.y1, l.x2, l.y2) for l in linhas)
+        if getattr(self, "_cache_intersecoes", (None,))[0] == chave:
+            return self._cache_intersecoes[1]
+        saida = []
+        for i, a in enumerate(linhas):
+            for b in linhas[i + 1 :]:
+                p = QPointF()
+                tipo, p = QLineF(a.x1, a.y1, a.x2, a.y2).intersects(QLineF(b.x1, b.y1, b.x2, b.y2))
+                if tipo != QLineF.IntersectionType.BoundedIntersection:
+                    continue
+                pontas = ((a.x1, a.y1), (a.x2, a.y2), (b.x1, b.y1), (b.x2, b.y2))
+                if any(abs(p.x() - x) < 0.01 and abs(p.y() - y) < 0.01 for x, y in pontas):
+                    continue
+                saida.append(QPointF(p))
+        self._cache_intersecoes = (chave, saida)
+        return saida
+
+    def nos_de_encaixe(self) -> list[QPointF]:
+        return [p for p, _tipo in self.nos_de_encaixe_com_tipo()]
+
+    def encaixe_mais_proximo(self, ponto: QPointF, ignorar: set | frozenset = frozenset()) -> tuple[QPointF, str] | None:
+        if not self._snap_ativo:
+            return None
+        melhor, menor = None, self.limiar_snap()
+        for no, tipo in self.nos_de_encaixe_com_tipo(ignorar):
+            distancia = math.hypot(no.x() - ponto.x(), no.y() - ponto.y())
+            if distancia < menor:
+                melhor, menor = (QPointF(no), tipo), distancia
+        return melhor
 
     def encaixar_ponto(self, ponto: QPointF) -> QPointF:
         """Nó mais próximo dentro do limiar de encaixe, ou o próprio ponto
-        (com o encaixe desligado, nunca mexe)."""
-        if not self._snap_ativo:
-            return ponto
-        limiar = self.limiar_snap()
-        melhor, menor = ponto, limiar
-        for no in self.nos_de_encaixe():
-            distancia = math.hypot(no.x() - ponto.x(), no.y() - ponto.y())
-            if distancia < menor:
-                melhor, menor = QPointF(no), distancia
-        return melhor
+        (com o encaixe desligado, nunca mexe). Mostra o nome do ponto."""
+        achado = self.encaixe_mais_proximo(ponto)
+        self._mostrar_indicador(achado)
+        return ponto if achado is None else achado[0]
+
+    def _mostrar_indicador(self, achado: tuple[QPointF, str] | None) -> None:
+        if achado != self._indicador_encaixe:
+            self._indicador_encaixe = achado
+            self.viewport().update()
+
+    # ── Encaixe ao vivo e distâncias ao arrastar ─────────────────────
+    def _ajustar_arrasto(self, elemento: ElementoMockup, delta: QPointF) -> tuple[QPointF, bool]:
+        """Encaixe AO VIVO (CorelDRAW): o canto, meio de borda ou centro do
+        objeto arrastado que chegar perto de um ponto de encaixe gruda nele
+        já durante o arrasto, com o nome do ponto na tela. Também atualiza
+        as distâncias até as bordas e vizinhos."""
+        movendo = set(elemento._arrasto_corpo_posicoes_iniciais) or {elemento}
+        deslocamento = delta - (elemento.pos() - elemento._arrasto_corpo_posicoes_iniciais.get(elemento, elemento.pos()))
+        r = QRectF(0.0, 0.0, elemento.largura, elemento.altura)
+        locais = (
+            (r.topLeft(), "canto"), (r.topRight(), "canto"), (r.bottomRight(), "canto"), (r.bottomLeft(), "canto"),
+            (QPointF(r.center().x(), 0), "meio"), (QPointF(r.right(), r.center().y()), "meio"),
+            (QPointF(r.center().x(), r.bottom()), "meio"), (QPointF(0, r.center().y()), "meio"),
+            (r.center(), "centro"),
+        )
+        ajustado, achado = delta, None
+        if self._snap_ativo:
+            alvos = self.nos_de_encaixe_com_tipo(ignorar=movendo)
+            menor = self.limiar_snap()
+            for local, nome_proprio in locais:
+                proposto = elemento.mapToScene(local) + deslocamento
+                for alvo, tipo in alvos:
+                    d = math.hypot(alvo.x() - proposto.x(), alvo.y() - proposto.y())
+                    if d < menor:
+                        menor = d
+                        ajustado = delta + (alvo - proposto)
+                        achado = (QPointF(alvo), f"{nome_proprio} → {tipo}")
+        self._mostrar_indicador(achado)
+        caixa = elemento.retangulo_conteudo_cena().translated(deslocamento + (ajustado - delta))
+        self._medidas_distancia = self._distancias_da_caixa(caixa, ignorar=movendo)
+        self.viewport().update()
+        return ajustado, achado is not None
+
+    def _distancias_da_caixa(self, caixa: QRectF, ignorar: set | frozenset = frozenset()) -> list[tuple[QPointF, QPointF, float]]:
+        """Distância da caixa até o que está mais perto em cada direção
+        (esquerda, direita, cima, baixo): borda de outro objeto que esteja
+        na mesma faixa, borda da face onde a caixa está e borda da chapa —
+        como as medidas do Illustrator/Figma."""
+        paredes_x: list[tuple[float, float, float]] = []  # (x, y1, y2) bordas verticais
+        paredes_y: list[tuple[float, float, float]] = []  # (y, x1, x2) bordas horizontais
+        for el in self._elementos_mockup:
+            if el in ignorar or not el.isVisible():
+                continue
+            r = el.retangulo_conteudo_cena()
+            paredes_x += [(r.left(), r.top(), r.bottom()), (r.right(), r.top(), r.bottom())]
+            paredes_y += [(r.top(), r.left(), r.right()), (r.bottom(), r.left(), r.right())]
+        centro = caixa.center()
+        contornos = []
+        face = next(
+            (QRectF(p.x1, p.y1, p.largura, p.altura) for p in self._paineis if QRectF(p.x1, p.y1, p.largura, p.altura).contains(centro)),
+            None,
+        )
+        if face is not None:
+            contornos.append(face)
+        pagina = self.retangulo_pagina()
+        if pagina is not None:
+            contornos.append(pagina)
+        for r in contornos:
+            paredes_x += [(r.left(), r.top(), r.bottom()), (r.right(), r.top(), r.bottom())]
+            paredes_y += [(r.top(), r.left(), r.right()), (r.bottom(), r.left(), r.right())]
+        cy, cx = centro.y(), centro.x()
+        medidas = []
+        esquerda = [x for x, y1, y2 in paredes_x if x <= caixa.left() + 1e-6 and y1 - 1e-6 <= cy <= y2 + 1e-6]
+        direita = [x for x, y1, y2 in paredes_x if x >= caixa.right() - 1e-6 and y1 - 1e-6 <= cy <= y2 + 1e-6]
+        cima = [y for y, x1, x2 in paredes_y if y <= caixa.top() + 1e-6 and x1 - 1e-6 <= cx <= x2 + 1e-6]
+        baixo = [y for y, x1, x2 in paredes_y if y >= caixa.bottom() - 1e-6 and x1 - 1e-6 <= cx <= x2 + 1e-6]
+        if esquerda:
+            x = max(esquerda)
+            medidas.append((QPointF(x, cy), QPointF(caixa.left(), cy), caixa.left() - x))
+        if direita:
+            x = min(direita)
+            medidas.append((QPointF(caixa.right(), cy), QPointF(x, cy), x - caixa.right()))
+        if cima:
+            y = max(cima)
+            medidas.append((QPointF(cx, y), QPointF(cx, caixa.top()), caixa.top() - y))
+        if baixo:
+            y = min(baixo)
+            medidas.append((QPointF(cx, caixa.bottom()), QPointF(cx, y), y - caixa.bottom()))
+        return [m for m in medidas if m[2] > 0.005]
+
+    def mostrar_distancias_da_selecao(self, mostrar: bool) -> None:
+        """Alt segurado com objeto selecionado: mostra as distâncias até as
+        bordas e vizinhos sem precisar arrastar (Illustrator/Figma)."""
+        selecionados = self._selecionados_mockup()
+        if mostrar and len(selecionados) == 1:
+            el = selecionados[0]
+            self._medidas_distancia = self._distancias_da_caixa(el.retangulo_conteudo_cena(), ignorar={el})
+        else:
+            self._medidas_distancia = []
+        self.viewport().update()
+
+    def _desenhar_indicadores(self, painter) -> None:
+        """Marca do ponto de encaixe com o nome, e as medidas de distância
+        (em pixels de tela: legíveis em qualquer zoom)."""
+        escala = self.transform().m11() or 1.0
+        painter.save()
+        fonte = QFont(FONTE_MONO)
+        fonte.setPixelSize(11)
+        if self._medidas_distancia:
+            caneta = QPen(QColor(230, 40, 90), 1.0)
+            caneta.setCosmetic(True)
+            for a, b, valor in self._medidas_distancia:
+                painter.setPen(caneta)
+                painter.drawLine(a, b)
+                ponta = 3.0 / escala
+                vertical = abs(a.x() - b.x()) < 1e-9
+                for p in (a, b):
+                    if vertical:
+                        painter.drawLine(QPointF(p.x() - ponta, p.y()), QPointF(p.x() + ponta, p.y()))
+                    else:
+                        painter.drawLine(QPointF(p.x(), p.y() - ponta), QPointF(p.x(), p.y() + ponta))
+                self._rotulo_tela(painter, (a + b) / 2, f"{valor:.1f} mm".replace(".", ","), fonte, QColor(230, 40, 90))
+        if self._indicador_encaixe is not None:
+            ponto, nome = self._indicador_encaixe
+            lado = 7.0 / escala
+            caneta = QPen(QColor(0, 150, 220), 1.5)
+            caneta.setCosmetic(True)
+            painter.setPen(caneta)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(ponto.x() - lado / 2, ponto.y() - lado / 2, lado, lado))
+            self._rotulo_tela(painter, ponto + QPointF(9.0 / escala, -9.0 / escala), nome, fonte, QColor(0, 120, 200), alinhar_esquerda=True)
+        painter.restore()
+
+    def _rotulo_tela(self, painter, ponto: QPointF, texto: str, fonte: QFont, cor: QColor, alinhar_esquerda: bool = False) -> None:
+        """Texto com fundo, desenhado em pixels de tela no ponto da cena."""
+        painter.save()
+        tela = self.mapFromScene(ponto)
+        painter.resetTransform()
+        painter.setFont(fonte)
+        largura = QFontMetricsF(fonte).horizontalAdvance(texto) + 8
+        x = tela.x() if alinhar_esquerda else tela.x() - largura / 2
+        caixa = QRectF(x, tela.y() - 9, largura, 16)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 230))
+        painter.drawRoundedRect(caixa, 3, 3)
+        painter.setPen(cor)
+        painter.drawText(caixa, Qt.AlignmentFlag.AlignCenter, texto)
+        painter.restore()
 
     def selecionados_mockup(self) -> list[ElementoMockup]:
         return self._selecionados_mockup()
@@ -3157,6 +3364,8 @@ class PreviewCanvas(QGraphicsView):
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         foco = self._scene.focusItem()
+        if event.key() == Qt.Key.Key_Alt and self._modo_mockup and not getattr(foco, "editando", False):
+            self.mostrar_distancias_da_selecao(True)
         if isinstance(foco, QGraphicsProxyWidget) or getattr(foco, "editando", False):
             # Digitando um texto no desenho (ver `mockup_texto.py`) ou num
             # campo embutido: toda tecla é do texto — senão L/R/T/B/E/C/P
@@ -3247,6 +3456,11 @@ class PreviewCanvas(QGraphicsView):
                     self._pilha_desfazer.push(_ComandoAlterarGeometria(antes, depois, "Mover com seta"))
                     return
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Alt:
+            self.mostrar_distancias_da_selecao(False)
+        super().keyReleaseEvent(event)
 
     def focusNextPrevChild(self, next: bool) -> bool:  # noqa: N802
         # Sem isso, o Qt intercepta Tab pra navegação de foco entre
