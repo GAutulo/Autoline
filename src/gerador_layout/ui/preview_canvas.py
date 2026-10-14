@@ -871,6 +871,7 @@ class PreviewCanvas(QGraphicsView):
         self.setTransformationAnchor(ancora_original)
         self.centerOn(rect.center())
         self._zoom_atual = self.transform().m11()
+        self._vista_do_ajuste = (self._zoom_atual, self.mapToScene(self.viewport().rect().center()))
         self.zoom_alterado.emit(self._zoom_atual)
 
     # ── Fundo ───────────────────────────────────────────────────────
@@ -1054,6 +1055,25 @@ class PreviewCanvas(QGraphicsView):
             # janela não mexe mais no zoom/posição que o usuário escolheu.
             self._ajuste_pendente = False
             self.ajustar_a_tela()
+        elif self._vista_ainda_ajustada(event.oldSize()):
+            # Ninguém mexeu no zoom nem rolou desde o último "Ajustar à
+            # tela": a janela mudou de tamanho (abrir maximizada, barra
+            # quebrando linha), então reajusta. Depois que o usuário
+            # mexe, o zoom dele fica.
+            self.ajustar_a_tela()
+
+    def _vista_ainda_ajustada(self, tamanho_antigo) -> bool:
+        ajuste = getattr(self, "_vista_do_ajuste", None)
+        if ajuste is None or not self.isVisible() or self.viewport().width() < 50:
+            return False
+        zoom, centro = ajuste
+        if abs(self.transform().m11() - zoom) > 1e-9:
+            return False
+        # O centro da vista anda junto com o redimensionamento: compara com
+        # folga do quanto a janela mudou, em pixels de tela.
+        atual = self.mapToScene(self.viewport().rect().center())
+        folga = (abs(self.width() - tamanho_antigo.width()) + abs(self.height() - tamanho_antigo.height()) + 4) / zoom
+        return abs(atual.x() - centro.x()) <= folga and abs(atual.y() - centro.y()) <= folga
 
     # ── Ferramenta ativa (ver `FerramentaMockup`) ──────────────────────
     @property

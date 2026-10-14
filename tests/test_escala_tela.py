@@ -115,3 +115,27 @@ def test_zoom_nao_prende_o_desenho_no_canto(janela):
         centro_tela = canvas.mapToScene(canvas.viewport().rect().center())
         # dá pra centralizar qualquer canto da chapa na tela (a mesa vai além)
         assert abs(centro_tela.x() - alvo.x()) < 2 and abs(centro_tela.y() - alvo.y()) < 2
+
+
+def test_redimensionar_janela_reajusta_ate_o_usuario_mexer_no_zoom(janela):
+    canvas = janela.canvas
+    canvas.ajustar_a_tela()
+    _processar()
+    zoom_grande = canvas.transform().m11()
+    janela.resize(900, 650)
+    _processar()
+    pagina = canvas.retangulo_pagina()
+    assert canvas.transform().m11() < zoom_grande  # reajustou pra caber
+    assert pagina.width() * canvas.transform().m11() <= canvas.viewport().width()
+    canvas.scale(2, 2)  # o usuário deu zoom
+    zoom_usuario = canvas.transform().m11()
+    janela.resize(1300, 850)
+    _processar()
+    assert canvas.transform().m11() == pytest.approx(zoom_usuario)
+
+
+def test_barra_da_faca_em_linha_propria(janela):
+    janela.resize(1000, 700)
+    janela.abas_tela.setCurrentIndex(0)
+    _processar()
+    assert janela.toolBarBreak(janela.barra_faca)
