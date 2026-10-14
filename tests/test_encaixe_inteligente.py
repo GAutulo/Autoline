@@ -142,3 +142,31 @@ def test_alt_mostra_distancias_da_selecao_e_desenha(janela):
     assert canvas._medidas_distancia == []
     canvas._limpar_indicadores()
     assert canvas._indicador_encaixe is None
+
+
+def test_alt_setas_movem_e_medidas_acompanham_e_somem_sem_alt(janela, monkeypatch):
+    from PySide6.QtCore import Qt
+    canvas = _layout(janela)
+    el = ElementoRetangulo(largura=10, altura=10, cor_tinta=PRETO)
+    canvas.adicionar_elemento_mockup(el, canvas.retangulo_pagina().center())
+    canvas._scene.clearSelection()
+    el.setSelected(True)
+    canvas.setFocus()
+    canvas.mostrar_distancias_da_selecao(True)
+    canvas._timer_alt.stop()  # no teste o Alt não está fisicamente segurado
+    pos_antes = el.pos()
+    antes = sorted(round(v, 3) for _a, _b, v in canvas._medidas_distancia)
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    # seta com Alt ainda segurado (sem o "soltar Alt" que o keyClick simula)
+    QApplication.sendEvent(canvas, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.AltModifier))
+    depois = sorted(round(v, 3) for _a, _b, v in canvas._medidas_distancia)
+    assert el.pos() != pos_antes
+    assert canvas._medidas_distancia and depois != antes  # moveu e as medidas mudaram
+    # Soltou o Alt (no Windows o evento vai pro menu): a conferência esconde
+    import gerador_layout.ui.preview_canvas as modulo
+
+    monkeypatch.setattr(modulo.QApplication, "queryKeyboardModifiers", staticmethod(lambda: Qt.KeyboardModifier.NoModifier))
+    canvas._conferir_alt()
+    assert canvas._medidas_distancia == [] and not canvas._alt_distancias
