@@ -610,7 +610,12 @@ class ElementoMockup(QGraphicsObject):
             for item, pos_inicial in self._arrasto_corpo_posicoes_iniciais.items():
                 item.setPos(pos_inicial + delta)
             return
-        super().mouseMoveEvent(event)
+        # NÃO chama o mouseMoveEvent nativo: ele move o item sozinho
+        # (ItemIsMovable) e o movimento aqui é todo calculado à mão. Um
+        # movimento "repetido" pelo Qt quando a vista muda de tamanho no meio
+        # do clique (selecionar mexe na barra de status) chegava antes do
+        # arrasto começar e deslocava o objeto.
+        event.accept()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() != Qt.MouseButton.LeftButton and (self._arrastando_corpo or self._arrastando):

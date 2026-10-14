@@ -31,7 +31,7 @@ import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
-from PySide6.QtWidgets import QButtonGroup, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QComboBox, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from ..dobra3d import (
     ModeloCaixa3D,
@@ -67,6 +67,18 @@ _PITCH_MONTADA = 24.0
 _COR_EXTERNA = QColor("#C79A5D")
 _COR_INTERNA = QColor("#E6D0A8")
 _COR_ARESTA = QColor(74, 54, 30, 210)
+# Borda cortada do papelão (o miolo ondulado aparece mais escuro).
+_COR_ESPESSURA = QColor("#9C7444")
+
+# Papelões comuns (espessura em mm), como na escolha de papelão do ArtiosCAD.
+PAPELOES = (
+    ("Fino (sem espessura)", 0.0),
+    ("Cartão (0,5 mm)", 0.5),
+    ("Micro-ondulado E (1,5 mm)", 1.5),
+    ("Onda B (3 mm)", 3.0),
+    ("Onda C (4 mm)", 4.0),
+    ("Onda dupla BC (7 mm)", 7.0),
+)
 # Fundo claro neutro (mesmo no tema escuro: é um "estúdio" pra ver a caixa).
 _COR_FUNDO = QColor("#ECEBE8")
 _COR_TEXTO_FUNDO = QColor("#6B6862")
@@ -206,6 +218,9 @@ class VistaCaixa3D(QWidget):
         # meio, o direito ou Shift): aproximar não fica preso no centro.
         self._pan = QPointF(0.0, 0.0)
         self._arrasto_pan: tuple[QPointF, QPointF] | None = None
+        # Espessura do papelão (mm): o lado de dentro fica E mm pra dentro e
+        # cada borda vira uma faixa de papelão. 0 = folha fina (como antes).
+        self._espessura = 0.0
         self._arrasto: tuple[QPointF, float, float] | None = None
         self._modo = "girar"  # "girar" | "dobra" | "base"
         self._dobra_destacada: int | None = None
@@ -298,6 +313,14 @@ class VistaCaixa3D(QWidget):
             self.progresso_alterado.emit(valor)
             self._atualizar_timer_giro()
             self.update()
+
+    @property
+    def espessura(self) -> float:
+        return self._espessura
+
+    def definir_espessura(self, mm: float) -> None:
+        self._espessura = max(0.0, float(mm))
+        self.update()
 
     def vista_inicial(self) -> None:
         self._yaw_usuario = 0.0
@@ -426,6 +449,22 @@ class VistaCaixa3D(QWidget):
                 ]
                 for j in range(n + 1)
             ]
+            espessura = self._espessura
+            grade_dentro = (
+                [
+                    [
+                        para_camera(
+                            pp.transformacao.aplicar(
+                                (_lerp(painel.x1, painel.x2, i / n), _lerp(painel.y1, painel.y2, j / n), espessura)
+                            )
+                        )
+                        for i in range(n + 1)
+                    ]
+                    for j in range(n + 1)
+                ]
+                if espessura > 0
+                else grade
+            )
             for j in range(n):
                 for i in range(n):
                     cantos = [grade[j][i], grade[j][i + 1], grade[j + 1][i + 1], grade[j + 1][i]]
@@ -435,6 +474,14 @@ class VistaCaixa3D(QWidget):
                     ve_lado_externo = produto_escalar(normal_cam, centro) < 0
                     if not ve_lado_externo and caixa_fechada:
                         continue  # caixa fechada é um sólido: o lado de dentro nunca aparece
+                    z_lado = 0.0
+                    if not ve_lado_externo and espessura > 0:
+                        # Lado de dentro: a outra face do papelão, E mm pra dentro.
+                        cantos = [grade_dentro[j][i], grade_dentro[j][i + 1], grade_dentro[j + 1][i + 1], grade_dentro[j + 1][i]]
+                        if min(c[2] for c in cantos) <= 1.0:
+                            continue
+                        centro = tuple(sum(c[k] for c in cantos) / 4.0 for k in range(3))
+                        z_lado = espessura
                     face_normal = normal_cam if ve_lado_externo else tuple(-c for c in normal_cam)
                     luz = 0.55 + 0.45 * max(0.0, produto_escalar(face_normal, _LUZ))
                     base = _COR_EXTERNA if ve_lado_externo else _COR_INTERNA
@@ -462,8 +509,8 @@ class VistaCaixa3D(QWidget):
                         if not recortes:
                             continue
 
-                        def projetar(q: QPointF) -> QPointF:
-                            return para_tela(para_camera(pp.ponto(q.x(), q.y())))
+                        def projetar(q: QPointF, z: float = z_lado) -> QPointF:
+                            return para_tela(para_camera(pp.transformacao.aplicar((q.x(), q.y(), z))))
 
                         desenhos, bordas = [], []
                         for recorte in recortes:
@@ -498,6 +545,10 @@ class VistaCaixa3D(QWidget):
                     for k, desenho in enumerate(desenhos):
                         # As bordas vão só no 1º pedaço da célula (não duplicar traço).
                         pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela))
+            if self._espessura > 0 and not caixa_fechada:
+                # Fechada, a borda do papelão fica escondida nas emendas (e o
+                # pintor por profundidade deixava pedaços vazarem nas quinas).
+                self._faixas_de_espessura(pp, para_camera, para_tela, direita, cima, olhar, caixa_fechada, vies_camada, pedacos)
 
         self._atualizar_texturas(densidade_necessaria, retangulo_painel)
         pedacos.sort(key=lambda item: item[0], reverse=True)
@@ -657,6 +708,59 @@ class VistaCaixa3D(QWidget):
             "Arraste para girar  ·  botão do meio, direito ou Shift + arrastar move  ·  roda aproxima onde está o mouse  ·  duplo clique volta à vista inicial",
         )
 
+    def _faixas_de_espessura(self, pp, para_camera, para_tela, direita, cima, olhar, caixa_fechada, vies_camada, pedacos) -> None:
+        vies_faixa = 0.06 * self._raio_montado
+        """A borda cortada do papelão: uma faixa de E mm em cada aresta do
+        contorno (e dos furos), dividida em trechos pra ordenar direito."""
+        painel = pp.painel
+        e = self._espessura
+        if painel.poligono:
+            aneis = [list(painel.poligono)] + [list(f) for f in painel.furos]
+        else:
+            aneis = [[(painel.x1, painel.y1), (painel.x2, painel.y1), (painel.x2, painel.y2), (painel.x1, painel.y2)]]
+        maior = max(abs(painel.x2 - painel.x1), abs(painel.y2 - painel.y1), 1e-6)
+        for anel in aneis:
+            for (ax, ay), (bx, by) in zip(anel, anel[1:] + anel[:1]):
+                comprimento = math.hypot(bx - ax, by - ay)
+                if comprimento < 1e-6:
+                    continue
+                trechos = max(1, round(_SUBDIVISOES * comprimento / maior))
+                for k in range(trechos):
+                    u0, u1 = k / trechos, (k + 1) / trechos
+                    p0 = (ax + (bx - ax) * u0, ay + (by - ay) * u0)
+                    p1 = (ax + (bx - ax) * u1, ay + (by - ay) * u1)
+                    mundo = [
+                        pp.transformacao.aplicar((p0[0], p0[1], 0.0)),
+                        pp.transformacao.aplicar((p1[0], p1[1], 0.0)),
+                        pp.transformacao.aplicar((p1[0], p1[1], e)),
+                        pp.transformacao.aplicar((p0[0], p0[1], e)),
+                    ]
+                    cam = [para_camera(m) for m in mundo]
+                    if min(c[2] for c in cam) <= 1.0:
+                        continue
+                    centro = tuple(sum(c[i] for c in cam) / 4.0 for i in range(3))
+                    lado_a = tuple(cam[1][i] - cam[0][i] for i in range(3))
+                    lado_b = tuple(cam[3][i] - cam[0][i] for i in range(3))
+                    normal = normalizar(produto_vetorial(lado_a, lado_b))
+                    if produto_escalar(normal, centro) > 0:
+                        normal = tuple(-c for c in normal)  # a faixa vista é a que olha pra câmera
+                    luz = 0.5 + 0.5 * max(0.0, produto_escalar(normal, _LUZ))
+                    cor = QColor.fromRgbF(
+                        min(1.0, _COR_ESPESSURA.redF() * luz),
+                        min(1.0, _COR_ESPESSURA.greenF() * luz),
+                        min(1.0, _COR_ESPESSURA.blueF() * luz),
+                    )
+                    tela = [para_tela(c) for c in cam]
+                    # Um pouco atrás na ordem: a faixa é estreita e o centro dela
+                    # "ganhava" da célula de face que a cobre (bordas de trás
+                    # vazando na lateral da caixa fechada). Na borda aberta
+                    # (tampa de bandeja, aba) nada a cobre e ela continua visível.
+                    profundidade = (
+                        math.sqrt(produto_escalar(centro, centro)) + painel.camada * vies_camada + vies_faixa
+                    )
+                    poligono = QPolygonF(tela)
+                    pedacos.append((profundidade, poligono, cor, [(tela[0], tela[1]), (tela[3], tela[2])], None, poligono))
+
     # ── Mouse ────────────────────────────────────────────────────────
     def _quer_mover(self, evento) -> bool:
         return evento.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton) or (
@@ -741,6 +845,16 @@ class Visualizacao3D(QWidget):
     angulo_alterado = Signal(int, float)
     face_base_escolhida = Signal(str)
 
+    def definir_espessura(self, mm: float) -> None:
+        """Escolhe o papelão da lista mais perto de `mm` (um estilo com E =
+        3 mm vira "Onda B"); fora da lista, entra como personalizado."""
+        for i in range(self.combo_papelao.count()):
+            if abs(self.combo_papelao.itemData(i) - mm) < 1e-6:
+                self.combo_papelao.setCurrentIndex(i)
+                return
+        self.combo_papelao.addItem(f"Personalizado ({mm:g} mm)".replace(".", ","), float(mm))
+        self.combo_papelao.setCurrentIndex(self.combo_papelao.count() - 1)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.vista = VistaCaixa3D()
@@ -814,6 +928,14 @@ class Visualizacao3D(QWidget):
         for chave in ("girar", "dobra", "base"):
             ferramentas.addWidget(self._botoes_modo[chave])
         ferramentas.addWidget(self.campo_angulo)
+        ferramentas.addSpacing(12)
+        ferramentas.addWidget(QLabel("Papelão:"))
+        self.combo_papelao = QComboBox()
+        self.combo_papelao.setToolTip("Espessura do papelão no 3D: a borda cortada aparece e o lado de dentro fica pra dentro")
+        for nome, mm in PAPELOES:
+            self.combo_papelao.addItem(nome, mm)
+        self.combo_papelao.currentIndexChanged.connect(lambda _i: self.vista.definir_espessura(self.combo_papelao.currentData()))
+        ferramentas.addWidget(self.combo_papelao)
         self.aviso_dobras = QLabel("Ângulo por vinco e face base: na faca editada à mão ou em branco.")
         self.aviso_dobras.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
         ferramentas.addWidget(self.aviso_dobras)
