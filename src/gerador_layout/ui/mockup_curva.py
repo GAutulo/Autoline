@@ -418,11 +418,7 @@ def caminho_local_de(elemento: ElementoMockup) -> tuple[QPainterPath, bool, floa
         caminho.lineTo(l, a / 2)
         return caminho, False, elemento.largura_traco
     if isinstance(elemento, ElementoTexto):
-        altura_ref, largura_ref = elemento._metrica_referencia()
-        caminho.addText(QPointF(0, altura_ref), elemento._fonte_referencia(), elemento.texto)
-        sy = a / altura_ref if altura_ref else 1.0
-        sx = l / largura_ref if largura_ref else sy
-        return QTransform.fromScale(sx, sy).map(caminho), True, 0.0
+        return elemento.caminho_local(), True, 0.0
     return None
 
 

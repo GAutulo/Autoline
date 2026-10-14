@@ -1,55 +1,41 @@
-"""Elemento de texto do mockup — nome do produto, textos livres, etc.
-Fonte, negrito e cor de tinta (reaproveitando o mesmo `CorImpressao` já
-usado na legenda de cores de impressão) são editáveis; mover, redimensionar
-e rotacionar vêm de graça do motor em `mockup_itens.py`.
+"""Texto artístico do mockup, como no CorelDRAW: clicar com a ferramenta
+Texto põe o cursor piscando direto no desenho e é só digitar — sem caixa de
+edição por cima. Enter quebra linha; setas, Home/End, Backspace/Delete,
+Shift+setas (seleção), Ctrl+A/C/V/X funcionam; Esc ou clicar fora termina.
+Duplo clique num texto existente edita com o cursor onde clicou.
 
-Redimensionar aqui NÃO troca de tamanho de fonte por um valor em pt nem
-faz wrap de texto — escala o desenho do texto pra caber exatamente na
-caixa atual (largura × altura), igual "texto artístico" no CorelDRAW:
-arrastar um canto escala os dois eixos, arrastar só um lado estica só
-aquele eixo (e distorce o texto de propósito — é o mesmo comportamento
-que o CorelDRAW tem por padrão, o usuário já espera isso de lá).
+Tamanho: o texto é escalado pra caber exatamente na caixa (largura ×
+altura), igual "texto artístico" do CorelDRAW — arrastar um canto escala,
+arrastar um lado estica. Editar o texto mantém o tamanho da letra (as
+escalas atuais), e o canto superior esquerdo fica parado. `tamanho_pt` é o
+tamanho da fonte em pontos, como na barra do CorelDRAW.
 
-O tamanho da fonte não é guardado em pt: a fonte de referência é
-renderizada bem grande (`_TAMANHO_FONTE_REFERENCIA_PT`) e escalada via
-`QPainter.scale()` até caber na caixa — evita o mesmo bug de
-rasterização/kerning em fontes pequenas que já foi corrigido antes na
-legenda de exportação (ver `_fonte_e_escala_legenda` em exportacao.py);
-aqui é o mesmo truque, só que reaplicado a cada pintura em vez de uma
-vez só, porque o tamanho da caixa pode mudar a qualquer momento.
+A fonte de referência é desenhada grande (`_PIXELS_REFERENCIA`) e escalada
+com `QPainter.scale()` — evita o bug de rasterização/kerning de fonte
+pequena (ver `_fonte_e_escala_legenda` em exportacao.py) e o de posição do
+`drawText` na exportação SVG (ver `desenhar_texto_escalado`).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QLineEdit
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QPen, QTransform
 
 from ..models import CorImpressao
-from .mockup_itens import ElementoMockup, desenhar_texto_escalado
+from .mockup_itens import ElementoMockup
 
-_TAMANHO_FONTE_REFERENCIA_PT = 200.0
+_PIXELS_REFERENCIA = 400.0  # tamanho (em px) da fonte de referência: 1 "em"
+_MM_POR_PONTO = 25.4 / 72.0
 _ALTURA_PADRAO_MM = 8.0
-
-# Tamanho NATIVO (pixels reais) do campo de edição embutido no canvas —
-# não tem relação com largura/altura do elemento em mm. Dar um tamanho
-# generoso aqui (em vez de tentar forçar o QLineEdit pro tamanho em mm
-# do elemento, que pode ser menor que a altura mínima de um campo nativo
-# do Qt e sair cortado/ilegível) e depois ESCALAR o widget inteiro pra
-# caber no elemento é o mesmo truque de fonte-de-referência-grande já
-# usado no resto do módulo (`_TAMANHO_FONTE_REFERENCIA_PT`), só que
-# aplicado ao widget, não ao `QPainter.scale()`.
-_LARGURA_EDICAO_PX = 320
-_ALTURA_EDICAO_PX = 64
+_PISCAR_MS = 530
+_COR_SELECAO_TEXTO = QColor(0, 120, 215, 70)
 
 
 class ElementoTexto(ElementoMockup):
-    # Altura aqui É o tamanho da fonte (ver docstring do módulo), não o
-    # "tamanho de uma forma" — o mínimo genérico de `ElementoMockup`
-    # (4mm, pensado pra manter alças de redimensionar clicáveis em
-    # qualquer forma) impedia texto miúdo de verdade (legenda, letra de
-    # rodapé/composição), que em embalagem real fica bem abaixo disso.
-    _altura_minima_mm = 0.5
+    # Altura é o tamanho do bloco de texto, não "tamanho de uma forma":
+    # letra de rodapé em embalagem fica bem abaixo do mínimo genérico.
+    _altura_minima_mm = 0.2
+    _largura_minima_mm = 0.2
 
     def __init__(
         self,
@@ -60,13 +46,23 @@ class ElementoTexto(ElementoMockup):
         parent=None,
     ) -> None:
         super().__init__(largura=10.0, altura=_ALTURA_PADRAO_MM, parent=parent)
-        self._texto = texto or " "
+        self._texto = texto
         self._fonte_familia = fonte_familia
         self._negrito = negrito
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
-        self._reajustar_largura()
-        self._proxy_edicao: QGraphicsProxyWidget | None = None
-        self._campo_edicao: QLineEdit | None = None
+        # Edição direto no desenho.
+        self._editando = False
+        self._cursor = len(texto)
+        self._ancora: int | None = None  # início da seleção (None = sem seleção)
+        self._estado_antes: tuple | None = None
+        self._recem_criado = False
+        self._cursor_visivel = True
+        self._piscar: QTimer | None = None
+        # Chamado ao terminar a edição: (elemento, estado_antes, estado_depois,
+        # era_novo) — o canvas usa pra desfazer e pra apagar texto vazio.
+        self.ao_terminar_edicao = None
+        altura_ref = self._medidas_referencia()[0]
+        self.definir_tamanho(self._medidas_referencia()[1] * (_ALTURA_PADRAO_MM / altura_ref), _ALTURA_PADRAO_MM)
 
     # ── Propriedades ────────────────────────────────────────────────
     @property
@@ -74,24 +70,22 @@ class ElementoTexto(ElementoMockup):
         return self._texto
 
     def definir_texto(self, texto: str) -> None:
-        self._texto = texto or " "
-        self._reajustar_largura()
+        self._mudar(lambda: setattr(self, "_texto", texto))
+        self._cursor = min(self._cursor, len(self._texto))
 
     @property
     def fonte_familia(self) -> str:
         return self._fonte_familia
 
     def definir_fonte(self, familia: str) -> None:
-        self._fonte_familia = familia
-        self._reajustar_largura()
+        self._mudar(lambda: setattr(self, "_fonte_familia", familia))
 
     @property
     def negrito(self) -> bool:
         return self._negrito
 
     def definir_negrito(self, negrito: bool) -> None:
-        self._negrito = negrito
-        self._reajustar_largura()
+        self._mudar(lambda: setattr(self, "_negrito", negrito))
 
     @property
     def cor_tinta(self) -> CorImpressao:
@@ -101,29 +95,76 @@ class ElementoTexto(ElementoMockup):
         self._cor_tinta = cor
         self.update()
 
-    # ── Medição (fonte de referência grande, nunca a fonte pequena) ──
+    @property
+    def tamanho_pt(self) -> float:
+        """Tamanho da fonte em pontos (altura do "em"), como no CorelDRAW."""
+        _ex, ey = self._escalas()
+        return ey * _PIXELS_REFERENCIA / _MM_POR_PONTO
+
+    def definir_tamanho_pt(self, pt: float) -> None:
+        """Muda o tamanho da letra mantendo a proporção largura/altura das
+        letras e o canto superior esquerdo no lugar."""
+        ex, ey = self._escalas()
+        nova_ey = max(0.01, pt) * _MM_POR_PONTO / _PIXELS_REFERENCIA
+        fator = nova_ey / ey if ey else 1.0
+        self._aplicar_escalas(ex * fator, nova_ey)
+
+    # ── Medição (fonte de referência grande) ────────────────────────
     def _fonte_referencia(self) -> QFont:
         fonte = QFont(self._fonte_familia)
-        fonte.setPointSizeF(_TAMANHO_FONTE_REFERENCIA_PT)
+        fonte.setPixelSize(int(_PIXELS_REFERENCIA))
         fonte.setBold(self._negrito)
         return fonte
 
-    def _metrica_referencia(self) -> tuple[float, float]:
-        """(altura_de_referencia, largura_de_referencia) — mesma unidade
-        arbitrária (pt de referência), só a RAZÃO entre elas e o tamanho
-        real da caixa importa."""
-        metrica = QFontMetricsF(self._fonte_referencia())
-        altura_ref = metrica.capHeight() or metrica.ascent()
-        largura_ref = metrica.horizontalAdvance(self._texto) or 1.0
-        return altura_ref, largura_ref
+    def _linhas(self) -> list[str]:
+        return self._texto.split("\n")
 
-    def _reajustar_largura(self) -> None:
-        """Só a largura acompanha texto/fonte/negrito novos — a altura
-        (= tamanho da fonte, ver docstring do módulo) fica como o
-        usuário deixou; editar o texto não deve mudar o tamanho da letra."""
-        altura_ref, largura_ref = self._metrica_referencia()
-        escala = self._altura / altura_ref if altura_ref else 1.0
-        self.definir_tamanho(largura_ref * escala, self._altura)
+    def _medidas_referencia(self) -> tuple[float, float, float, float]:
+        """(altura do bloco, largura do bloco, altura das maiúsculas,
+        espaço entre linhas) na unidade de referência."""
+        metrica = QFontMetricsF(self._fonte_referencia())
+        cap = metrica.capHeight() or metrica.ascent()
+        entre_linhas = metrica.lineSpacing()
+        linhas = self._linhas()
+        largura = max((metrica.horizontalAdvance(l) for l in linhas), default=0.0)
+        largura = max(largura, cap * 0.05)  # texto vazio ainda tem uma "caixa" mínima
+        return cap + (len(linhas) - 1) * entre_linhas, largura, cap, entre_linhas
+
+    def _metrica_referencia(self) -> tuple[float, float]:
+        """(altura, largura) de referência — compatibilidade (1 linha)."""
+        altura, largura, _cap, _ent = self._medidas_referencia()
+        return altura, largura
+
+    def _escalas(self) -> tuple[float, float]:
+        altura, largura, _cap, _ent = self._medidas_referencia()
+        return (self._largura / largura if largura else 1.0, self._altura / altura if altura else 1.0)
+
+    def _aplicar_escalas(self, ex: float, ey: float) -> None:
+        """Novo tamanho a partir das escalas, sem tirar o canto superior
+        esquerdo do lugar na cena (a rotação é em torno do centro)."""
+        canto = self.mapToScene(QPointF(0.0, 0.0))
+        altura, largura, _cap, _ent = self._medidas_referencia()
+        self.definir_tamanho(largura * ex, altura * ey)
+        self.setPos(self.pos() + (canto - self.mapToScene(QPointF(0.0, 0.0))))
+        self.update()
+
+    def _mudar(self, mudanca) -> None:
+        """Aplica uma mudança de texto/fonte mantendo o tamanho da letra."""
+        ex, ey = self._escalas()
+        mudanca()
+        self._aplicar_escalas(ex, ey)
+
+    def caminho_local(self) -> QPainterPath:
+        """O texto como contorno, nas coordenadas do elemento (pra
+        converter em curvas e pra pintar)."""
+        _altura, _largura, cap, entre_linhas = self._medidas_referencia()
+        fonte = self._fonte_referencia()
+        caminho = QPainterPath()
+        for k, linha in enumerate(self._linhas()):
+            if linha:
+                caminho.addText(QPointF(0, cap + k * entre_linhas), fonte, linha)
+        ex, ey = self._escalas()
+        return QTransform.fromScale(ex, ey).map(caminho)
 
     def clonar(self) -> "ElementoTexto":
         novo = ElementoTexto(
@@ -132,89 +173,261 @@ class ElementoTexto(ElementoMockup):
         self._copiar_geometria_para(novo)
         return novo
 
-    # ── Edição direto no canvas (clique duplo, ou logo após criar com a
-    # ferramenta Texto — ver `main_window.py::_criar_texto_por_clique`) ──
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        self.iniciar_edicao_inline()
-        super().mouseDoubleClickEvent(event)
+    # ── Estado pra desfazer ─────────────────────────────────────────
+    def estado_texto(self) -> tuple:
+        return (self._texto, self._largura, self._altura, QPointF(self.pos()))
 
+    def definir_estado_texto(self, estado: tuple) -> None:
+        texto, largura, altura, pos = estado
+        self._texto = texto
+        self._cursor = min(self._cursor, len(texto))
+        self.definir_tamanho(largura, altura)
+        self.setPos(pos)
+        self.update()
+
+    # ── Edição direto no desenho ────────────────────────────────────
+    @property
+    def editando(self) -> bool:
+        return self._editando
+
+    def iniciar_edicao(self, ponto_local: QPointF | None = None, recem_criado: bool = False) -> None:
+        if self._editando or self.scene() is None:
+            return
+        self._editando = True
+        self._recem_criado = recem_criado
+        self._estado_antes = self.estado_texto()
+        self._cursor = self._indice_no_ponto(ponto_local) if ponto_local is not None else len(self._texto)
+        self._ancora = None
+        self.definir_alcas_visiveis(False)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        if self._piscar is None:
+            self._piscar = QTimer()
+            self._piscar.setInterval(_PISCAR_MS)
+            self._piscar.timeout.connect(self._alternar_cursor)
+        self._cursor_visivel = True
+        self._piscar.start()
+        self.update()
+
+    # Compatibilidade com quem ainda chama o nome antigo.
     def iniciar_edicao_inline(self) -> None:
-        """Sobrepõe um `QLineEdit` de verdade em cima do texto pintado —
-        digitar vai direto pro canvas, no lugar onde o texto vai ficar,
-        em vez de precisar editar pelo campo da barra de propriedades
-        (pedido explícito do usuário). Não tenta casar a métrica exata
-        da fonte pintada (ver docstring do módulo — o texto real usa o
-        truque de fonte-de-referência-grande); o campo de edição é só
-        uma aproximação visual suficiente pra digitar no lugar certo — o
-        tamanho final de verdade vem de `definir_texto` ao confirmar."""
-        if self._proxy_edicao is not None or self.scene() is None:
+        self.iniciar_edicao()
+
+    def terminar_edicao(self) -> None:
+        if not self._editando:
             return
+        self._editando = False
+        self._ancora = None
+        if self._piscar is not None:
+            self._piscar.stop()
+        self.definir_alcas_visiveis(True)
+        self.clearFocus()
+        self.update()
+        antes, depois = self._estado_antes, self.estado_texto()
+        era_novo = self._recem_criado
+        self._estado_antes = None
+        self._recem_criado = False
+        if self.ao_terminar_edicao is not None:
+            self.ao_terminar_edicao(self, antes, depois, era_novo)
 
-        campo = QLineEdit(self._texto.strip())
-        fonte = QFont(self._fonte_familia)
-        fonte.setPixelSize(40)
-        fonte.setBold(self._negrito)
-        campo.setFont(fonte)
-        cor = self._cor_tinta
-        campo.setStyleSheet(
-            "QLineEdit { background: white; border: 2px dashed rgb(%d,%d,%d); color: rgb(%d,%d,%d); padding: 2px 6px; }"
-            % (cor.r, cor.g, cor.b, cor.r, cor.g, cor.b)
-        )
-        campo.setFixedSize(_LARGURA_EDICAO_PX, _ALTURA_EDICAO_PX)
+    def _alternar_cursor(self) -> None:
+        self._cursor_visivel = not self._cursor_visivel
+        self.update()
 
-        proxy = QGraphicsProxyWidget(self)
-        proxy.setWidget(campo)
-        # `ItemIgnoresParentOpacity` — sem isso, `self.setOpacity(0.0)`
-        # logo abaixo (que devia só esconder o TEXTO PINTADO por baixo,
-        # evitando duplicar) também apagava o proxy filho junto (opacidade
-        # de item composita com a do pai por padrão em QGraphicsItem) —
-        # o campo de edição ficava lá, recebendo teclado normalmente, só
-        # que 100% invisível: exatamente o bug relatado de "digito e não
-        # aparece nada até clicar em outro lugar" (o clique fora confirma
-        # a edição, que aí sim repinta o texto final visível).
-        proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresParentOpacity, True)
-        # Escala uniforme baseada na ALTURA (mesmo eixo que define
-        # "tamanho de fonte" no resto do app) — a largura do campo pode
-        # sobrar/faltar um pouco em relação ao texto final, sem problema,
-        # já que `definir_texto` recalcula a largura real ao confirmar.
-        escala = self._altura / _ALTURA_EDICAO_PX if self._altura else 1.0
-        proxy.setScale(escala)
-        proxy.setPos(0, 0)
-        proxy.setZValue(1000)
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        if self._editando and event.reason() != Qt.FocusReason.PopupFocusReason:
+            self.terminar_edicao()
 
-        self._proxy_edicao = proxy
-        self._campo_edicao = campo
-        self.setOpacity(0.0)  # esconde o texto pintado normal enquanto edita, evita duplicar
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if self._editando:
+            if self._contem_corpo(event.pos()):
+                # Clique dentro do texto em edição: move o cursor (Shift seleciona).
+                indice = self._indice_no_ponto(event.pos())
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    if self._ancora is None:
+                        self._ancora = self._cursor
+                else:
+                    self._ancora = None
+                self._cursor = indice
+                self._cursor_visivel = True
+                self.update()
+                event.accept()
+                return
+            self.terminar_edicao()
+        super().mousePressEvent(event)
 
-        campo.selectAll()
-        campo.setFocus(Qt.FocusReason.MouseFocusReason)
-        campo.editingFinished.connect(self._confirmar_edicao_inline)
-
-    def _confirmar_edicao_inline(self) -> None:
-        if self._proxy_edicao is None:
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if not self._editando:
+            self.iniciar_edicao(event.pos())
+            event.accept()
             return
-        novo_texto = self._campo_edicao.text() if self._campo_edicao else self._texto
-        proxy = self._proxy_edicao
-        self._proxy_edicao = None
-        self._campo_edicao = None
-        self.setOpacity(1.0)
-        self.definir_texto(novo_texto)
-        if self.scene() is not None:
-            self.scene().removeItem(proxy)
+        # Duplo clique durante a edição: seleciona a palavra.
+        inicio, fim = self._palavra_em(self._cursor)
+        self._ancora, self._cursor = inicio, fim
+        self.update()
+
+    def _palavra_em(self, indice: int) -> tuple[int, int]:
+        t = self._texto
+        inicio = indice
+        while inicio > 0 and not t[inicio - 1].isspace():
+            inicio -= 1
+        fim = indice
+        while fim < len(t) and not t[fim].isspace():
+            fim += 1
+        return inicio, fim
+
+    def _selecao(self) -> tuple[int, int] | None:
+        if self._ancora is None or self._ancora == self._cursor:
+            return None
+        return min(self._ancora, self._cursor), max(self._ancora, self._cursor)
+
+    def _inserir(self, texto: str) -> None:
+        selecao = self._selecao()
+        inicio, fim = selecao if selecao else (self._cursor, self._cursor)
+        novo = self._texto[:inicio] + texto + self._texto[fim:]
+        self._mudar(lambda: setattr(self, "_texto", novo))
+        self._cursor = inicio + len(texto)
+        self._ancora = None
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if not self._editando:
+            super().keyPressEvent(event)
+            return
+        tecla = event.key()
+        mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        self._cursor_visivel = True
+        if tecla == Qt.Key.Key_Escape:
+            self.terminar_edicao()
+        elif ctrl and tecla == Qt.Key.Key_A:
+            self._ancora, self._cursor = 0, len(self._texto)
+        elif ctrl and tecla in (Qt.Key.Key_C, Qt.Key.Key_X):
+            selecao = self._selecao()
+            if selecao:
+                QGuiApplication.clipboard().setText(self._texto[selecao[0] : selecao[1]])
+                if tecla == Qt.Key.Key_X:
+                    self._inserir("")
+        elif ctrl and tecla == Qt.Key.Key_V:
+            self._inserir(QGuiApplication.clipboard().text().replace("\r\n", "\n").replace("\r", "\n"))
+        elif tecla in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._inserir("\n")
+        elif tecla == Qt.Key.Key_Backspace:
+            if self._selecao() is None and self._cursor > 0:
+                self._ancora = self._cursor - 1
+            self._inserir("")
+        elif tecla == Qt.Key.Key_Delete:
+            if self._selecao() is None and self._cursor < len(self._texto):
+                self._ancora = self._cursor + 1
+            self._inserir("")
+        elif tecla in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            if shift and self._ancora is None:
+                self._ancora = self._cursor
+            elif not shift:
+                self._ancora = None
+            self._cursor = self._mover_cursor(tecla, ctrl)
+        elif event.text() and event.text().isprintable() and not ctrl:
+            self._inserir(event.text())
+        else:
+            super().keyPressEvent(event)
+            return
+        self.update()
+        event.accept()
+
+    def _linha_coluna(self, indice: int) -> tuple[int, int]:
+        antes = self._texto[:indice]
+        linha = antes.count("\n")
+        return linha, indice - (antes.rfind("\n") + 1)
+
+    def _indice(self, linha: int, coluna: int) -> int:
+        linhas = self._linhas()
+        linha = max(0, min(linha, len(linhas) - 1))
+        coluna = max(0, min(coluna, len(linhas[linha])))
+        return sum(len(l) + 1 for l in linhas[:linha]) + coluna
+
+    def _mover_cursor(self, tecla, ctrl: bool) -> int:
+        linha, coluna = self._linha_coluna(self._cursor)
+        if tecla == Qt.Key.Key_Left:
+            if ctrl:
+                return self._palavra_em(max(0, self._cursor - 1))[0]
+            return max(0, self._cursor - 1)
+        if tecla == Qt.Key.Key_Right:
+            if ctrl:
+                return self._palavra_em(min(len(self._texto), self._cursor + 1))[1]
+            return min(len(self._texto), self._cursor + 1)
+        if tecla == Qt.Key.Key_Home:
+            return 0 if ctrl else self._indice(linha, 0)
+        if tecla == Qt.Key.Key_End:
+            return len(self._texto) if ctrl else self._indice(linha, len(self._linhas()[linha]))
+        x = self._x_da_coluna(linha, coluna)
+        destino = linha - 1 if tecla == Qt.Key.Key_Up else linha + 1
+        if not (0 <= destino < len(self._linhas())):
+            return self._cursor
+        return self._indice(destino, self._coluna_do_x(destino, x))
+
+    def _x_da_coluna(self, linha: int, coluna: int) -> float:
+        """x (referência) do ponto antes do caractere `coluna` da linha."""
+        metrica = QFontMetricsF(self._fonte_referencia())
+        return metrica.horizontalAdvance(self._linhas()[linha][:coluna])
+
+    def _coluna_do_x(self, linha: int, x_ref: float) -> int:
+        texto = self._linhas()[linha]
+        metrica = QFontMetricsF(self._fonte_referencia())
+        melhor, menor = 0, abs(x_ref)
+        for k in range(1, len(texto) + 1):
+            d = abs(metrica.horizontalAdvance(texto[:k]) - x_ref)
+            if d < menor:
+                melhor, menor = k, d
+        return melhor
+
+    def _indice_no_ponto(self, ponto_local: QPointF) -> int:
+        ex, ey = self._escalas()
+        _alt, _larg, cap, entre_linhas = self._medidas_referencia()
+        y_ref = ponto_local.y() / ey if ey else 0.0
+        linha = round((y_ref - cap / 2) / entre_linhas) if entre_linhas else 0
+        linha = max(0, min(linha, len(self._linhas()) - 1))
+        x_ref = ponto_local.x() / ex if ex else 0.0
+        return self._indice(linha, self._coluna_do_x(linha, x_ref))
 
     # ── Pintura ──────────────────────────────────────────────────────
     def _pintar_conteudo(self, painter: QPainter) -> None:
-        altura_ref, largura_ref = self._metrica_referencia()
-        escala_y = self._altura / altura_ref if altura_ref else 1.0
-        escala_x = self._largura / largura_ref if largura_ref else escala_y
-
-        painter.save()
         cor = QColor(self._cor_tinta.r, self._cor_tinta.g, self._cor_tinta.b)
-        painter.setPen(QPen(cor))
+        if self._editando:
+            self._pintar_selecao_texto(painter)
+        # Contorno do texto preenchido (drawPath, não drawText — ver
+        # `desenhar_texto_escalado` em mockup_itens.py pro bug do SVG).
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(cor))
-        painter.scale(escala_x, escala_y)
-        # `desenhar_texto_escalado` (não `painter.drawText` direto) —
-        # ver docstring dela em mockup_itens.py pro bug real de
-        # exportação SVG que essa troca evita.
-        desenhar_texto_escalado(painter, QPointF(0, altura_ref), self._fonte_referencia(), self._texto)
-        painter.restore()
+        painter.drawPath(self.caminho_local())
+        if self._editando:
+            self._pintar_cursor(painter)
+
+    def _caixa_do_trecho(self, linha: int, col_ini: int, col_fim: int) -> QRectF:
+        ex, ey = self._escalas()
+        _alt, _larg, cap, entre_linhas = self._medidas_referencia()
+        topo = (cap + linha * entre_linhas - cap * 1.25) * ey
+        x1 = self._x_da_coluna(linha, col_ini) * ex
+        x2 = self._x_da_coluna(linha, col_fim) * ex
+        return QRectF(QPointF(x1, topo), QPointF(x2, topo + cap * 1.5 * ey))
+
+    def _pintar_selecao_texto(self, painter: QPainter) -> None:
+        selecao = self._selecao()
+        if selecao is None:
+            return
+        (l1, c1), (l2, c2) = self._linha_coluna(selecao[0]), self._linha_coluna(selecao[1])
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_COR_SELECAO_TEXTO)
+        for linha in range(l1, l2 + 1):
+            inicio = c1 if linha == l1 else 0
+            fim = c2 if linha == l2 else len(self._linhas()[linha])
+            painter.drawRect(self._caixa_do_trecho(linha, inicio, fim))
+
+    def _pintar_cursor(self, painter: QPainter) -> None:
+        if not self._cursor_visivel:
+            return
+        linha, coluna = self._linha_coluna(self._cursor)
+        caixa = self._caixa_do_trecho(linha, coluna, coluna)
+        caneta = QPen(QColor(20, 20, 20), 1.6)
+        caneta.setCosmetic(True)  # cursor fino na tela em qualquer zoom
+        painter.setPen(caneta)
+        painter.drawLine(caixa.topLeft(), caixa.bottomLeft())

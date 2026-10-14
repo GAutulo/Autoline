@@ -166,16 +166,17 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
             (
                 "Texto",
                 """
-                <p>Clique no canvas — o cursor de texto já aparece na hora, digite
-                direto (sem precisar de um diálogo à parte) e clique fora ou aperte
-                Enter pra confirmar.</p>
-                <p><b>Duplo-clique</b> num texto já existente reabre a edição no
-                lugar. Redimensionar (alças) estica o texto nos 2 eixos — puxar só um
-                canto/lado distorce de propósito, igual "texto artístico" em qualquer
-                editor vetorial: é assim que se ajusta largura/altura de letra sem
-                precisar de um campo numérico de "tamanho de fonte".</p>
-                <p>Fonte, negrito e cor de tinta ficam na barra de propriedades quando o
-                texto está selecionado. A fonte usada num texto novo vem de
+                <p>Igual ao texto artístico do CorelDRAW: clique no desenho (o clique é
+                o começo da linha) e digite direto — sem caixa de edição. <b>Enter</b>
+                quebra linha; setas, Home/End, Backspace/Delete, <b>Shift+setas</b>
+                (selecionar) e Ctrl+A/C/V/X funcionam. <b>Esc</b> ou clicar fora
+                termina; texto que termina vazio some. A letra nasce com o mesmo
+                tamanho na tela em qualquer zoom.</p>
+                <p><b>Duplo clique</b> num texto (ou clicar nele com a ferramenta Texto)
+                edita com o cursor onde você clicou. Redimensionar pelas alças estica o
+                texto (canto = proporcional, lado = distorce), como no CorelDRAW.</p>
+                <p>Na barra de propriedades: fonte (todas as instaladas), <b>tamanho em
+                pontos</b>, negrito e tinta. A fonte de um texto novo vem de
                 Configurações &gt; Ferramentas.</p>
                 """,
             ),
