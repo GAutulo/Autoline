@@ -889,6 +889,9 @@ class JanelaPrincipal(QMainWindow):
         barra.setObjectName("paletaFerramentasMockup")
         barra.setMovable(False)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        # Linha própria: na mesma linha das abas e da exportação, em janela
+        # menor as ferramentas sumiam atrás do "»".
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
         self.barra_faca = barra
 
