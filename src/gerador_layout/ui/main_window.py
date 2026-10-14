@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import math
 from contextlib import contextmanager
 
@@ -11,6 +10,7 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
@@ -49,6 +49,8 @@ from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
+from .dialogo_estilos import DialogoEstilos, pasta_estilos_usuario
+from ..estilos import estilo_da_faca, salvar_estilo
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota, criar_cota
 from .mockup_cota_angular import ElementoCotaAngular
@@ -465,6 +467,9 @@ class JanelaPrincipal(QMainWindow):
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
         menu_arquivo.addAction("Nova faca em branco (desenho livre)", self._nova_faca_em_branco)
+        acao_catalogo = menu_arquivo.addAction("Nova faca a partir de estilo (catálogo)...", self._abrir_catalogo_estilos)
+        acao_catalogo.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        menu_arquivo.addAction("Salvar faca como estilo...", self._salvar_faca_como_estilo)
         menu_arquivo.addSeparator()
         menu_arquivo.addAction("Conectar ao CorelDRAW", self._conectar_corel)
         menu_arquivo.addSeparator()
@@ -637,11 +642,55 @@ class JanelaPrincipal(QMainWindow):
         ativa. Ctrl+Z volta; "Descartar edições" volta pra faca calculada."""
         self.abas_tela.setCurrentIndex(0)
         self._faca_do_zero = True  # não herda o fechamento do tipo de caixa
+        self._dobras_estilo, self._base_estilo, self._estilo_atual = None, None, None
         self.canvas._aplicar_faca("Nova faca em branco", [])
         self._acoes_faca["corte"].trigger()
         self.statusBar().showMessage(
             "Faca em branco: desenhe os cortes e vincos (barra Faca). A aba 3D dobra o que você desenhar.", 8000
         )
+
+    # ── Estilos paramétricos (catálogo, como o do ArtiosCAD) ─────────────
+    def _abrir_catalogo_estilos(self) -> None:
+        atual = getattr(self, "_estilo_atual", None)
+        dialogo = DialogoEstilos(
+            self, estilo_inicial=atual[0] if atual else None, valores_iniciais=atual[1] if atual else None
+        )
+        if dialogo.exec() != QDialog.DialogCode.Accepted or dialogo.faca is None:
+            return
+        self.aplicar_estilo(dialogo.estilo_escolhido, dialogo.valores, dialogo.faca)
+
+    def aplicar_estilo(self, estilo, valores: dict, faca) -> None:
+        """Troca a faca pela do estilo (Ctrl+Z volta). A chapa fica do
+        tamanho da faca e o 3D dobra com os ângulos e a ordem do estilo.
+        Abrir o catálogo de novo traz o mesmo estilo e as mesmas medidas
+        pra refazer com outros valores."""
+        self.abas_tela.setCurrentIndex(0)
+        self._faca_do_zero = True
+        self.canvas.definir_pagina_pela_faca(True)
+        self.canvas._aplicar_faca(f"Estilo {estilo.nome_exibicao}", faca.linhas)
+        # Depois de aplicar: a faca editada liga aqui (e zera o anterior).
+        self._estilo_atual = (estilo.nome_exibicao, dict(valores))
+        self._dobras_estilo = list(faca.dobras)
+        self._base_estilo = faca.ponto_base
+        self._assinatura_faca_3d = None
+        self.canvas.ajustar_a_tela()
+        self._atualizar_modelo_3d()
+        self.statusBar().showMessage(
+            f"{estilo.nome_exibicao}: faca de {faca.largura:.1f} × {faca.altura:.1f} mm. "
+            "Arquivo > Nova faca a partir de estilo refaz com outras medidas.",
+            8000,
+        )
+
+    def _salvar_faca_como_estilo(self) -> None:
+        linhas = list(self.canvas.linhas_faca())
+        if not linhas:
+            QMessageBox.information(self, "Salvar faca como estilo", "Não há faca pra salvar.")
+            return
+        nome, ok = QInputDialog.getText(self, "Salvar faca como estilo", "Nome do estilo:")
+        if not ok or not nome.strip():
+            return
+        destino = salvar_estilo(estilo_da_faca(linhas, nome.strip()), pasta_estilos_usuario())
+        self.statusBar().showMessage(f"Estilo salvo em {destino} — aparece no catálogo (Ctrl+Shift+N).", 10000)
 
     def _atualizar_modelo_3d(self) -> None:
         """Modelo 3D da faca atual. Faca calculada: o modelo próprio do tipo
@@ -670,8 +719,10 @@ class JanelaPrincipal(QMainWindow):
                 linhas,
                 angulos=self._angulos_dobra,
                 base=self._face_base_3d,
-                descricao="Faca editada",
+                descricao=self._estilo_atual[0] if getattr(self, "_estilo_atual", None) else "Faca editada",
                 referencia=referencia,
+                dobras_estilo=getattr(self, "_dobras_estilo", None),
+                ponto_base=getattr(self, "_base_estilo", None),
             )
             texto = ""
         else:
@@ -943,6 +994,10 @@ class JanelaPrincipal(QMainWindow):
         modo("arredondar", "faca_arredondar", "Arredondar canto — clique no canto onde duas retas se encontram (raio ao lado)")
         self._acoes_faca["navegar"].setChecked(True)
         self._acao_icone(barra, "mais", "Faca em branco — começar a faca do zero (desenho livre)", self._nova_faca_em_branco)
+        self._acao_icone(
+            barra, "lista", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
+            self._abrir_catalogo_estilos,
+        )
         barra.addSeparator()
 
         self.combo_tipo_linha = QComboBox()
@@ -1033,6 +1088,7 @@ class JanelaPrincipal(QMainWindow):
         self.aviso_faca_editada.setVisible(editada)
         if not editada:
             self._faca_do_zero = False
+            self._dobras_estilo, self._base_estilo, self._estilo_atual = None, None, None
         for widget in (self._grupo_tipo, self._grupo_medidas_cla, self._grupo_medidas):
             widget.setEnabled(not editada)
         if editada:
@@ -1552,7 +1608,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_atual, caminho)
+                exportacao.exportar_svg(self.canvas.cena, self.canvas.layout_efetivo, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -1566,7 +1622,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_atual, caminho)
+                exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_efetivo, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -1580,7 +1636,7 @@ class JanelaPrincipal(QMainWindow):
             return
         try:
             with self._cursor_espera():
-                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_atual, caminho)
+                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_efetivo, caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro ao exportar", str(exc))
         else:
@@ -1605,7 +1661,7 @@ class JanelaPrincipal(QMainWindow):
                 # Oculto no docker Objetos não sai, como no CorelDRAW.
                 visiveis = [el for el in self.canvas.elementos_mockup if el.isVisible()]
                 # Faca editada à mão vai como está na tela, não a calculada.
-                layout = dataclasses.replace(self.canvas.layout_atual, linhas=list(self.canvas.linhas_faca()))
+                layout = self.canvas.layout_efetivo
                 corel_bridge.desenhar_layout(self._corel_app, layout, visiveis)
         except corel_bridge.CorelIndisponivel as exc:
             self._corel_app = None

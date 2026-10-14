@@ -22,6 +22,7 @@ diferenças pra explicar.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from enum import Enum, auto
 
@@ -656,6 +657,9 @@ class PreviewCanvas(QGraphicsView):
         self._linhas_dinamicas: list[tuple[QPointF, QPointF]] = []
         # Edição manual da faca na tela Dieline (ver `definir_edicao_faca`).
         self._linhas_editadas: list[LinhaDesenho] | None = None
+        # Faca que não veio do tipo de caixa (estilo do catálogo, faca em
+        # branco): a chapa é o tamanho da própria faca, não o da calculada.
+        self._pagina_pela_faca = False
         self._editando_faca = False
         # "forma" | "corte" | "vinco" | "retangulo" | "medida" | "arco" |
         # "aparar" | "estender" | "arredondar" (ver `definir_edicao_faca`)
@@ -793,6 +797,7 @@ class PreviewCanvas(QGraphicsView):
             novas = [] if layout is None else layout.linhas
             if antigas != novas:
                 self._linhas_editadas = None
+                self._pagina_pela_faca = False
                 self._faca_sel = None
                 self.faca_editada_alterada.emit(False)
         self._layout = layout
@@ -921,12 +926,15 @@ class PreviewCanvas(QGraphicsView):
         pen.setCosmetic(True)  # traço de 1px na tela, não 1mm — em qualquer zoom
         painter.setPen(pen)
 
-        if self._paineis:
+        # Faca de estilo/em branco: as faces calculadas do tipo de caixa
+        # não valem pra ela — grade contínua, sem zonas seguras.
+        paineis = [] if self._pagina_pela_faca else self._paineis
+        if paineis:
             self._desenhar_grade_por_painel(painter, rect, pen)
         else:
             self._desenhar_grade_continua(painter, rect)
 
-        if self._zona_segura_visivel and self._paineis:
+        if self._zona_segura_visivel and paineis:
             self._desenhar_zonas_seguras(painter, rect)
 
     def _desenhar_grade_continua(self, painter, rect) -> None:
@@ -1615,10 +1623,9 @@ class PreviewCanvas(QGraphicsView):
             self._painel_dimensao.move(margem, self.height() - self._painel_dimensao.height() - margem)
 
     def _atualizar_painel_dimensao(self) -> None:
-        assert self._layout is not None
-        self._painel_dimensao.setText(
-            f"{self._layout.largura_total:.1f} × {self._layout.altura_total:.1f} mm"
-        )
+        layout = self.layout_efetivo
+        assert layout is not None
+        self._painel_dimensao.setText(f"{layout.largura_total:.1f} × {layout.altura_total:.1f} mm")
         self._painel_dimensao.show()
 
     # ── Desenho ─────────────────────────────────────────────────────
@@ -2154,9 +2161,33 @@ class PreviewCanvas(QGraphicsView):
 
     def retangulo_pagina(self) -> QRectF | None:
         """A "página" do CorelDRAW aqui é a chapa da dieline."""
+        layout = self.layout_efetivo
+        if layout is None:
+            return None
+        return QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
+
+    @property
+    def layout_efetivo(self) -> LayoutCaixa | None:
+        """O layout como está na tela: com a faca editada e a chapa do
+        tamanho que ela ocupa — é o que sai na exportação."""
         if self._layout is None:
             return None
-        return QRectF(0.0, 0.0, self._layout.largura_total, self._layout.altura_total)
+        if self._linhas_editadas is None:
+            return self._layout
+        linhas = list(self._linhas_editadas)
+        largura, altura = self._layout.largura_total, self._layout.altura_total
+        if linhas:
+            direita = max(max(l.x1, l.x2) for l in linhas)
+            baixo = max(max(l.y1, l.y2) for l in linhas)
+            if self._pagina_pela_faca:
+                largura, altura = direita, baixo
+            else:
+                largura, altura = max(largura, direita), max(altura, baixo)
+        return dataclasses.replace(self._layout, linhas=linhas, largura_total=largura, altura_total=altura)
+
+    def definir_pagina_pela_faca(self, ativo: bool) -> None:
+        self._pagina_pela_faca = ativo
+        self._fundo_mudou()
 
     def alinhar_corel(self, alinhamento: str) -> None:
         """L/R/T/B/C/E do CorelDRAW: 2+ objetos alinham entre si; um
@@ -2227,6 +2258,9 @@ class PreviewCanvas(QGraphicsView):
         self._redesenhar()
         if estava != (self._linhas_editadas is not None):
             self.faca_editada_alterada.emit(self._linhas_editadas is not None)
+        if self._linhas_editadas is None:
+            self._pagina_pela_faca = False  # voltou pra faca calculada
+        self._fundo_mudou()  # a chapa pode ter mudado de tamanho
         self.viewport().update()
 
     def _aplicar_faca(self, texto: str, depois) -> None:

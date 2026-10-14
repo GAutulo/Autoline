@@ -117,6 +117,22 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Faca em branco</b> (botão + da barra Faca, ou Arquivo &gt; Nova
                 faca em branco): começa a faca do zero, sem modelo — desenhe os cortes
                 e vincos e a aba 3D dobra o que você desenhar.</p>
+                <p><b>Catálogo de estilos</b> (Ctrl+Shift+N, botão de lista da barra
+                Faca ou Arquivo &gt; Nova faca a partir de estilo), como o do ArtiosCAD:
+                escolha o estilo (FEFCO 0201 caixa normal com abas, FEFCO 0427 caixa
+                e-commerce com tampa de encaixe, ou os seus), digite as medidas internas
+                e a espessura do papelão olhando o diagrama cotado; medida que não serve
+                aparece em vermelho e não deixa gerar. "Gerar faca" troca a faca (Ctrl+Z
+                volta), a chapa fica do tamanho dela e o 3D monta a caixa com os ângulos
+                e a ordem do estilo. Abrir o catálogo de novo traz o mesmo estilo e
+                medidas, pra refazer com outros valores.</p>
+                <p><b>Meus estilos</b>: Arquivo &gt; Salvar faca como estilo guarda a faca
+                atual (medidas fixas) na pasta de estilos ("Abrir pasta dos meus
+                estilos", no catálogo). Cada estilo é um arquivo .json: dá pra trocar os
+                números por expressões com variáveis (C, L, A, E e as que você criar),
+                com <code>+ - * / ( )</code> e min, max, sqrt, sin, cos, tan; validações
+                ("A &lt; L"); e, em cada vinco, o ângulo e o momento em que dobra no
+                3D.</p>
                 """,
             ),
             (

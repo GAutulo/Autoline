@@ -68,8 +68,8 @@ instalado nesta máquina). Texto resumido com palavras próprias.
 | A | **Dobra 3D de qualquer faca**: faces achadas pelas linhas, vincos como dobradiças, face base, 90° padrão, faca editada no 3D | Feito — PR #13 |
 | B | **Ângulo por vinco e face base no 3D**: clicar no vinco (90° / −90° / 0°), clicar numa face pra ser a base | Feito — PR #14 |
 | C | **Faca livre**: "Faca em branco" começa vazia e é desenhada com as ferramentas da Faca | Feito — PR #14 |
-| D | Ferramentas de desenho da faca: retângulo, linha com ângulo/comprimento digitados, paralela (offset), aparar/estender, arco | Depois |
-| E | **Estilos paramétricos**: faca definida por variáveis/expressões (C, L, A, espessura), salvar a própria faca como estilo, catálogo FEFCO básico (0201, 0427...) | Depois |
+| D | Ferramentas de desenho da faca: retângulo, linha com ângulo/comprimento digitados, paralela (offset), aparar/estender, arco, arredondar | Feito — PR #19 |
+| E | **Estilos paramétricos**: faca definida por variáveis/expressões (C, L, A, espessura), validações, diagrama cotado, ângulo e ordem de dobra por vinco, salvar a própria faca como estilo, catálogo FEFCO 0201 e 0427 | Feito — PR #24 (mais estilos FEFCO/ECMA: próximas rodadas) |
 | F | Espessura do papelão no 3D (folga de vinco), fibra/onda | Depois |
 
 Os 6 tipos atuais continuam com a dobra própria deles (sequência de
