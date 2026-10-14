@@ -63,6 +63,27 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Nova linha de corte / de vinco</b>: arraste de um ponto a outro
                 (Ctrl = 15°). Com uma linha selecionada, a caixa da barra muda o tipo
                 (corte, vinco, meio corte, serra, dobra) e <b>Delete</b> remove.</p>
+                <p><b>Ferramentas de desenho</b> (como no ArtiosCAD). As linhas que
+                elas criam são do tipo escolhido em <b>Linha nova</b>:</p>
+                <ul>
+                <li><b>Retângulo</b>: arraste de um canto ao oposto; nascem 4 linhas.</li>
+                <li><b>Linha por medida</b>: clique o ponto inicial e digite
+                comprimento e ângulo (0° = direita, 90° = cima), Enter. A próxima
+                começa onde a anterior acabou, então dá pra desenhar a faca inteira
+                só digitando. Esc para.</li>
+                <li><b>Arco</b>: arraste de uma ponta à outra e solte; mova o mouse para
+                curvar (o arco passa pelo cursor) e clique para confirmar.</li>
+                <li><b>Paralela</b> (com uma linha selecionada): pede a distância e cria
+                a cópia; negativo cria do outro lado. No arco, sai concêntrica.</li>
+                <li><b>Aparar</b>: clique no trecho de uma reta entre dois cruzamentos
+                (ou entre um cruzamento e a ponta) para cortá-lo fora.</li>
+                <li><b>Estender</b>: clique perto da ponta de uma reta; ela cresce até a
+                próxima linha no caminho.</li>
+                <li><b>Arredondar canto</b>: clique no canto onde duas retas se
+                encontram; o canto vira um arco com o <b>Raio</b> da barra.</li>
+                </ul>
+                <p>Arcos saem como curva de verdade no SVG/PDF e no CorelDRAW, e
+                dobram certo no 3D.</p>
                 <p>Com a faca editada, o tipo de caixa e as medidas ficam
                 <b>travados</b> (mudar recalcularia a faca e perderia a edição). O
                 botão "Descartar edições da faca" volta pra faca calculada — e
