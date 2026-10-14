@@ -68,11 +68,18 @@ def desenhar_texto_escalado(painter: QPainter, pos: QPointF, fonte: QFont, texto
     painter.setPen(pincel_anterior)
 
 
-_TAMANHO_ALCA_MM = 3.0
-_TAMANHO_ALCA_ROTACAO_MM = 4.0
-_DISTANCIA_ALCA_ROTACAO_MM = 10.0
-_LARGURA_MINIMA_MM = 4.0
-_ALTURA_MINIMA_MM = 4.0
+# Alças em PIXELS DE TELA, como no CorelDRAW: o mesmo tamanho na tela em
+# qualquer zoom e em qualquer escala de desenho (quem desenha a caixa de
+# 605 mm como 60,5 mm não pode ver alça de 3 mm do tamanho da caixa).
+# Convertidas pra mm da cena com `ElementoMockup.mm_por_px`, que o canvas
+# atualiza a cada mudança de zoom.
+_TAMANHO_ALCA_PX = 8.0
+_TAMANHO_ALCA_ROTACAO_PX = 10.0
+_DISTANCIA_ALCA_ROTACAO_PX = 24.0
+# Tamanho mínimo de um elemento — pequeno de propósito: as alças não dependem
+# mais dele pra ficarem clicáveis.
+_LARGURA_MINIMA_MM = 0.5
+_ALTURA_MINIMA_MM = 0.5
 _MARGEM_CLIQUE_ALCA = 1.7  # área de clique um pouco maior que o desenho da alça, mais fácil de acertar
 
 _COR_SELECAO = QColor("#2f6fed")
@@ -131,13 +138,26 @@ class ElementoMockup(QGraphicsObject):
     geometria_alterada = Signal()
 
     # Mínimo padrão pra qualquer elemento (mantém alças de redimensionar
-    # sempre clicáveis, ver `_TAMANHO_ALCA_MM`) — atributo de CLASSE, não
+    # sempre clicáveis — antes; hoje as alças são em px, ver `_TAMANHO_ALCA_PX`) — atributo de CLASSE, não
     # module-level direto, pra subclasses conseguirem sobrescrever o
     # próprio mínimo quando o valor não representa "tamanho da forma"
     # (ex.: `ElementoTexto`, onde altura = tamanho de fonte, e 4mm de
     # piso impedia texto miúdo tipo letra de rodapé/composição).
     _largura_minima_mm = _LARGURA_MINIMA_MM
     _altura_minima_mm = _ALTURA_MINIMA_MM
+
+    # mm da cena por pixel de tela (ver `definir_escala_tela`).
+    mm_por_px = 0.25
+
+    @classmethod
+    def definir_escala_tela(cls, mm_por_px: float, itens) -> None:
+        """Chamado pelo canvas a cada zoom: as alças (em px) mudam de
+        tamanho em mm, então a área de repintura de cada item também."""
+        if mm_por_px <= 0 or abs(mm_por_px - cls.mm_por_px) < 1e-12:
+            return
+        for item in itens:
+            item.prepareGeometryChange()
+        cls.mm_por_px = mm_por_px
 
     def __init__(self, largura: float = 40.0, altura: float = 24.0, parent: QGraphicsItem | None = None) -> None:
         super().__init__(parent)
@@ -376,7 +396,7 @@ class ElementoMockup(QGraphicsObject):
         return super().itemChange(change, value)
 
     def boundingRect(self) -> QRectF:
-        margem = _DISTANCIA_ALCA_ROTACAO_MM + _TAMANHO_ALCA_ROTACAO_MM
+        margem = (_DISTANCIA_ALCA_ROTACAO_PX + _TAMANHO_ALCA_ROTACAO_PX + 2.0) * ElementoMockup.mm_por_px
         return QRectF(0, 0, self._largura, self._altura).adjusted(-margem, -margem, margem, margem)
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
@@ -398,24 +418,29 @@ class ElementoMockup(QGraphicsObject):
         raise NotImplementedError
 
     def _pintar_selecao(self, painter: QPainter) -> None:
-        raio = (_TAMANHO_ALCA_MM / 2.0)
+        k = ElementoMockup.mm_por_px
+        raio = (_TAMANHO_ALCA_PX / 2.0) * k
+        distancia_rotacao = _DISTANCIA_ALCA_ROTACAO_PX * k
 
-        pen_contorno = QPen(_COR_SELECAO, 0.3)
+        pen_contorno = QPen(_COR_SELECAO, 1.0)
+        pen_contorno.setCosmetic(True)  # traço de 1 px em qualquer zoom
         painter.setPen(pen_contorno)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(QRectF(0, 0, self._largura, self._altura))
 
         centro_x = self._largura / 2
-        painter.drawLine(QPointF(centro_x, 0), QPointF(centro_x, -_DISTANCIA_ALCA_ROTACAO_MM))
+        painter.drawLine(QPointF(centro_x, 0), QPointF(centro_x, -distancia_rotacao))
 
         painter.setBrush(QBrush(_COR_ALCA_PREENCHIMENTO))
-        painter.setPen(QPen(_COR_SELECAO, 0.4))
+        pen_alca = QPen(_COR_SELECAO, 1.5)
+        pen_alca.setCosmetic(True)
+        painter.setPen(pen_alca)
         for _alca, (rel_x, rel_y) in _PONTO_RELATIVO_ALCA.items():
             centro = QPointF(rel_x * self._largura, rel_y * self._altura)
             painter.drawRect(QRectF(centro.x() - raio, centro.y() - raio, raio * 2, raio * 2))
 
-        raio_rotacao = _TAMANHO_ALCA_ROTACAO_MM / 2.0
-        centro_rotacao = QPointF(centro_x, -_DISTANCIA_ALCA_ROTACAO_MM)
+        raio_rotacao = _TAMANHO_ALCA_ROTACAO_PX / 2.0 * k
+        centro_rotacao = QPointF(centro_x, -distancia_rotacao)
         painter.drawEllipse(centro_rotacao, raio_rotacao, raio_rotacao)
 
     # ── Detecção de alça sob o cursor ────────────────────────────────
@@ -423,13 +448,14 @@ class ElementoMockup(QGraphicsObject):
         if not self.isSelected():
             return Alca.CORPO if self._contem_corpo(ponto_local) else Alca.NENHUMA
 
+        k = ElementoMockup.mm_por_px
         centro_x = self._largura / 2
-        centro_rotacao = QPointF(centro_x, -_DISTANCIA_ALCA_ROTACAO_MM)
-        raio_rotacao = (_TAMANHO_ALCA_ROTACAO_MM / 2.0) * _MARGEM_CLIQUE_ALCA
+        centro_rotacao = QPointF(centro_x, -_DISTANCIA_ALCA_ROTACAO_PX * k)
+        raio_rotacao = (_TAMANHO_ALCA_ROTACAO_PX / 2.0) * k * _MARGEM_CLIQUE_ALCA
         if _distancia(ponto_local, centro_rotacao) <= raio_rotacao:
             return Alca.ROTACAO
 
-        raio = (_TAMANHO_ALCA_MM / 2.0) * _MARGEM_CLIQUE_ALCA
+        raio = (_TAMANHO_ALCA_PX / 2.0) * k * _MARGEM_CLIQUE_ALCA
         for alca, (rel_x, rel_y) in _PONTO_RELATIVO_ALCA.items():
             centro = QPointF(rel_x * self._largura, rel_y * self._altura)
             if abs(ponto_local.x() - centro.x()) <= raio and abs(ponto_local.y() - centro.y()) <= raio:
