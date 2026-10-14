@@ -246,6 +246,12 @@ class ElementoMockup(QGraphicsObject):
         # meio do gesto).
         self._solicitar_duplicata = None
 
+        # Encaixe AO VIVO durante o arrasto (CorelDRAW): `ajustador(elemento,
+        # delta) -> (delta ajustado, encaixou)`, ligado pelo canvas. Quando
+        # encaixa ao vivo, o encaixe de "soltar" não mexe mais na posição.
+        self._ajustar_arrasto = None
+        self._encaixou_ao_vivo = False
+
         # Callback opcional (ver `definir_registrador_undo`) — chamado no
         # FIM de um gesto de mover/redimensionar/girar (nunca por frame,
         # mesmo espírito do snap) com o estado de geometria de antes e
@@ -342,6 +348,9 @@ class ElementoMockup(QGraphicsObject):
         exatamente na posição atual, sem selecioná-lo. `self` continua
         sendo o item que se move dali pra frente."""
         self._solicitar_duplicata = solicitador
+
+    def definir_ajustador_arrasto(self, ajustador) -> None:
+        self._ajustar_arrasto = ajustador
 
     def definir_registrador_undo(self, registrador) -> None:
         """`registrador(antes: dict, depois: dict) -> None` — chamado ao
@@ -540,6 +549,7 @@ class ElementoMockup(QGraphicsObject):
             if self not in self._arrasto_corpo_posicoes_iniciais:
                 self._arrasto_corpo_posicoes_iniciais[self] = self.pos()
             self._arrasto_geometria_antes = {}
+            self._encaixou_ao_vivo = False
             for item in self._arrasto_corpo_posicoes_iniciais:
                 self._arrasto_geometria_antes.update(_estado_recursivo(item))
             return
@@ -583,6 +593,8 @@ class ElementoMockup(QGraphicsObject):
                     delta = QPointF(delta.x(), 0.0)
                 else:
                     delta = QPointF(0.0, delta.y())
+            if self._ajustar_arrasto is not None:
+                delta, self._encaixou_ao_vivo = self._ajustar_arrasto(self, delta)
             for item, pos_inicial in self._arrasto_corpo_posicoes_iniciais.items():
                 item.setPos(pos_inicial + delta)
             return
@@ -595,7 +607,7 @@ class ElementoMockup(QGraphicsObject):
         if self._arrastando_corpo:
             self._arrastando_corpo = False
             super().mouseReleaseEvent(event)
-            if self._calculador_snap is not None:
+            if self._calculador_snap is not None and not self._encaixou_ao_vivo:
                 # Encaixe só ao SOLTAR o botão, não durante o arrasto —
                 # aplicado a partir de `self` (o item realmente clicado),
                 # o ajuste resultante é então somado a TODO o grupo que se
