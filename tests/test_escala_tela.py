@@ -189,7 +189,14 @@ def test_selecionar_objeto_nao_mexe_no_zoom_nem_desloca(janela):
     assert canvas.transform().m11() == pytest.approx(zoom)
 
 
-def test_janela_cabe_em_tela_pequena(janela):
-    """Barras e avisos não podem forçar a janela a ficar mais larga que
-    uma tela de notebook (o seletor de papelão do 3D chegou a pedir 1300 px)."""
-    assert janela.minimumSizeHint().width() <= 1100
+def test_aviso_do_3d_nao_alarga_a_janela(janela):
+    """O aviso longo da barra do 3D, junto com o seletor de papelão, fazia a
+    janela pedir 1303 px no Windows (não cabia num notebook). Ele precisa
+    poder encolher. (A largura em pixels depende da plataforma: no modo
+    offscreen dos testes as fontes medem bem maior, então o teste olha o
+    aviso, não o total.)"""
+    aviso = janela.visualizacao_3d.aviso_dobras
+    assert aviso.minimumSizeHint().width() < 100 or aviso.sizePolicy().horizontalPolicy() == aviso.sizePolicy().Policy.Ignored
+    sem_aviso = janela.visualizacao_3d.minimumSizeHint().width()
+    aviso.setText(aviso.text() * 3)  # mesmo um aviso enorme não muda a largura mínima
+    assert janela.visualizacao_3d.minimumSizeHint().width() == sem_aviso
