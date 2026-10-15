@@ -33,7 +33,22 @@ def _seta(painter: QPainter, inicio: QPointF, fim: QPointF, cabeca: float = 2.3)
     painter.drawLine(fim, lado_b)
 
 
+_ICONES_PRONTOS: dict[tuple[str, str], QIcon] = {}
+
+
 def construir_icone(tipo: str) -> QIcon:
+    """O ícone `tipo` na cor do tema ativo. Guardado: a barra de
+    propriedades é remontada a cada seleção e redesenhava ~20 ícones do
+    zero a cada clique."""
+    chave = (tipo, str(Cor.TEXTO_SECUNDARIO))
+    icone = _ICONES_PRONTOS.get(chave)
+    if icone is None:
+        icone = _desenhar_icone(tipo)
+        _ICONES_PRONTOS[chave] = icone
+    return icone
+
+
+def _desenhar_icone(tipo: str) -> QIcon:
     """Um "tipo" por controle — ver ramos abaixo pra saber o que cada um
     representa. `cor` é sempre `Cor.TEXTO_SECUNDARIO` (tema ativo);
     quem quer destacar (ex.: ferramenta selecionada) faz isso no botão

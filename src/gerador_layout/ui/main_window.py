@@ -489,13 +489,16 @@ class JanelaPrincipal(QMainWindow):
         acao_sair.triggered.connect(self.close)
 
         menu_objeto = self.menuBar().addMenu("&Objeto")
-        menu_objeto.addAction("Converter em curvas\tCtrl+Q", lambda: self.canvas.converter_selecionados_em_curvas())
-        menu_objeto.addAction("Combinar\tCtrl+L", lambda: self.canvas.combinar_selecionados())
-        menu_objeto.addAction("Separar\tCtrl+K", lambda: self.canvas.separar_selecionados())
+        # Sempre ativo: fora da tela de Layout, escolher um item leva pra lá
+        # (desativado em cinza parecia que o menu "não abria").
+        menu_objeto.addAction("Converter em curvas\tCtrl+Q", self._no_layout(lambda: self.canvas.converter_selecionados_em_curvas()))
+        menu_objeto.addAction("Combinar\tCtrl+L", self._no_layout(lambda: self.canvas.combinar_selecionados()))
+        menu_objeto.addAction("Separar\tCtrl+K", self._no_layout(lambda: self.canvas.separar_selecionados()))
         menu_modelar = menu_objeto.addMenu("Modelar")
         for operacao, nome in OPERACOES.items():
-            menu_modelar.addAction(construir_icone(f"modelar_{operacao}"), nome, lambda op=operacao: self.canvas.modelar_selecionados(op))
-        # Só faz sentido na tela de Layout (ver `_trocar_tela`).
+            menu_modelar.addAction(
+                construir_icone(f"modelar_{operacao}"), nome, self._no_layout(lambda op=operacao: self.canvas.modelar_selecionados(op))
+            )
         self._menu_objeto = menu_objeto
 
         menu_exibir = self.menuBar().addMenu("&Exibir")
@@ -521,8 +524,8 @@ class JanelaPrincipal(QMainWindow):
         )
         self._acao_guias_dinamicas = acao_dinamicas
         menu_dockers = menu_exibir.addMenu("Janelas de encaixe (Layout)")
-        for dock in self._docks.values():
-            menu_dockers.addAction(dock.toggleViewAction())
+        for chave, dock in self._docks.items():
+            menu_dockers.addAction(dock.windowTitle(), self._no_layout(lambda c=chave: self.abrir_docker(c)))
         self._menu_dockers = menu_dockers
 
         acao_reguas = menu_exibir.addAction("Réguas")
@@ -602,10 +605,6 @@ class JanelaPrincipal(QMainWindow):
             for dock in self._docks.values():
                 dock.hide()
         self._estava_no_layout = modo_layout
-        self._menu_dockers.setEnabled(modo_layout)
-        self._menu_objeto.setEnabled(modo_layout)
-        for acao in self._acoes_docker:
-            acao.setEnabled(modo_layout)
         self.barra_propriedades_mockup.setVisible(modo_layout)
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
@@ -1173,14 +1172,24 @@ class JanelaPrincipal(QMainWindow):
             acao = QAction(texto, self)
             acao.setShortcut(QKeySequence(tecla))
             acao.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
-            acao.triggered.connect(callback)
-            acao.setEnabled(False)
+            acao.triggered.connect(self._no_layout(callback))
             self.addAction(acao)
             self._acoes_docker.append(acao)
 
         atalho("Alinhar e distribuir", "Ctrl+Shift+A", lambda: self.abrir_docker("alinhar"))
         for tecla, aba in (("Alt+F7", "posicao"), ("Alt+F8", "rotacao"), ("Alt+F9", "escala"), ("Alt+F10", "tamanho")):
             atalho(f"Transformações ({aba})", tecla, lambda _c=False, a=aba: self.abrir_docker("transformacoes", a))
+
+    def _no_layout(self, funcao):
+        """Ação que só vale na tela de Layout: de outra tela, vai pra lá antes."""
+
+        def rodar(*_args) -> None:
+            if self.abas_tela.currentIndex() != 1:
+                self.abas_tela.setCurrentIndex(1)
+                QApplication.processEvents()
+            funcao()
+
+        return rodar
 
     def abrir_docker(self, chave: str, aba_transformacao: str | None = None) -> None:
         dock = self._docks[chave]
