@@ -138,3 +138,36 @@ def test_tamanho_novo_acompanha_o_zoom(janela):
     QTest.keyClicks(canvas, "A")
     outro = _texto_em_edicao(canvas)
     assert outro.altura * canvas.transform().m11() == pytest.approx(altura_tela, rel=0.02)
+
+
+def test_seletor_de_fonte_reaproveitado_entre_selecoes():
+    """Criar um QFontComboBox custa ~150 ms: a barra usa um só e troca o
+    texto a que ele está ligado."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QApplication, QFontComboBox
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_texto import ElementoTexto
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    canvas = j.canvas
+    a, b = ElementoTexto("A"), ElementoTexto("B")
+    canvas.adicionar_elemento_mockup(a, QPointF(10, 10))
+    canvas.adicionar_elemento_mockup(b, QPointF(60, 10))
+    painel = j.painel_propriedades_mockup
+    combos = []
+    for el in (a, b, a, b):
+        canvas._scene.clearSelection()
+        el.setSelected(True)
+        QApplication.processEvents()
+        combos.append(next(c for c in painel.findChildren(QFontComboBox) if c.isVisibleTo(painel)))
+    assert all(c is combos[0] for c in combos)  # o mesmo seletor, nunca recriado
+    fonte_a = a.fonte_familia
+    combos[0].currentFontChanged.emit(QFont("Fonte Escolhida"))  # b está selecionado agora
+    assert b.fonte_familia == "Fonte Escolhida" and a.fonte_familia == fonte_a  # só o texto atual muda
+    j.close()

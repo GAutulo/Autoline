@@ -1153,6 +1153,7 @@ class PreviewCanvas(QGraphicsView):
     # ── Pan com o botão do meio + ferramentas de criação ───────────────
     def mousePressEvent(self, event) -> None:  # noqa: N802
         self._usuario_interagiu = True  # daqui pra frente o zoom/posição são do usuário
+        self._cache_arrasto = None  # arrasto novo: pontos de encaixe da cena de agora
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panorama_ativo = True
             self._panorama_ultimo_ponto = event.position()
@@ -1253,6 +1254,7 @@ class PreviewCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def _limpar_indicadores(self) -> None:
+        self._cache_arrasto = None
         if self._indicador_encaixe is not None or self._medidas_distancia:
             self._indicador_encaixe = None
             self._medidas_distancia = []
@@ -3319,8 +3321,45 @@ class PreviewCanvas(QGraphicsView):
         objeto arrastado que chegar perto de um ponto de encaixe gruda nele
         já durante o arrasto, com o nome do ponto na tela. Também atualiza
         as distâncias até as bordas e vizinhos."""
-        movendo = set(elemento._arrasto_corpo_posicoes_iniciais) or {elemento}
-        deslocamento = delta - (elemento.pos() - elemento._arrasto_corpo_posicoes_iniciais.get(elemento, elemento.pos()))
+        iniciais = elemento._arrasto_corpo_posicoes_iniciais
+        movendo = set(iniciais) or {elemento}
+        cache = self._cache_do_arrasto(elemento, iniciais, movendo)
+        # O que se move: os 9 pontos do objeto na posição de LARGADA (em
+        # números simples, guardados no começo do arrasto) + o delta.
+        dx, dy = delta.x(), delta.y()
+        ajustado, achado = delta, None
+        if self._snap_ativo:
+            menor = self.limiar_snap()
+            melhor = None
+            for px, py, nome_proprio in cache["pontos"]:
+                qx, qy = px + dx, py + dy
+                for ax, ay, tipo in cache["alvos"]:
+                    if abs(ax - qx) >= menor or abs(ay - qy) >= menor:
+                        continue  # longe num eixo: nem calcula a distância
+                    d = math.hypot(ax - qx, ay - qy)
+                    if d < menor:
+                        menor, melhor = d, (ax - qx, ay - qy, ax, ay, nome_proprio, tipo)
+            if melhor is not None:
+                cx, cy, ax, ay, nome_proprio, tipo = melhor
+                ajustado = QPointF(dx + cx, dy + cy)
+                achado = (QPointF(ax, ay), f"{nome_proprio} → {tipo}")
+        self._mostrar_indicador(achado)
+        caixa = cache["caixa"].translated(ajustado)
+        self._medidas_distancia = self._distancias_da_caixa(caixa, ignorar=movendo, paredes=cache["paredes"])
+        self.viewport().update()
+        return ajustado, achado is not None
+
+    def _cache_do_arrasto(self, elemento: ElementoMockup, iniciais: dict, movendo: set) -> dict:
+        """Tudo que não muda durante UM arrasto, calculado uma vez só: os
+        pontos de encaixe da cena (sem quem se move), as bordas usadas nas
+        distâncias e os 9 pontos do objeto na posição de largada. Antes era
+        recalculado a cada passo do mouse (o arrasto ficava pesado)."""
+        chave = (id(iniciais), id(elemento))
+        cache = getattr(self, "_cache_arrasto", None)
+        if cache is not None and cache["chave"] == chave:
+            return cache
+        largada = iniciais.get(elemento, elemento.pos())
+        volta = largada - elemento.pos()  # do lugar atual de volta pra largada
         r = QRectF(0.0, 0.0, elemento.largura, elemento.altura)
         locais = (
             (r.topLeft(), "canto"), (r.topRight(), "canto"), (r.bottomRight(), "canto"), (r.bottomLeft(), "canto"),
@@ -3328,37 +3367,45 @@ class PreviewCanvas(QGraphicsView):
             (QPointF(r.center().x(), r.bottom()), "meio"), (QPointF(0, r.center().y()), "meio"),
             (r.center(), "centro"),
         )
-        ajustado, achado = delta, None
-        if self._snap_ativo:
-            alvos = self.nos_de_encaixe_com_tipo(ignorar=movendo)
-            menor = self.limiar_snap()
-            for local, nome_proprio in locais:
-                proposto = elemento.mapToScene(local) + deslocamento
-                for alvo, tipo in alvos:
-                    d = math.hypot(alvo.x() - proposto.x(), alvo.y() - proposto.y())
-                    if d < menor:
-                        menor = d
-                        ajustado = delta + (alvo - proposto)
-                        achado = (QPointF(alvo), f"{nome_proprio} → {tipo}")
-        self._mostrar_indicador(achado)
-        caixa = elemento.retangulo_conteudo_cena().translated(deslocamento + (ajustado - delta))
-        self._medidas_distancia = self._distancias_da_caixa(caixa, ignorar=movendo)
-        self.viewport().update()
-        return ajustado, achado is not None
+        pontos = []
+        for local, nome in locais:
+            p = elemento.mapToScene(local) + volta
+            pontos.append((p.x(), p.y(), nome))
+        alvos = [(p.x(), p.y(), tipo) for p, tipo in self.nos_de_encaixe_com_tipo(ignorar=movendo)]
+        cache = {
+            "chave": chave,
+            "pontos": pontos,
+            "alvos": alvos,
+            "caixa": elemento.retangulo_conteudo_cena().translated(volta),
+            "paredes": self._paredes_para_distancias(movendo),
+        }
+        self._cache_arrasto = cache
+        return cache
 
-    def _distancias_da_caixa(self, caixa: QRectF, ignorar: set | frozenset = frozenset()) -> list[tuple[QPointF, QPointF, float]]:
-        """Distância da caixa até o que está mais perto em cada direção
-        (esquerda, direita, cima, baixo): borda de outro objeto que esteja
-        na mesma faixa, borda da face onde a caixa está e borda da chapa —
-        como as medidas do Illustrator/Figma."""
-        paredes_x: list[tuple[float, float, float]] = []  # (x, y1, y2) bordas verticais
-        paredes_y: list[tuple[float, float, float]] = []  # (y, x1, x2) bordas horizontais
+    def _paredes_para_distancias(self, ignorar) -> tuple[list, list]:
+        """Bordas verticais (x, y1, y2) e horizontais (y, x1, x2) dos objetos
+        que não estão em `ignorar`."""
+        paredes_x: list[tuple[float, float, float]] = []
+        paredes_y: list[tuple[float, float, float]] = []
         for el in self._elementos_mockup:
             if el in ignorar or not el.isVisible():
                 continue
             r = el.retangulo_conteudo_cena()
             paredes_x += [(r.left(), r.top(), r.bottom()), (r.right(), r.top(), r.bottom())]
             paredes_y += [(r.top(), r.left(), r.right()), (r.bottom(), r.left(), r.right())]
+        return paredes_x, paredes_y
+
+    def _distancias_da_caixa(
+        self, caixa: QRectF, ignorar: set | frozenset = frozenset(), paredes: tuple | None = None
+    ) -> list[tuple[QPointF, QPointF, float]]:
+        """Distância da caixa até o que está mais perto em cada direção
+        (esquerda, direita, cima, baixo): borda de outro objeto que esteja
+        na mesma faixa, borda da face onde a caixa está e borda da chapa —
+        como as medidas do Illustrator/Figma. `paredes`: as bordas dos
+        objetos já calculadas (o arrasto guarda no começo)."""
+        if paredes is None:
+            paredes = self._paredes_para_distancias(ignorar)
+        paredes_x, paredes_y = list(paredes[0]), list(paredes[1])
         centro = caixa.center()
         contornos = []
         face = next(

@@ -107,9 +107,13 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 do 3D. Na faca em branco, vale a dobra automática.</p>
                 <p><b>Navegar no 3D</b>: arrastar gira; botão do meio, botão direito
                 ou Shift + arrastar move a vista; a roda aproxima no ponto onde está
-                o mouse; duplo clique (ou "Vista inicial") volta.</p>
+                o mouse; duplo clique (ou "Vista inicial") volta. <b>Girar sozinho</b>
+                deixa a caixa montada girando devagar (desligado por padrão: girando, o
+                3D fica redesenhando o tempo todo).</p>
                 <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, cartão,
-                micro-ondulado E, onda B, C ou dupla BC. Com espessura, o lado de
+                micro-ondulado E, onda B, C ou dupla BC — ou digite o valor exato no
+                campo ao lado ("Personalizado"). A última espessura fica guardada pra
+                próxima vez que abrir o app. Com espessura, o lado de
                 dentro de cada face fica pra dentro e a borda cortada do papelão
                 aparece nas abas, fendas e na boca da caixa aberta (com a caixa
                 fechada, as bordas ficam escondidas nas emendas). A faca de um estilo

@@ -303,22 +303,55 @@ def test_espessura_do_papelao_no_3d():
     from gerador_layout.estilos_catalogo import CATALOGO
     from gerador_layout.ui.main_window import JanelaPrincipal
 
+    from gerador_layout.ui import configuracoes
+
     QApplication.instance() or QApplication([])
+    configuracoes.definir_espessura_papelao_mm(0.0)  # outro teste pode ter deixado outra
     j = JanelaPrincipal()
     j.abas_tela.setCurrentIndex(2)
     vista = j.visualizacao_3d.vista
     vista.resize(800, 600)
     assert vista.espessura == 0.0  # padrão: folha fina, como antes
-    j.visualizacao_3d.combo_papelao.setCurrentIndex(3)
-    assert vista.espessura == 3.0
+    j.visualizacao_3d.combo_papelao.activated.emit(3)  # escolher "Onda B" na lista
+    assert vista.espessura == 3.0 and j.visualizacao_3d.campo_espessura.value() == 3.0
     vista._progresso = 0.5
     vista.grab()  # aberta: desenha as faixas da borda sem erro
     vista._progresso = 1.0
     vista.grab()
-    j.visualizacao_3d.definir_espessura(2.2)  # fora da lista: personalizado
-    assert vista.espessura == 2.2 and "2,2" in j.visualizacao_3d.combo_papelao.currentText()
+    j.visualizacao_3d.campo_espessura.setValue(2.2)  # digitado: fora da lista
+    assert vista.espessura == 2.2 and j.visualizacao_3d.combo_papelao.currentText() == "Personalizado"
+    # fica guardado: uma janela nova abre com 2,2 mm
+    assert configuracoes.espessura_papelao_mm() == pytest.approx(2.2)
+    outra = JanelaPrincipal()
+    assert outra.visualizacao_3d.vista.espessura == pytest.approx(2.2)
+    outra.close()
     # estilo com E = 4 mm: o 3D passa a mostrar Onda C
     estilo = next(Estilo(d) for d in CATALOGO if d["codigo"] == "FEFCO 0201")
     valores = {"C": 300, "L": 200, "A": 150, "E": 4, "G": 30}
     j.aplicar_estilo(estilo, valores, estilo.gerar(valores))
     assert vista.espessura == 4.0 and "Onda C" in j.visualizacao_3d.combo_papelao.currentText()
+
+
+def test_giro_sozinho_desligado_por_padrao_e_respeita_o_tempo_do_quadro():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui import configuracoes
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    configuracoes.definir_giro_automatico_3d(False)
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(2)
+    QApplication.processEvents()
+    vista = j.visualizacao_3d.vista
+    assert not vista.girar_sozinho and not vista._timer_giro.isActive()  # parado: app livre
+    j.visualizacao_3d.botao_girar.setChecked(True)
+    assert vista._timer_giro.isActive() and configuracoes.giro_automatico_3d()
+    vista._ultimo_quadro_ms = 60.0  # quadro pesado: espera o dobro antes do próximo
+    vista._passo_giro()
+    assert vista._timer_giro.interval() == 120
+    j.visualizacao_3d.botao_girar.setChecked(False)
+    assert not vista._timer_giro.isActive()
+    j.close()
