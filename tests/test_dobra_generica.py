@@ -355,3 +355,34 @@ def test_giro_sozinho_desligado_por_padrao_e_respeita_o_tempo_do_quadro():
     j.visualizacao_3d.botao_girar.setChecked(False)
     assert not vista._timer_giro.isActive()
     j.close()
+
+
+def test_ondas_do_papelao_na_borda():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.visualizacao_3d import VistaCaixa3D, miolo_do_papelao
+
+    QApplication.instance() or QApplication([])
+    assert miolo_do_papelao(0.0) == () and miolo_do_papelao(0.5) == ()  # fino e cartão: sem onda
+    assert miolo_do_papelao(3.0) == (6.5,)  # onda B: uma ondulação
+    assert miolo_do_papelao(7.0) == (6.5, 8.0)  # onda dupla BC: duas
+    assert len(miolo_do_papelao(2.2)) == 1 and len(miolo_do_papelao(6.0)) == 2  # digitado
+
+    vista = VistaCaixa3D()
+    quad = QPolygonF([QPointF(10, 10), QPointF(890, 10), QPointF(890, 90), QPointF(10, 90)])
+
+    def desenhar(mm, atravessado, quad=quad):
+        img = QImage(900, 100, QImage.Format.Format_ARGB32)
+        img.fill(QColor(0, 0, 0, 0))
+        p = QPainter(img)
+        vista._desenhar_miolo(p, quad, (0.0, 60.0, mm, miolo_do_papelao(mm), atravessado), QColor(150, 110, 60))
+        p.end()
+        # cores na coluna do meio: a onda cruza a faixa em alturas diferentes
+        return {img.pixel(x, y) for x in range(200, 700, 7) for y in range(20, 80)}
+
+    assert len(desenhar(3.0, True)) > len(desenhar(3.0, False))  # a onda só no corte atravessado
+    longe = QPolygonF([QPointF(10, 10), QPointF(890, 10), QPointF(890, 12), QPointF(10, 12)])
+    assert len(desenhar(7.0, True, longe)) <= 1  # faixa de 2 px: nada de camada
