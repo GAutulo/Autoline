@@ -377,8 +377,16 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """
                 <p>Botão de ícone na paleta — uma lista de "quadradinho + nome" pra
                 empresa marcar na própria caixa qual variação do produto foi embalada
-                ali (ex.: uma peça que existe em preto/branco/cinza). Editar a lista de
-                variantes fica num popup pela barra de propriedades.</p>
+                ali (ex.: uma peça que existe em preto/branco/cinza).</p>
+                <p>Funciona como uma <b>caixa de texto de checklist</b>: na barra de
+                propriedades ficam fonte, tamanho em pontos, negrito, cor e o
+                <b>arranjo</b> — <b>Empilhado</b> (um embaixo do outro) ou <b>Lado a
+                lado</b> (em linha, quebrando pra baixo quando não cabe na largura).
+                <b>Duplo clique</b> edita no desenho: cada linha é uma cor, Enter cria a
+                próxima, apagar a linha tira a cor (linha vazia não vira cor); Esc ou
+                clicar fora termina, e Ctrl+Z desfaz. Puxar a <b>lateral</b> da caixa
+                reorganiza os itens sem esticar a letra; puxar um <b>canto</b> aumenta
+                ou diminui a letra. A altura acompanha sempre o conteúdo.</p>
                 """,
             ),
         ],
