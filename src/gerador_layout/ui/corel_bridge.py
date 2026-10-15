@@ -13,7 +13,6 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QFont, QFontMetricsF
 
 from .. import geometria_faca
 from ..models import LayoutCaixa, TipoLinha
@@ -24,10 +23,6 @@ from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
-from .mockup_checklist import _ALTURA_LINHA_MM as _CHECKLIST_ALTURA_LINHA_MM
-from .mockup_checklist import _ESPACO_CAIXA_TEXTO_FATOR as _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
-from .mockup_checklist import _ESPACO_ENTRE_LINHAS_FATOR as _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
-from .mockup_checklist import _ESPESSURA_TRACO_FATOR as _CHECKLIST_ESPESSURA_TRACO_FATOR
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
@@ -462,68 +457,44 @@ def _desenhar_imagem_cdr(app, layer, elemento, altura_total: float) -> None:
 
 
 def _desenhar_checklist_cdr(app, layer, elemento: ElementoChecklistCores, altura_total: float) -> None:
-    """Mesma matemática de layout de `ElementoChecklistCores._pintar_conteudo`
-    (por isso os imports de `mockup_checklist` no topo do arquivo — uma
-    cópia divergente dessas constantes aqui seria fácil de esquecer de
-    manter em sincronia), só que criando shapes de verdade em vez de
-    pintar num QPainter. Cada linha (quadradinho + texto) nasce parada
-    (ângulo 0) na posição final; se o elemento como um todo estiver
-    rotacionado, todas as shapes entram numa `ShapeRange` e giram juntas
-    no final (ver nota grande acima pro motivo de girar por último)."""
+    """Os mesmos itens que o checklist desenha na tela (`itens_layout`):
+    quadradinho + texto, cada um na posição final, parados (ângulo 0); se o
+    elemento estiver girado, todas as shapes entram numa `ShapeRange` e
+    giram juntas no final (ver nota grande acima)."""
     x_centro, y_centro, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
-    largura_natural, altura_natural = elemento._layout_natural()
-    escala_x = elemento.largura / largura_natural if largura_natural else 1.0
-    escala_y = elemento.altura / altura_natural if altura_natural else 1.0
-
     origem_x = x_centro - elemento.largura / 2
     origem_y = y_centro + elemento.altura / 2
 
     def ponto_cdr(x_qt: float, y_qt: float) -> tuple[float, float]:
-        # (x, y) local do desenho Qt (0,0 = canto superior-esquerdo, Y
-        # cresce pra baixo) → posição real no documento CorelDRAW, já
-        # escalado (independente por eixo) e sem rotação — a rotação do
-        # elemento inteiro é aplicada depois, numa ShapeRange única.
-        return origem_x + x_qt * escala_x, origem_y - y_qt * escala_y
+        # local do desenho Qt (Y pra baixo) → documento CorelDRAW (Y pra cima)
+        return origem_x + x_qt, origem_y - y_qt
 
-    fonte_ref = QFont(elemento.fonte_familia)
-    fonte_ref.setPointSizeF(200.0)
-    metrica = QFontMetricsF(fonte_ref)
-    altura_ref = metrica.capHeight() or metrica.ascent()
-    escala_fonte = _CHECKLIST_ALTURA_LINHA_MM / altura_ref if altura_ref else 1.0
-
-    espaco_linhas = _CHECKLIST_ALTURA_LINHA_MM * _CHECKLIST_ESPACO_ENTRE_LINHAS_FATOR
-    espaco_caixa_texto = _CHECKLIST_ALTURA_LINHA_MM * _CHECKLIST_ESPACO_CAIXA_TEXTO_FATOR
-    espessura_traco = max(
-        0.05, _CHECKLIST_ALTURA_LINHA_MM * _CHECKLIST_ESPESSURA_TRACO_FATOR * min(escala_x, escala_y)
-    )
+    itens, _largura, _altura = elemento.itens_layout()
+    medidas = elemento._medidas()
     cor = _cor_rgb(app, elemento.cor_tinta)
-
     formas = []
-    y_qt = 0.0
-    for variante in elemento.variantes:
-        x0, y0 = ponto_cdr(0.0, y_qt)
-        x1, y1 = ponto_cdr(_CHECKLIST_ALTURA_LINHA_MM, y_qt + _CHECKLIST_ALTURA_LINHA_MM)
+    for item in itens:
+        caixa = item["caixa"]
+        x0, y0 = ponto_cdr(caixa.left(), caixa.top())
+        x1, y1 = ponto_cdr(caixa.right(), caixa.bottom())
         quadrado = layer.CreateRectangle2(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
         quadrado.Fill.ApplyNoFill()
         quadrado.Outline.Color = cor
-        quadrado.Outline.Width = espessura_traco
+        quadrado.Outline.Width = medidas["traco"]
         formas.append(quadrado)
-
-        largura_texto_qt = max(0.1, metrica.horizontalAdvance(variante) * escala_fonte)
-        tx0, ty0 = ponto_cdr(_CHECKLIST_ALTURA_LINHA_MM + espaco_caixa_texto, y_qt)
-        tx1, ty1 = ponto_cdr(
-            _CHECKLIST_ALTURA_LINHA_MM + espaco_caixa_texto + largura_texto_qt,
-            y_qt + _CHECKLIST_ALTURA_LINHA_MM,
-        )
+        if not item["texto"]:
+            continue
+        largura_texto = max(0.1, item["largura"] - medidas["lado"] - medidas["espaco_caixa"])
+        tx0, ty0 = ponto_cdr(item["base"].x(), caixa.top())
+        tx1, ty1 = ponto_cdr(item["base"].x() + largura_texto, caixa.bottom())
         texto_shape = layer.CreateArtisticText(
-            0, 0, variante, Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR
+            0, 0, item["texto"], Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR
         )
+        texto_shape.Text.Story.Bold = elemento.negrito
         _aplicar_cor_preenchimento(app, texto_shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
         texto_shape.SetSize(max(0.1, abs(tx1 - tx0)), max(0.1, abs(ty1 - ty0)))
         texto_shape.SetPosition(min(tx0, tx1), max(ty0, ty1))
         formas.append(texto_shape)
-
-        y_qt += _CHECKLIST_ALTURA_LINHA_MM + espaco_linhas
 
     if angulo and formas:
         intervalo = app.CreateShapeRange()

@@ -456,7 +456,9 @@ class _ComandoAlterarGeometria(QUndoCommand):
 
     @staticmethod
     def _aplicar(estados: dict) -> None:
-        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v) in estados.items():
+        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v, *extra) in estados.items():
+            if extra and hasattr(item, "_aplicar_estado_extra"):
+                item._aplicar_estado_extra(*extra)  # ex.: tamanho da letra do checklist
             item.definir_tamanho(largura, altura)
             item.setPos(pos)
             item.setRotation(rotacao)

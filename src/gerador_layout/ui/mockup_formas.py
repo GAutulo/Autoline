@@ -78,8 +78,12 @@ class ElementoRetangulo(ElementoMockup):
         # Encolhe meio traço pra dentro — senão a linha do contorno fica
         # cortada pela metade nos limites da caixa/alças de seleção.
         margem = self._largura_traco / 2
+        # QRectF, nunca 4 números soltos: o PySide escolhe a versão de
+        # INTEIROS do drawRect e trunca (0,75 mm → 0, 17,76 → 17) — com traço
+        # grosso num desenho em escala reduzida o retângulo saía deslocado e
+        # menor que a área de seleção.
         painter.drawRect(
-            margem, margem, max(0.01, self._largura - self._largura_traco), max(0.01, self._altura - self._largura_traco)
+            QRectF(margem, margem, max(0.01, self._largura - self._largura_traco), max(0.01, self._altura - self._largura_traco))
         )
 
     def clonar(self) -> "ElementoRetangulo":
