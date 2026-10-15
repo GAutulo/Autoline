@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QElapsedTimer, QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QElapsedTimer, QEasingCurve, QLineF, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
 from PySide6.QtWidgets import QButtonGroup, QComboBox, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 
@@ -52,6 +52,7 @@ _DURACAO_PLANIFICAR_MS = 2800
 # Giro automático da caixa montada parada (soma ao arrasto do usuário).
 _GIRO_AUTOMATICO_GRAUS_S = 8.0
 _INTERVALO_QUADRO_MS = 33
+_ZOOM_APROXIMA = 1.5  # zoom em que a câmera para de se aproximar e vira lupa
 # Textura da arte, por face: densidade = a que a face ocupa na tela × folga,
 # entre o mínimo e o máximo, e nunca mais que o lado máximo em pixels.
 _ARTE_FOLGA_DENSIDADE = 1.6
@@ -80,6 +81,31 @@ PAPELOES = (
     ("Onda C (4 mm)", 4.0),
     ("Onda dupla BC (7 mm)", 7.0),
 )
+
+# Miolo do papelão visto na borda cortada: passo (mm) de cada ondulação, de
+# fora pra dentro. Vazio = sem onda (folha ou cartão maciço).
+_MIOLO_POR_ESPESSURA = {
+    0.5: (),
+    1.5: (3.5,),  # E
+    3.0: (6.5,),  # B
+    4.0: (8.0,),  # C
+    7.0: (6.5, 8.0),  # BC: onda B por fora, C por dentro
+}
+_CAPA_MM = 0.25  # espessura de cada capa (liner)
+
+
+def miolo_do_papelao(espessura_mm: float) -> tuple[float, ...]:
+    """Passos das ondulações do papelão com esta espessura: os da lista; um
+    valor digitado vira onda simples até 5 mm e dupla acima disso."""
+    for mm, ondas in _MIOLO_POR_ESPESSURA.items():
+        if abs(mm - espessura_mm) < 1e-6:
+            return ondas
+    if espessura_mm < 0.9:
+        return ()
+    if espessura_mm <= 5.0:
+        return (max(3.0, 2.2 * espessura_mm),)
+    fator = espessura_mm / 7.0
+    return (6.5 * fator, 8.0 * fator)
 # Fundo claro neutro (mesmo no tema escuro: é um "estúdio" pra ver a caixa).
 _COR_FUNDO = QColor("#ECEBE8")
 _COR_TEXTO_FUNDO = QColor("#6B6862")
@@ -401,7 +427,10 @@ class VistaCaixa3D(QWidget):
 
         centro = _lerp_vetor(self._centro_plano, self._centro_montado, u)
         raio = _lerp(self._raio_plano, self._raio_montado, u)
-        distancia = raio / math.sin(math.radians(_FOV_GRAUS) / 2.0) * 1.05 / self._zoom
+        # Até _ZOOM_APROXIMA a câmera chega mais perto; daí em diante o zoom
+        # vira ampliação da imagem (ver `escala` no desenho) — senão a câmera
+        # entrava na caixa antes de chegar perto de uma borda.
+        distancia = raio / math.sin(math.radians(_FOV_GRAUS) / 2.0) * 1.05 / min(self._zoom, _ZOOM_APROXIMA)
         olho = tuple(centro[i] + direcao[i] * distancia for i in range(3))
         return olho, direita, cima_cam, olhar  # type: ignore[return-value]
 
@@ -430,6 +459,7 @@ class VistaCaixa3D(QWidget):
 
         olho, direita, cima, olhar = self._camera()
         escala = (min(self.width(), self.height()) / 2.0) / math.tan(math.radians(_FOV_GRAUS) / 2.0)
+        escala *= max(1.0, self._zoom / _ZOOM_APROXIMA)  # lupa: além da aproximação
         cx, cy = self.width() / 2.0 + self._pan.x(), self.height() / 2.0 + self._pan.y()
 
         def para_camera(ponto: Vetor) -> Vetor:
@@ -574,7 +604,7 @@ class VistaCaixa3D(QWidget):
                         self._faces_tela.append((profundidade, desenho, painel.id))
                     for k, desenho in enumerate(desenhos):
                         # As bordas vão só no 1º pedaço da célula (não duplicar traço).
-                        pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela))
+                        pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela, None))
             if self._espessura > 0 and not caixa_fechada:
                 # Fechada, a borda do papelão fica escondida nas emendas (e o
                 # pintor por profundidade deixava pedaços vazarem nas quinas).
@@ -585,7 +615,7 @@ class VistaCaixa3D(QWidget):
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
         transformacao = QTransform()
-        for _prof, poligono, cor, bordas, arte_pedaco, quad_tela in pedacos:
+        for _prof, poligono, cor, bordas, arte_pedaco, quad_tela, miolo in pedacos:
             # Contorno da mesma cor fecha as frestas de antialiasing entre pedaços.
             caneta_fill = QPen(cor, 1.2)
             caneta_fill.setCosmetic(True)
@@ -606,6 +636,8 @@ class VistaCaixa3D(QWidget):
                 p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
                 p.drawImage(recorte, imagem, recorte)
                 p.restore()
+            if miolo is not None:
+                self._desenhar_miolo(p, quad_tela, miolo, cor)
             if bordas:
                 p.setPen(caneta_aresta)
                 for a, b in bordas:
@@ -744,6 +776,7 @@ class VistaCaixa3D(QWidget):
         contorno (e dos furos), dividida em trechos pra ordenar direito."""
         painel = pp.painel
         e = self._espessura
+        ondas = miolo_do_papelao(e)
         if painel.poligono:
             aneis = [list(painel.poligono)] + [list(f) for f in painel.furos]
         else:
@@ -755,6 +788,11 @@ class VistaCaixa3D(QWidget):
                 if comprimento < 1e-6:
                     continue
                 trechos = max(1, round(_SUBDIVISOES * comprimento / maior))
+                # As ondas correm na direção Y da faca (na vertical das
+                # paredes, como numa caixa de verdade): corte atravessado a
+                # elas (borda mais em X) mostra a ondulação; corte paralelo,
+                # só as capas.
+                atravessado = abs(bx - ax) >= abs(by - ay)
                 for k in range(trechos):
                     u0, u1 = k / trechos, (k + 1) / trechos
                     p0 = (ax + (bx - ax) * u0, ay + (by - ay) * u0)
@@ -789,7 +827,66 @@ class VistaCaixa3D(QWidget):
                         math.sqrt(produto_escalar(centro, centro)) + painel.camada * vies_camada + vies_faixa
                     )
                     poligono = QPolygonF(tela)
-                    pedacos.append((profundidade, poligono, cor, [(tela[0], tela[1]), (tela[3], tela[2])], None, poligono))
+                    # Miolo: posição ao longo da borda (mm, pra onda seguir
+                    # sem emenda de um trecho pro outro) e o tipo do corte.
+                    miolo = (comprimento * u0, comprimento * u1, e, ondas, atravessado)
+                    pedacos.append((profundidade, poligono, cor, [(tela[0], tela[1]), (tela[3], tela[2])], None, poligono, miolo))
+
+    def _desenhar_miolo(self, p: QPainter, quad_tela: QPolygonF, miolo, cor_faixa: QColor | None = None) -> None:
+        """As camadas do papelão dentro da faixa da borda: capas e, no corte
+        atravessado às ondas, a ondulação (uma na onda simples, duas com a
+        capa do meio na onda dupla). Desenhado num quadrado unitário (u ao
+        longo da borda, w de fora pra dentro) projetado na faixa."""
+        s0, s1, espessura, ondas, atravessado = miolo
+        lado_borda = QLineF(quad_tela.at(0), quad_tela.at(1)).length()
+        lado_espessura = QLineF(quad_tela.at(0), quad_tela.at(3)).length()
+        if lado_espessura < 4.0 or espessura <= 0:
+            return  # longe demais pra enxergar camada
+        quadrado = QPolygonF([QPointF(0, 0), QPointF(1, 0), QPointF(1, 1), QPointF(0, 1)])
+        transformacao = QTransform()
+        if not QTransform.quadToQuad(quadrado, quad_tela, transformacao):
+            return
+        capa = min(0.2, _CAPA_MM / espessura)
+        # Cores tiradas da própria faixa (já com a luz daquela face): o vão
+        # entre as ondas escuro, capas e onda (papel) claras — senão, numa
+        # face mais escura, a onda sumia na cor da faixa.
+        base = cor_faixa or _COR_ESPESSURA
+        cor_vao, cor_papel = base.darker(150), base.lighter(140)
+        p.save()
+        p.setTransform(transformacao)
+        p.setPen(Qt.PenStyle.NoPen)
+        if ondas:
+            p.setBrush(cor_vao)
+            p.drawRect(QRectF(0, capa, 1, 1 - 2 * capa))
+        # Capas: por fora, por dentro e (onda dupla) a do meio.
+        p.setBrush(cor_papel)
+        p.drawRect(QRectF(0, 0, 1, capa))
+        p.drawRect(QRectF(0, 1 - capa, 1, capa))
+        if len(ondas) == 2:
+            p.drawRect(QRectF(0, 0.5 - capa / 2, 1, capa))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        if ondas and atravessado:
+            faixas = [(capa, 1.0 - capa)] if len(ondas) == 1 else [(capa, 0.5 - capa / 2), (0.5 + capa / 2, 1.0 - capa)]
+            comprimento = max(s1 - s0, 1e-6)
+            caneta_onda = QPen(cor_papel, 1.8)
+            caneta_onda.setCosmetic(True)
+            p.setPen(caneta_onda)
+            for (w0, w1), passo in zip(faixas, ondas):
+                n_ondas = comprimento / passo
+                if lado_borda / max(n_ondas, 1e-6) < 5.0:
+                    continue  # onda mais fina que ~5 px: vira borrão
+                meio, amplitude = (w0 + w1) / 2, (w1 - w0) / 2 * 0.92
+                amostras = max(8, min(240, int(n_ondas * 10)))
+                caminho = QPainterPath()
+                for i in range(amostras + 1):
+                    u = i / amostras
+                    w = meio + amplitude * math.sin(2 * math.pi * (s0 + u * comprimento) / passo)
+                    if i == 0:
+                        caminho.moveTo(u, w)
+                    else:
+                        caminho.lineTo(u, w)
+                p.drawPath(caminho)
+        p.restore()
 
     # ── Mouse ────────────────────────────────────────────────────────
     def _quer_mover(self, evento) -> bool:
@@ -847,7 +944,7 @@ class VistaCaixa3D(QWidget):
 
     def wheelEvent(self, evento) -> None:  # noqa: N802
         passos = evento.angleDelta().y() / 120.0
-        novo = max(0.4, min(12.0, self._zoom * (1.12**passos)))
+        novo = max(0.4, min(40.0, self._zoom * (1.12**passos)))
         fator = novo / self._zoom
         # Aproxima onde está o mouse (como no CorelDRAW/Figma): o ponto sob
         # o cursor fica sob o cursor.
