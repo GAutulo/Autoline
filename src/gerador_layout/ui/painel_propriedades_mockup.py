@@ -26,13 +26,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMenu,
     QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
 from ..models import CorImpressao
@@ -42,7 +40,7 @@ from .dialogo_tabela import DialogoTabela
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
-from .mockup_checklist import ElementoChecklistCores
+from .mockup_checklist import DISPOSICOES, ElementoChecklistCores
 from .mockup_cota import ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
@@ -859,94 +857,36 @@ class PainelPropriedadesMockup(QWidget):
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_checklist(self, el: ElementoChecklistCores) -> None:
-        # A lista de variantes não cabe numa barra horizontal (precisa de
-        # altura, não largura) — vira um popup: botão de ícone "lista"
-        # abre um menu com o editor completo dentro (mesmo padrão de
-        # "abrir um mini-painel a partir de um botão de barra" que
-        # qualquer CAD usa pra ferramentas com mais opções do que cabe
-        # numa linha).
-        botao_lista = self._botao_icone("lista", f"Variantes ({len(el.variantes)}) — clique pra editar")
-        botao_lista.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        # Como um texto: fonte, tamanho em pontos e negrito; e o arranjo dos
+        # itens. As cores se editam no desenho (duplo clique: uma por linha).
+        combo_fonte = self._combo_de_fonte()
+        combo_fonte.setCurrentFont(QFont(el.fonte_familia))
+        self._slot_fonte = lambda fonte: el.definir_fonte(fonte.family())
+        combo_fonte.currentFontChanged.connect(self._slot_fonte)
+        self._grupo("fonte_aa", combo_fonte, "Fonte")
+        combo_fonte.show()  # reaproveitado: estava escondido fora da barra
 
-        menu = QMenu(botao_lista)
-        editor = QWidget()
-        layout_editor = QVBoxLayout(editor)
-        layout_editor.setContentsMargins(8, 8, 8, 8)
+        tamanho = QDoubleSpinBox()
+        tamanho.setRange(0.5, 2000.0)
+        tamanho.setDecimals(1)
+        tamanho.setSuffix(" pt")
+        tamanho.setValue(el.tamanho_pt)
+        tamanho.setKeyboardTracking(False)
+        tamanho.setMaximumWidth(78)
+        tamanho.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        tamanho.valueChanged.connect(el.definir_tamanho_pt)
+        self._grupo("letra_a", tamanho, "Tamanho da letra (pontos)")
 
-        lista = QListWidget()
-        lista.addItems(el.variantes)
-        lista.setMinimumWidth(160)
-        lista.setMaximumHeight(120)
-        # Clique duplo remove na hora — mais rápido pra corrigir um erro
-        # de digitação do que selecionar e depois procurar o botão.
-        lista.itemDoubleClicked.connect(lambda item: remover_item(lista.row(item)))
-        layout_editor.addWidget(lista)
+        botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
+        botao_negrito.setChecked(el.negrito)
+        botao_negrito.toggled.connect(el.definir_negrito)
 
-        def atualizar_habilitado() -> None:
-            # Sempre precisa sobrar pelo menos 1 variante (ver
-            # `ElementoChecklistCores.remover_variante`) — desabilita em
-            # vez de deixar clicável sem fazer nada (era isso que
-            # desincronizava a lista visual do modelo: o clique "sumia"
-            # com o item na tela mesmo quando o modelo recusava remover).
-            pode_remover = lista.count() > 1
-            botao_remover_linha.setEnabled(pode_remover)
-            lista.setToolTip("" if pode_remover else "Precisa sobrar pelo menos uma cor na lista.")
-            botao_lista.setToolTip(f"Variantes ({lista.count()}) — clique pra editar")
-
-        def remover_item(linha: int) -> None:
-            if 0 <= linha < lista.count() and el.remover_variante(linha):
-                lista.takeItem(linha)
-            atualizar_habilitado()
-
-        linha_nova = QWidget()
-        layout_linha_nova = QHBoxLayout(linha_nova)
-        layout_linha_nova.setContentsMargins(0, 0, 0, 0)
-        campo_novo = QLineEdit()
-        campo_novo.setPlaceholderText("Nome da nova cor...")
-
-        def adicionar() -> None:
-            nome = campo_novo.text().strip()
-            if nome:
-                el.adicionar_variante(nome)
-                lista.addItem(nome)
-                lista.setCurrentRow(lista.count() - 1)  # já deixa selecionada — digitou errado, corrige na hora
-                campo_novo.clear()
-                atualizar_habilitado()
-
-        campo_novo.returnPressed.connect(adicionar)
-        layout_linha_nova.addWidget(campo_novo)
-
-        botao_adicionar = QToolButton()
-        botao_adicionar.setObjectName("botaoIconePropriedade")
-        botao_adicionar.setIcon(construir_icone("mais"))
-        botao_adicionar.setToolTip("Adicionar variante")
-        botao_adicionar.clicked.connect(adicionar)
-        layout_linha_nova.addWidget(botao_adicionar)
-
-        botao_remover_linha = QToolButton()
-        botao_remover_linha.setObjectName("botaoIconePropriedade")
-        botao_remover_linha.setIcon(construir_icone("remover"))
-        botao_remover_linha.setToolTip("Remover selecionada")
-
-        def remover() -> None:
-            linha = lista.currentRow()
-            if linha < 0:
-                # Nada selecionado (ex.: só digitou nomes sem nunca clicar
-                # na lista) — antes isso não fazia nada, silenciosamente,
-                # e parecia que o botão não funcionava. Remove a última
-                # como padrão razoável em vez de exigir clicar primeiro.
-                linha = lista.count() - 1
-            remover_item(linha)
-
-        botao_remover_linha.clicked.connect(remover)
-        layout_linha_nova.addWidget(botao_remover_linha)
-        layout_editor.addWidget(linha_nova)
-        atualizar_habilitado()
-
-        acao_editor = QWidgetAction(menu)
-        acao_editor.setDefaultWidget(editor)
-        menu.addAction(acao_editor)
-        botao_lista.setMenu(menu)
+        disposicao = QComboBox()
+        for chave, nome in DISPOSICOES.items():
+            disposicao.addItem(nome, chave)
+        disposicao.setCurrentIndex(max(0, disposicao.findData(el.disposicao)))
+        disposicao.currentIndexChanged.connect(lambda _i: el.definir_disposicao(disposicao.currentData()))
+        self._grupo("lista", disposicao, "Arranjo das cores: empilhadas ou lado a lado (quebra na largura da caixa)")
 
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 

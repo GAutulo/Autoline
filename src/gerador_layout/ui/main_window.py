@@ -1415,6 +1415,10 @@ class JanelaPrincipal(QMainWindow):
 
     def _ajustar_ao_zoom(self, elemento: ElementoMockup) -> None:
         f = self._fator_zoom()
+        if isinstance(elemento, ElementoChecklistCores):
+            # O checklist se mede pela letra: ela é que acompanha o zoom.
+            elemento.definir_tamanho_pt(elemento.tamanho_pt * f)
+            return
         elemento.definir_tamanho(elemento.largura * f, elemento.altura * f)
 
     def _criar_texto_por_clique(self, pos: QPointF) -> None:
