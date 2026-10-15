@@ -616,11 +616,36 @@ class PainelPropriedadesMockup(QWidget):
             elemento.setRotation(valor)
 
     # ── Construção dos campos por tipo ────────────────────────────────
+    def _combo_de_fonte(self) -> QFontComboBox:
+        """Um seletor de fonte só, reaproveitado: criar um `QFontComboBox`
+        custa ~150 ms (lista e desenha todas as fontes instaladas) e ele era
+        criado de novo a cada clique num texto — a seleção travava."""
+        combo = getattr(self, "_combo_fonte_guardado", None)
+        if combo is None:
+            combo = QFontComboBox()
+            combo.setMaximumWidth(170)
+            self._combo_fonte_guardado = combo
+        self._desligar_combo_fonte()
+        return combo
+
+    def _desligar_combo_fonte(self) -> None:
+        """Solta o seletor de fonte do texto que estava selecionado antes."""
+        slot = getattr(self, "_slot_fonte", None)
+        if slot is not None:
+            self._combo_fonte_guardado.currentFontChanged.disconnect(slot)
+            self._slot_fonte = None
+
     def _limpar_barra(self) -> None:
+        combo = getattr(self, "_combo_fonte_guardado", None)
         while self._layout_campos.count():
             item = self._layout_campos.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                if combo is not None and widget.isAncestorOf(combo):
+                    # Tira o seletor de fonte antes de apagar o grupo dele.
+                    self._desligar_combo_fonte()
+                    combo.hide()
+                    combo.setParent(self)
                 # `takeAt` só desliga o item do LAYOUT — o widget continua
                 # filho de `_container_campos` e visível na posição antiga
                 # até o `deleteLater()` ser processado (evento adiado, não
@@ -682,11 +707,12 @@ class PainelPropriedadesMockup(QWidget):
         # Como no CorelDRAW: o texto se edita no desenho (duplo clique ou
         # ferramenta Texto); aqui ficam fonte (todas as instaladas), tamanho
         # em pontos e negrito.
-        combo_fonte = QFontComboBox()
-        combo_fonte.setMaximumWidth(170)
+        combo_fonte = self._combo_de_fonte()
         combo_fonte.setCurrentFont(QFont(el.fonte_familia))
-        combo_fonte.currentFontChanged.connect(lambda fonte: el.definir_fonte(fonte.family()))
+        self._slot_fonte = lambda fonte: el.definir_fonte(fonte.family())
+        combo_fonte.currentFontChanged.connect(self._slot_fonte)
         self._grupo("fonte_aa", combo_fonte, "Fonte")
+        combo_fonte.show()  # reaproveitado: estava escondido fora da barra
 
         tamanho = QDoubleSpinBox()
         tamanho.setRange(0.5, 2000.0)

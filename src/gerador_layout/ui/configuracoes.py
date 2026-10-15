@@ -96,6 +96,25 @@ def definir_altura_legenda_mm(valor: float) -> None:
 # aqui já vale na próxima vez que a ferramenta for usada, sem reiniciar.
 
 
+def espessura_papelao_mm() -> float:
+    """Papelão do 3D (mm) — lembrado entre as sessões. 0 = folha fina."""
+    return float(_settings().value("espessura_papelao_mm", 0.0, type=float))
+
+
+def definir_espessura_papelao_mm(valor: float) -> None:
+    _settings().setValue("espessura_papelao_mm", float(valor))
+
+
+def giro_automatico_3d() -> bool:
+    """Se a caixa montada fica girando sozinha no 3D (desligado: gastava o
+    processador o tempo todo com a aba 3D aberta)."""
+    return bool(_settings().value("giro_automatico_3d", False, type=bool))
+
+
+def definir_giro_automatico_3d(ativo: bool) -> None:
+    _settings().setValue("giro_automatico_3d", bool(ativo))
+
+
 def snap_ativo_padrao() -> bool:
     """Se o encaixe (snap) começa LIGADO quando o app abre — só o estado
     inicial; o usuário ainda pode ligar/desligar na hora pelo menu Exibir

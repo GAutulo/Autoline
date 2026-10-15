@@ -42,6 +42,7 @@ from ..dobra3d import (
     produto_escalar,
     produto_vetorial,
 )
+from . import configuracoes
 from .estilo import FONTE_MONO, Cor
 
 _SUBDIVISOES = 5
@@ -247,6 +248,12 @@ class VistaCaixa3D(QWidget):
         self._timer_giro = QTimer(self)
         self._timer_giro.setInterval(_INTERVALO_QUADRO_MS)
         self._timer_giro.timeout.connect(self._passo_giro)
+        self._girar_sozinho = configuracoes.giro_automatico_3d()
+        # Quanto o último quadro levou pra desenhar (ms): o giro espera pelo
+        # menos isso de novo antes do próximo, deixando metade do tempo livre
+        # pro resto do app (antes pedia quadro a cada 33 ms e cada um levava
+        # 25–70 ms — a janela inteira ficava sem responder direito).
+        self._ultimo_quadro_ms = 0.0
 
     # ── API ──────────────────────────────────────────────────────────
     def definir_modelo(self, modelo: ModeloCaixa3D, medidas_texto: str = "") -> None:
@@ -331,8 +338,23 @@ class VistaCaixa3D(QWidget):
         self.update()
 
     # ── Giro automático ──────────────────────────────────────────────
+    @property
+    def girar_sozinho(self) -> bool:
+        return self._girar_sozinho
+
+    def definir_girar_sozinho(self, ativo: bool) -> None:
+        self._girar_sozinho = bool(ativo)
+        configuracoes.definir_giro_automatico_3d(self._girar_sozinho)
+        self._atualizar_timer_giro()
+
     def _atualizar_timer_giro(self) -> None:
-        girar = self.isVisible() and self._progresso >= 0.999 and self._arrasto is None and not self._modelo.vazio
+        girar = (
+            self._girar_sozinho
+            and self.isVisible()
+            and self._progresso >= 0.999
+            and self._arrasto is None
+            and not self._modelo.vazio
+        )
         if girar and not self._timer_giro.isActive():
             self._relogio.start()
             self._timer_giro.start()
@@ -342,6 +364,8 @@ class VistaCaixa3D(QWidget):
     def _passo_giro(self) -> None:
         dt = self._relogio.restart() / 1000.0
         self._giro_auto = (self._giro_auto + _GIRO_AUTOMATICO_GRAUS_S * min(dt, 0.2)) % 360.0
+        # Próximo quadro só depois de um intervalo do tamanho do quadro.
+        self._timer_giro.setInterval(int(min(250.0, max(_INTERVALO_QUADRO_MS, 2.0 * self._ultimo_quadro_ms))))
         self.update()
 
     def showEvent(self, evento) -> None:  # noqa: N802
@@ -382,7 +406,13 @@ class VistaCaixa3D(QWidget):
         return olho, direita, cima_cam, olhar  # type: ignore[return-value]
 
     # ── Pintura ──────────────────────────────────────────────────────
-    def paintEvent(self, _evento) -> None:  # noqa: N802 (API do Qt)
+    def paintEvent(self, evento) -> None:  # noqa: N802 (API do Qt)
+        relogio = QElapsedTimer()
+        relogio.start()
+        self._pintar(evento)
+        self._ultimo_quadro_ms = float(relogio.elapsed())
+
+    def _pintar(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), _COR_FUNDO)
@@ -846,14 +876,30 @@ class Visualizacao3D(QWidget):
     face_base_escolhida = Signal(str)
 
     def definir_espessura(self, mm: float) -> None:
-        """Escolhe o papelão da lista mais perto de `mm` (um estilo com E =
-        3 mm vira "Onda B"); fora da lista, entra como personalizado."""
-        for i in range(self.combo_papelao.count()):
-            if abs(self.combo_papelao.itemData(i) - mm) < 1e-6:
-                self.combo_papelao.setCurrentIndex(i)
-                return
-        self.combo_papelao.addItem(f"Personalizado ({mm:g} mm)".replace(".", ","), float(mm))
-        self.combo_papelao.setCurrentIndex(self.combo_papelao.count() - 1)
+        """Espessura do papelão do 3D: a lista mostra o papelão com essa
+        espessura (E = 3 mm vira "Onda B"), ou "Personalizado"."""
+        self.campo_espessura.setValue(float(mm))  # dispara _ao_digitar_espessura
+        self._ao_digitar_espessura(self.campo_espessura.value())
+
+    def _ao_escolher_papelao(self, indice: int) -> None:
+        mm = self.combo_papelao.itemData(indice)
+        if mm is None:  # "Personalizado": o valor é o do campo
+            self.campo_espessura.setFocus()
+            self.campo_espessura.selectAll()
+            return
+        self.definir_espessura(mm)
+
+    def _ao_digitar_espessura(self, mm: float) -> None:
+        self.vista.definir_espessura(mm)
+        configuracoes.definir_espessura_papelao_mm(mm)
+        indice = next(
+            (i for i in range(self.combo_papelao.count()) if self.combo_papelao.itemData(i) is not None
+             and abs(self.combo_papelao.itemData(i) - mm) < 1e-6),
+            self.combo_papelao.count() - 1,
+        )
+        self.combo_papelao.blockSignals(True)
+        self.combo_papelao.setCurrentIndex(indice)
+        self.combo_papelao.blockSignals(False)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -904,6 +950,11 @@ class Visualizacao3D(QWidget):
 
         botao_vista = QPushButton("Vista inicial")
         botao_vista.clicked.connect(self.vista.vista_inicial)
+        self.botao_girar = QPushButton("Girar sozinho")
+        self.botao_girar.setCheckable(True)
+        self.botao_girar.setChecked(self.vista.girar_sozinho)
+        self.botao_girar.setToolTip("A caixa montada fica girando devagar (gasta processador enquanto a aba 3D está aberta)")
+        self.botao_girar.toggled.connect(self.vista.definir_girar_sozinho)
 
         rotulo_plana = QLabel("Plana")
         rotulo_montada = QLabel("Montada")
@@ -920,6 +971,7 @@ class Visualizacao3D(QWidget):
         barra.addWidget(rotulo_montada)
         barra.addWidget(self.rotulo_dobra)
         barra.addSpacing(8)
+        barra.addWidget(self.botao_girar)
         barra.addWidget(botao_vista)
 
         ferramentas = QHBoxLayout()
@@ -931,11 +983,22 @@ class Visualizacao3D(QWidget):
         ferramentas.addSpacing(12)
         ferramentas.addWidget(QLabel("Papelão:"))
         self.combo_papelao = QComboBox()
-        self.combo_papelao.setToolTip("Espessura do papelão no 3D: a borda cortada aparece e o lado de dentro fica pra dentro")
+        self.combo_papelao.setToolTip("Papelões comuns — ou digite a espessura exata no campo ao lado")
         for nome, mm in PAPELOES:
             self.combo_papelao.addItem(nome, mm)
-        self.combo_papelao.currentIndexChanged.connect(lambda _i: self.vista.definir_espessura(self.combo_papelao.currentData()))
+        self.combo_papelao.addItem("Personalizado", None)
+        self.combo_papelao.activated.connect(self._ao_escolher_papelao)
         ferramentas.addWidget(self.combo_papelao)
+        # Espessura exata: digitada aqui (qualquer valor), ou vem da lista.
+        self.campo_espessura = QDoubleSpinBox()
+        self.campo_espessura.setRange(0.0, 30.0)
+        self.campo_espessura.setDecimals(2)
+        self.campo_espessura.setSingleStep(0.1)
+        self.campo_espessura.setSuffix(" mm")
+        self.campo_espessura.setKeyboardTracking(False)
+        self.campo_espessura.setToolTip("Espessura do papelão no 3D (0 = folha fina). Fica guardada pra próxima vez.")
+        self.campo_espessura.valueChanged.connect(self._ao_digitar_espessura)
+        ferramentas.addWidget(self.campo_espessura)
         self.aviso_dobras = QLabel("Ângulo por vinco e face base: na faca editada à mão ou em branco.")
         self.aviso_dobras.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
         # O aviso é longo: pode encolher (e cortar) em vez de forçar a janela
@@ -944,6 +1007,9 @@ class Visualizacao3D(QWidget):
         self.aviso_dobras.setToolTip(self.aviso_dobras.text())
         ferramentas.addWidget(self.aviso_dobras)
         ferramentas.addStretch(1)
+
+        # A última espessura usada volta ao abrir o app.
+        self.definir_espessura(configuracoes.espessura_papelao_mm())
 
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(12, 6, 0, 0)

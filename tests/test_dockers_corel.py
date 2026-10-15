@@ -123,7 +123,26 @@ def test_atalhos_abrem_docker_so_no_layout(janela):
     assert janela._docks["transformacoes"].isVisible()
     assert janela.docker_transformacoes.abas.currentIndex() == 2
     janela.abas_tela.setCurrentIndex(0)
-    assert not janela._docks["transformacoes"].isVisible()
-    assert not any(a.isEnabled() for a in janela._acoes_docker)
+    assert not janela._docks["transformacoes"].isVisible()  # dockers só aparecem no Layout
     janela.abas_tela.setCurrentIndex(1)
     assert janela._docks["transformacoes"].isVisible()  # reabre o que estava aberto
+    # Fora do Layout, o atalho não fica morto: leva pro Layout e abre.
+    janela._docks["alinhar"].hide()
+    janela.abas_tela.setCurrentIndex(0)
+    alinhar = next(a for a in janela._acoes_docker if a.text() == "Alinhar e distribuir")
+    assert alinhar.isEnabled()
+    alinhar.trigger()
+    assert janela.abas_tela.currentIndex() == 1 and janela._docks["alinhar"].isVisible()
+
+
+def test_menu_objeto_e_janelas_de_encaixe_abrem_de_qualquer_tela(janela):
+    janela.show()
+    janela.abas_tela.setCurrentIndex(0)  # Dieline
+    assert janela._menu_objeto.isEnabled() and janela._menu_dockers.isEnabled()
+    objetos = next(a for a in janela._menu_dockers.actions() if a.text() == "Objetos")
+    objetos.trigger()
+    assert janela.abas_tela.currentIndex() == 1 and janela._docks["objetos"].isVisible()
+    janela.abas_tela.setCurrentIndex(2)  # 3D
+    combinar = next(a for a in janela._menu_objeto.actions() if a.text().startswith("Combinar"))
+    combinar.trigger()  # sem seleção: vai pro Layout e só avisa
+    assert janela.abas_tela.currentIndex() == 1
