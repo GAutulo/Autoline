@@ -191,7 +191,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 o tempo todo, dá pra "corrigir" o eixo sem soltar o botão.</p>
                 <p><b>Ctrl/Shift + clique</b> — adiciona/remove elementos individuais da
                 seleção atual (seleção múltipla). <b>Arrastar numa área vazia</b> — abre
-                uma seleção retangular, seleciona tudo que estiver dentro.</p>
+                uma seleção retangular, seleciona tudo que estiver dentro. Com 2 ou
+                mais selecionados, a barra de propriedades mostra os botões de
+                <b>alinhar entre si</b> (bordas, centros, topos, bases).</p>
                 <p><b>Setas do teclado</b> — move o(s) elemento(s) selecionado(s) aos
                 poucos (o passo é uma preferência, ver Configurações > Ferramentas);
                 Shift + seta usa o passo maior.</p>
@@ -244,7 +246,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 edita com o cursor onde você clicou. Redimensionar pelas alças estica o
                 texto (canto = proporcional, lado = distorce), como no CorelDRAW.</p>
                 <p>Na barra de propriedades: fonte (todas as instaladas), <b>tamanho em
-                pontos</b>, negrito e tinta. A fonte de um texto novo vem de
+                pontos</b>, negrito, <b>alinhamento das linhas</b> (esquerda, centro,
+                direita — também sai assim no CorelDRAW) e tinta. A fonte de um texto novo vem de
                 Configurações &gt; Ferramentas.</p>
                 """,
             ),
@@ -532,7 +535,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 selecionado: posição X/Y, largura/altura, ângulo, <b>escala em %</b>
                 (digite 150 e confirme pra aumentar 50% em torno do centro; o campo
                 volta pra 100), trava de proporção e <b>espelhar</b> na horizontal/
-                vertical. Depois vem a face da caixa (com o menu de alinhar na face) e
+                vertical. Depois vem a face da caixa (com o menu de alinhar na face — sem
+                face escolhida, ele usa a face onde o objeto está) e
                 os campos do tipo do objeto (fonte, tinta, espessura...).</p>
                 <p><b>Sem nada selecionado</b>, a barra mostra o tamanho da chapa, a
                 unidade e as distâncias de deslocamento (setas e Shift+setas) e de

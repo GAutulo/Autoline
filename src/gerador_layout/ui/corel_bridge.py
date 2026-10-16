@@ -419,6 +419,9 @@ def _desenhar_linha_mockup_cdr(app, layer, elemento: ElementoLinha, altura_total
         shape.Rotate(angulo)
 
 
+_CDR_ALINHAMENTO_TEXTO = {"esquerda": 1, "direita": 2, "centro": 3}
+
+
 def _desenhar_texto_cdr(app, layer, elemento: ElementoTexto, altura_total: float) -> None:
     if not elemento.texto.strip():
         return
@@ -428,6 +431,8 @@ def _desenhar_texto_cdr(app, layer, elemento: ElementoTexto, altura_total: float
         0, 0, elemento.texto.replace("\n", "\r"), Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR
     )
     shape.Text.Story.Bold = elemento.negrito
+    # cdrAlignment do CorelDRAW (lido da type library): 1 esquerda, 2 direita, 3 centro.
+    shape.Text.Story.Alignment = _CDR_ALINHAMENTO_TEXTO.get(elemento.alinhamento, 1)
     _aplicar_cor_preenchimento(app, shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
     # Força pro tamanho exato que o usuário viu na tela (ver `SetSize`
     # na nota grande acima) — em vez de tentar replicar a métrica de

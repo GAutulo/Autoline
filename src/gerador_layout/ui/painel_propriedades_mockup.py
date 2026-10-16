@@ -518,10 +518,13 @@ class PainelPropriedadesMockup(QWidget):
         botao_alinhar.setMenu(menu_alinhar)
         botoes: list[QToolButton] = [botao_alinhar]
 
+        # Sempre ativo: sem face escolhida, alinhar usa a face onde o objeto
+        # está (e ela passa a aparecer escolhida aqui).
+        self._combo_painel = combo
+
         def atualizar_habilitado() -> None:
-            ativo = combo.currentData() is not None
             for botao in botoes:
-                botao.setEnabled(ativo)
+                botao.setEnabled(bool(paineis))
 
         def ao_mudar(_indice: int) -> None:
             elemento.definir_painel(combo.currentData())
@@ -577,11 +580,24 @@ class PainelPropriedadesMockup(QWidget):
 
     def _alinhar_ao_painel(self, alinhamento: str) -> None:
         elemento = self._elemento
-        if elemento is None or elemento.painel_id is None:
+        if elemento is None:
             return
-        painel = next((p for p in self._obter_paineis() if p.id == elemento.painel_id), None)
+        paineis = self._obter_paineis()
+        painel = next((p for p in paineis if p.id == elemento.painel_id), None)
         if painel is None:
-            return
+            # Sem face escolhida: a face onde está o centro do objeto (antes
+            # o botão ficava cinza até escolher a face — parecia quebrado).
+            centro = elemento.mapToScene(elemento.largura / 2, elemento.altura / 2)
+            dentro = [p for p in paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
+            if not dentro:
+                return
+            painel = min(dentro, key=lambda p: p.largura * p.altura)
+            combo = getattr(self, "_combo_painel", None)
+            indice = combo.findData(painel.id) if combo is not None else -1
+            if indice >= 0:
+                combo.setCurrentIndex(indice)  # dispara definir_painel
+            else:
+                elemento.definir_painel(painel.id)
 
         x, y = elemento.pos().x(), elemento.pos().y()
         if alinhamento == "esquerda":
@@ -726,6 +742,30 @@ class PainelPropriedadesMockup(QWidget):
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
         botao_negrito.toggled.connect(el.definir_negrito)
+
+        # Alinhamento das linhas do texto (como no CorelDRAW): esquerda,
+        # centro, direita.
+        self._separador()
+        botoes_alinhamento = []
+        for chave, icone, dica in (
+            ("esquerda", "alinhar_esquerda", "Texto alinhado à esquerda"),
+            ("centro", "alinhar_centro_h", "Texto centralizado"),
+            ("direita", "alinhar_direita", "Texto alinhado à direita"),
+        ):
+            botao = self._botao_icone(icone, dica, checkable=True)
+            botao.setObjectName(f"alinhar_texto_{chave}")
+            botao.setChecked(el.alinhamento == chave)
+            botoes_alinhamento.append((chave, botao))
+
+        def escolher(chave_escolhida: str) -> None:
+            el.definir_alinhamento(chave_escolhida)
+            for chave, botao in botoes_alinhamento:
+                botao.blockSignals(True)
+                botao.setChecked(chave == chave_escolhida)
+                botao.blockSignals(False)
+
+        for chave, botao in botoes_alinhamento:
+            botao.clicked.connect(lambda _c=False, c=chave: escolher(c))
 
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
