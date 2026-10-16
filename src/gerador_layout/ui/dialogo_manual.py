@@ -222,6 +222,22 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Folha de aprovação (PDF)",
+                """
+                <p><b>Arquivo &gt; Folha de aprovação</b> (Ctrl+Shift+P, ou "↓ Aprovação"
+                na barra): o PDF que vai pro cliente aprovar, no padrão da empresa — A4
+                deitado, com o logotipo, Cliente, Medidas, Tipo de caixa, Referência,
+                Código, Cores (as marcadas na legenda), o aviso de ATENÇÃO, o layout e o
+                rodapé com as datas, "Aprovado por" em branco e "Desenvolvido por".</p>
+                <p>Cliente, referência e código você digita (ficam guardados no projeto);
+                medidas, tipo e cores vêm do projeto e dá pra corrigir na hora. A
+                <b>primeira</b> folha leva a data de hoje em "Criado em"; gerar de novo
+                noutro dia preenche "Modificado em" e a de criação continua (dá pra marcar
+                ou desmarcar a modificação). O arquivo sai como "código referência.pdf" na
+                pasta das aprovações e abre pra conferir.</p>
+                """,
+            ),
+            (
                 "Navegar no canvas",
                 """
                 <p><b>Zoom:</b> roda do mouse.</p>

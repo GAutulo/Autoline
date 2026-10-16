@@ -264,6 +264,42 @@ def definir_pasta_ultima(chave: str, pasta: str) -> None:
     _settings().setValue(f"pasta_ultima_{chave}", pasta)
 
 
+_PADRAO_PASTA_FOLHAS = "F:\\GUILHERME AUTULO\\APROVAÇÃO LAYOUTS"
+
+
+def pasta_folhas_aprovacao() -> str:
+    """Onde a folha de aprovação (PDF) é sugerida. Padrão: a pasta de
+    aprovações de layout, se existir; senão a última usada."""
+    valor = _settings().value("pasta_folhas_aprovacao", None)
+    if valor is None:
+        from pathlib import Path
+
+        return _PADRAO_PASTA_FOLHAS if Path(_PADRAO_PASTA_FOLHAS).is_dir() else ""
+    return str(valor)
+
+
+def definir_pasta_folhas_aprovacao(pasta: str) -> None:
+    _settings().setValue("pasta_folhas_aprovacao", pasta)
+
+
+def logo_folha_aprovacao() -> str:
+    """SVG/PNG do logotipo da empresa no cabeçalho da folha de aprovação."""
+    return str(_settings().value("logo_folha_aprovacao", "", type=str))
+
+
+def definir_logo_folha_aprovacao(caminho: str) -> None:
+    _settings().setValue("logo_folha_aprovacao", caminho)
+
+
+def desenvolvido_por() -> str:
+    """Nome no "Desenvolvido por" da folha de aprovação."""
+    return str(_settings().value("desenvolvido_por", "", type=str))
+
+
+def definir_desenvolvido_por(nome: str) -> None:
+    _settings().setValue("desenvolvido_por", nome)
+
+
 def projetos_recentes() -> list[str]:
     valor = _settings().value("projetos_recentes", [])
     if isinstance(valor, str):

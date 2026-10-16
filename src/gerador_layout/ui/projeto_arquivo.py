@@ -336,6 +336,7 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
         },
         "papelao_mm": janela.visualizacao_3d.vista.espessura,
         "elementos": elementos,
+        "aprovacao": dict(getattr(janela, "_aprovacao", {}) or {}),
     }
     if com_arquivos:
         dados["arquivos"] = arquivos.dados
@@ -466,6 +467,9 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
     for d in dados.get("elementos", []):
         el = _montar_na_cena(canvas, d, arquivos, avisos)
         del el
+
+    # Folha de aprovação (cliente, referência, código e datas).
+    janela._aprovacao = dict(dados.get("aprovacao") or {})
 
     # 3D.
     dobras = dados.get("dobras_3d", {})
