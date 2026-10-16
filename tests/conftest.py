@@ -8,9 +8,12 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QStandardPaths
 
 _PASTA = tempfile.mkdtemp(prefix="autoline-testes-")
+# Pastas de dados do app (recuperação, estilos, símbolos, arquivos extraídos)
+# numa área de teste do Qt — nunca a AppData de verdade.
+QStandardPaths.setTestModeEnabled(True)
 QSettings.setDefaultFormat(QSettings.Format.IniFormat)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _PASTA)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

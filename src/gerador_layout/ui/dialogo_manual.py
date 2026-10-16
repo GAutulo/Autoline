@@ -204,7 +204,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 nada. Quando o cliente pedir alteração, é só abrir (Ctrl+O, ou Arquivo &gt;
                 Abrir recente) e mudar.</p>
                 <p>O título da janela mostra o nome do projeto, com um • quando tem
-                alteração não salva; fechar ou abrir outro pergunta se quer salvar. Em
+                alteração não salva; fechar ou abrir outro pergunta se quer salvar.
+                <b>Recuperação:</b> a cada 2 minutos, se tem alteração não salva, o
+                Autoline guarda uma cópia sozinho; se ele fechar sem querer (queda de
+                energia, travou), ao abrir de novo pergunta se quer recuperar o trabalho
+                de onde parou. Em
                 Configurações &gt; Arquivos: a pasta das imagens do layout (padrão
                 Z:\\Imagens) e a das imagens do 3D, que os botões de exportar já sugerem
                 com o nome do projeto, e o botão que faz os .autoline abrirem com dois

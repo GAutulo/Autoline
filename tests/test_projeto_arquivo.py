@@ -171,3 +171,40 @@ def test_associacao_grava_so_no_usuario():
     assert chaves[-1][1] == comando
     with pytest.raises(associacao_arquivo.ErroAssociacao):
         associacao_arquivo.comando_de_abrir()  # rodando pelo código-fonte
+
+
+def test_recuperacao_depois_de_fechar_sem_querer(tmp_path):
+    from PySide6.QtCore import QStandardPaths
+
+    assert QStandardPaths.isTestModeEnabled()  # nunca mexe na AppData de verdade
+    projeto_arquivo.apagar_recuperacao()
+    j = JanelaPrincipal()
+    assert not j.salvar_recuperacao()  # sem alteração: nada a guardar
+    assert projeto_arquivo.recuperacao_pendente() is None
+    j._gravar_projeto(str(tmp_path / "cliente"))
+    j.spin_comprimento.setValue(512)
+    j.canvas.adicionar_elemento_mockup(ElementoTexto("RECUPERAR"), QPointF(50, 50))
+    assert j.salvar_recuperacao()
+    assert projeto_arquivo.recuperacao_pendente() is not None
+    # "travou": a janela some sem passar pelo fechar normal
+    j.deleteLater()
+
+    k = JanelaPrincipal()
+    perguntas = []
+    assert k.verificar_recuperacao(perguntar=lambda texto: perguntas.append(texto) or True)
+    assert "cliente" in perguntas[0]
+    assert k.spin_comprimento.value() == 512
+    assert any(isinstance(e, ElementoTexto) and e.texto == "RECUPERAR" for e in k.canvas.elementos_mockup)
+    assert k.caminho_projeto.endswith("cliente.autoline") and k.projeto_modificado()
+    k.close()  # fechou direito: a cópia some
+    assert projeto_arquivo.recuperacao_pendente() is None
+
+    # recusar a recuperação também apaga a cópia
+    m = JanelaPrincipal()
+    m.spin_comprimento.setValue(333)
+    m.salvar_recuperacao()
+    n = JanelaPrincipal()
+    assert not n.verificar_recuperacao(perguntar=lambda _t: False)
+    assert projeto_arquivo.recuperacao_pendente() is None
+    m.deleteLater()
+    n.close()
