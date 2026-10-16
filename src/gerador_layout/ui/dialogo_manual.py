@@ -118,7 +118,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 ou Shift + arrastar move a vista; a roda aproxima no ponto onde está
                 o mouse (além de 1,5× o zoom vira lupa, até 40×, pra chegar perto de uma
                 borda sem a câmera entrar na caixa); duplo clique (ou "Vista inicial")
-                volta. <b>Girar sozinho</b>
+                volta. <b>Salvar imagem…</b> (na barra de baixo do 3D, ou Arquivo &gt;
+                Exportar layout &gt; Imagem do 3D) grava a vista como está — pra mandar
+                pro cliente: JPG com fundo branco ou PNG com fundo transparente, em alta
+                resolução, recortada em volta da caixa e sem os textos de ajuda. <b>Girar sozinho</b>
                 deixa a caixa montada girando devagar (desligado por padrão: girando, o
                 3D fica redesenhando o tempo todo).</p>
                 <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, <b>onda B

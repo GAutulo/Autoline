@@ -505,6 +505,7 @@ class JanelaPrincipal(QMainWindow):
         menu_exportar.addAction("Exportar como SVG...", self._exportar_svg)
         menu_exportar.addAction("Exportar como PDF...", self._exportar_pdf)
         menu_exportar.addAction("Exportar como JPG...", self._exportar_jpg)
+        menu_exportar.addAction("Imagem do 3D (JPG/PNG)...", self._exportar_imagem_3d)
         menu_exportar.addSeparator()
         menu_exportar.addAction("Enviar para o CorelDRAW", self._exportar_corel)
 
@@ -1696,6 +1697,15 @@ class JanelaPrincipal(QMainWindow):
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
         else:
             self.statusBar().showMessage("Conectado ao CorelDRAW", 6000)
+
+    def _exportar_imagem_3d(self) -> None:
+        """Foto da caixa em 3D na vista atual (vai pra aba 3D se precisar)."""
+        if self.abas_tela.currentIndex() != 2:
+            self.abas_tela.setCurrentIndex(2)
+            QApplication.processEvents()
+        caminho = self.visualizacao_3d.salvar_imagem()
+        if caminho:
+            self.statusBar().showMessage(f"Imagem do 3D salva em {caminho}", 8000)
 
     def _exportar_corel(self) -> None:
         if not self._layout_pronto_para_exportar():
