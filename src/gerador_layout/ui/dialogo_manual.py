@@ -121,9 +121,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 volta. <b>Girar sozinho</b>
                 deixa a caixa montada girando devagar (desligado por padrão: girando, o
                 3D fica redesenhando o tempo todo).</p>
-                <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, cartão,
-                micro-ondulado E, onda B, C ou dupla BC — ou digite o valor exato no
-                campo ao lado ("Personalizado"). A última espessura fica guardada pra
+                <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, <b>onda B
+                ou BC em escala 1:10</b> (0,3 e 0,7 mm, pra caixa desenhada em escala
+                reduzida; é o padrão), cartão, micro-ondulado E, onda B, C ou dupla BC
+                — ou digite o valor exato no campo ao lado ("Personalizado"). A última espessura fica guardada pra
                 próxima vez que abrir o app. De perto, a borda cortada mostra as camadas do papelão: as capas
                 e o miolo ondulado — uma ondulação na onda simples (E, B, C) e duas, com
                 a capa do meio, na onda dupla BC. As ondas correm na vertical das
