@@ -6,10 +6,12 @@ pintura por profundidade (painter's algorithm) — em vez de OpenGL/Qt3D/
 WebEngine: são poucas dezenas de faces planas, cabe folgado em Python
 puro, e não traz nenhuma dependência nova pro empacotamento (PyInstaller).
 
-Pra a ordenação por profundidade acertar quando duas faces grandes se
-cruzam na tela, cada painel é dividido numa grade de pedaços menores
-(`_SUBDIVISOES`) e cada pedaço é ordenado sozinho. Só a borda real do
-painel recebe contorno — as emendas entre pedaços não aparecem.
+A ordem de pintura vem de uma árvore BSP (`bsp3d.py`) com todas as
+superfícies — lado impresso, lado de dentro e borda cortada do papelão de
+cada painel: exata mesmo com aba colada por dentro da parede, abas
+sobrepostas e quinas (a pintura por distância do centro errava ali). Cada
+superfície é UM polígono (cortado em pedaços só onde cruza outra), então a
+arte de uma face é desenhada uma vez, com uma transformação projetiva só.
 
 A arte do Layout (texto, formas, logotipo) entra como textura: uma imagem
 POR FACE, renderizada da própria cena do canvas sem a faca
@@ -17,8 +19,8 @@ POR FACE, renderizada da própria cena do canvas sem a faca
 agora (com folga). Aproximar a câmera faz a face ser redesenhada mais
 nítida — antes era uma imagem só da chapa inteira, limitada a ~2,4 px/mm,
 e texto/logo saíam borrados e serrilhados. Cada pedaço da face externa
-recebe o recorte dele via `QTransform.quadToQuad` — projetivo exato pra
-uma face plana. A arte vai sem luz/sombra por cima, pra manter as cores
+é desenhada inteira via `QTransform.quadToQuad` — projetivo exato pra
+uma face plana — recortada no pedaço visível. A arte vai sem luz/sombra por cima, pra manter as cores
 originais da marca.
 
 A geometria (quais painéis existem, onde fica cada vinco, em que ordem
@@ -30,7 +32,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QLineF, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QRegion, QTransform
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -57,9 +59,11 @@ from ..dobra3d import (
     produto_vetorial,
 )
 from . import configuracoes
+from .bsp3d import Poligono as Poligono3D
+from .bsp3d import construir as construir_bsp
+from .bsp3d import de_tras_pra_frente
 from .estilo import FONTE_MONO, Cor
 
-_SUBDIVISOES = 5
 _FOV_GRAUS = 34.0
 _DURACAO_MONTAR_MS = 3400
 _DURACAO_PLANIFICAR_MS = 2800
@@ -230,20 +234,101 @@ def _caminho_do_painel(painel) -> QPainterPath:
     return caminho
 
 
-def _na_borda(q: QPointF, painel, tol: float = 1e-3) -> bool:
-    """O ponto está sobre o contorno da face (ou de um furo)?"""
-    for contorno in (painel.poligono, *painel.furos):
-        n = len(contorno)
-        for k in range(n):
-            (x1, y1), (x2, y2) = contorno[k], contorno[(k + 1) % n]
-            dx, dy = x2 - x1, y2 - y1
-            c2 = dx * dx + dy * dy
-            if c2 < 1e-12:
+_PERTO = 1.0  # mm na frente do olho: o que vem antes disso é cortado
+
+
+class _Superficie:
+    """Uma superfície desenhável: o lado de fora ou de dentro de um painel
+    (``face``) ou um trecho da borda cortada do papelão (``borda``)."""
+
+    __slots__ = ("tipo", "pp", "externo", "normal", "quad_mundo", "quad_local", "contorno_local", "miolo")
+
+    def __init__(self, tipo, pp, externo, normal, quad_mundo, quad_local=None, contorno_local=None, miolo=None):
+        self.tipo, self.pp, self.externo, self.normal = tipo, pp, externo, normal
+        self.quad_mundo, self.quad_local, self.contorno_local, self.miolo = quad_mundo, quad_local, contorno_local, miolo
+
+
+def _contorno_do_painel(painel) -> list[QPolygonF]:
+    """Os anéis da borda do painel (contorno e furos), na chapa."""
+    aneis = [painel.cantos, *painel.furos]
+    return [QPolygonF([QPointF(x, y) for x, y in anel]) for anel in aneis]
+
+
+def _superficies(posicionados, espessura: float, caixa_fechada: bool) -> list[Poligono3D]:
+    """Os polígonos (no mundo) de tudo o que pode aparecer: o lado impresso
+    de cada painel, o lado de dentro (E mm pra dentro) e a borda cortada do
+    papelão. Caixa fechada é um sólido: só o lado de fora das faces de fora."""
+    poligonos: list[Poligono3D] = []
+    e = espessura
+    ondas = miolo_do_papelao(e)
+    for pp in posicionados:
+        painel = pp.painel
+        if caixa_fechada and painel.camada > 0:
+            continue
+        anel = list(painel.cantos)
+        aplicar = pp.transformacao.aplicar
+        n_ext = normalizar(pp.normal_externa)
+        n_int = (-n_ext[0], -n_ext[1], -n_ext[2])
+        x1, y1, x2, y2 = painel.x1, painel.y1, painel.x2, painel.y2
+        quad_local = QPolygonF([QPointF(x1, y1), QPointF(x2, y1), QPointF(x2, y2), QPointF(x1, y2)])
+        contorno = _contorno_do_painel(painel)
+        for externo, z, normal in ((True, 0.0, n_ext), (False, e, n_int)):
+            if caixa_fechada and not externo:
                 continue
-            t = max(0.0, min(1.0, ((q.x() - x1) * dx + (q.y() - y1) * dy) / c2))
-            if math.hypot(q.x() - (x1 + dx * t), q.y() - (y1 + dy * t)) < tol:
-                return True
-    return False
+            quad_mundo = [aplicar((x1, y1, z)), aplicar((x2, y1, z)), aplicar((x2, y2, z)), aplicar((x1, y2, z))]
+            sup = _Superficie("face", pp, externo, normal, quad_mundo, quad_local, contorno)
+            # Mesmo plano (aba colada sem espessura): a de fora pinta por cima
+            # vista de fora; vista de dentro, a de dentro.
+            prioridade = -painel.camada if externo else painel.camada
+            poligonos.append(Poligono3D([aplicar((x, y, z)) for x, y in anel], list(anel), sup, normal, prioridade))
+        if e <= 0 or caixa_fechada:
+            continue
+        centro = aplicar((sum(x for x, _y in anel) / len(anel), sum(y for _x, y in anel) / len(anel), e / 2))
+        aneis = [(anel, False)] + [(list(f), True) for f in painel.furos]
+        for contorno_anel, furo in aneis:
+            meio_furo = None
+            if furo:
+                meio_furo = aplicar((
+                    sum(x for x, _y in contorno_anel) / len(contorno_anel),
+                    sum(y for _x, y in contorno_anel) / len(contorno_anel),
+                    e / 2,
+                ))
+            for (ax, ay), (bx, by) in zip(contorno_anel, contorno_anel[1:] + contorno_anel[:1]):
+                comprimento = math.hypot(bx - ax, by - ay)
+                if comprimento < 1e-6:
+                    continue
+                quad = [aplicar((ax, ay, 0.0)), aplicar((bx, by, 0.0)), aplicar((bx, by, e)), aplicar((ax, ay, e))]
+                lado_a = tuple(quad[1][i] - quad[0][i] for i in range(3))
+                lado_b = tuple(quad[3][i] - quad[0][i] for i in range(3))
+                normal = normalizar(produto_vetorial(lado_a, lado_b))
+                alvo = meio_furo if furo else centro  # borda olha pra fora do papelão
+                para_dentro = tuple(alvo[i] - quad[0][i] for i in range(3))
+                if (produto_escalar(normal, para_dentro) > 0) != furo:
+                    normal = (-normal[0], -normal[1], -normal[2])
+                # As ondas correm na direção Y da faca (vertical das paredes):
+                # o corte atravessado a elas (borda mais em X) mostra a onda.
+                atravessado = abs(bx - ax) >= abs(by - ay)
+                sup = _Superficie("borda", pp, True, normal, quad, miolo=(0.0, comprimento, e, ondas, atravessado))
+                locais = [(0.0, 0.0), (comprimento, 0.0), (comprimento, 1.0), (0.0, 1.0)]
+                poligonos.append(Poligono3D(quad, locais, sup, normal, -painel.camada))
+    return poligonos
+
+
+def _recortar_perto(cam: list) -> list:
+    """Recorta o polígono (coordenadas de câmera) no plano z = _PERTO."""
+    if all(c[2] > _PERTO for c in cam):
+        return cam
+    saida = []
+    n = len(cam)
+    for i in range(n):
+        a, b = cam[i], cam[(i + 1) % n]
+        dentro_a, dentro_b = a[2] > _PERTO, b[2] > _PERTO
+        if dentro_a:
+            saida.append(a)
+        if dentro_a != dentro_b:
+            t = (_PERTO - a[2]) / (b[2] - a[2])
+            saida.append(tuple(a[k] + (b[k] - a[k]) * t for k in range(3)))
+    return saida
 
 
 class VistaCaixa3D(QWidget):
@@ -306,10 +391,13 @@ class VistaCaixa3D(QWidget):
         # pro resto do app (antes pedia quadro a cada 33 ms e cada um levava
         # 25–70 ms — a janela inteira ficava sem responder direito).
         self._ultimo_quadro_ms = 0.0
+        self._cache_arvore = None  # (chave, posicionados, árvore BSP)
+        self._versao_modelo = 0
 
     # ── API ──────────────────────────────────────────────────────────
     def definir_modelo(self, modelo: ModeloCaixa3D, medidas_texto: str = "") -> None:
         self._modelo = modelo
+        self._versao_modelo += 1
         self._medidas_texto = medidas_texto
         if not modelo.vazio:
             plano = caixa_envolvente(posicionar(modelo, 0.0))
@@ -536,183 +624,149 @@ class VistaCaixa3D(QWidget):
 
         self._desenhar_sombra(p, para_camera, para_tela, escala)
 
-        # (profundidade, poligono, cor, arestas da borda, (recorte, quad) da arte em px | None)
-        pedacos = []
         caixa_fechada = self._progresso >= 0.999 and self._modelo.solido_fechado
-        vies_interno = 0.04 * self._raio_montado
-        vies_camada = 0.08 * self._raio_montado
-        n = _SUBDIVISOES
+        posicionados, arvore = self._arvore(caixa_fechada)
         self._dobradicas_tela = []
         self._faces_tela = []
+        for pp in posicionados:
+            painel = pp.painel
+            if painel.dobradica is not None and painel.linha_origem is not None:
+                (ax, ay), (bx, by) = painel.dobradica
+                ca, cb = para_camera(pp.ponto(ax, ay)), para_camera(pp.ponto(bx, by))
+                if ca[2] > _PERTO and cb[2] > _PERTO:
+                    self._dobradicas_tela.append((para_tela(ca), para_tela(cb), painel.linha_origem, painel.angulo_fechado))
+
         com_arte = self._fonte_arte is not None
         densidade_necessaria: dict[str, float] = {}
         retangulo_painel: dict[str, QRectF] = {}
         razao_pixels = foto["escala"] if foto else self.devicePixelRatioF()
-        for pp in posicionar(self._modelo, self._progresso):
-            painel = pp.painel
-            if caixa_fechada and painel.camada > 0:
-                continue  # fechada é um sólido: as abas por baixo nunca aparecem
-            if painel.dobradica is not None and painel.linha_origem is not None:
-                (ax, ay), (bx, by) = painel.dobradica
-                ca, cb = para_camera(pp.ponto(ax, ay)), para_camera(pp.ponto(bx, by))
-                if ca[2] > 1.0 and cb[2] > 1.0:
-                    self._dobradicas_tela.append((para_tela(ca), para_tela(cb), painel.linha_origem, painel.angulo_fechado))
-            normal = pp.normal_externa
-            normal_cam = (
-                produto_escalar(normal, direita),
-                produto_escalar(normal, cima),
-                produto_escalar(normal, olhar),
-            )
-            # Face que não é retângulo (dobra genérica): cada célula da grade é
-            # recortada pelo contorno real da face (menos os furos).
-            caminho_face = _caminho_do_painel(painel) if painel.poligono is not None else None
-            # Grade (n+1)×(n+1) de pontos do painel já em coordenadas de câmera.
-            grade = [
-                [
-                    para_camera(pp.ponto(_lerp(painel.x1, painel.x2, i / n), _lerp(painel.y1, painel.y2, j / n)))
-                    for i in range(n + 1)
-                ]
-                for j in range(n + 1)
-            ]
-            espessura = self._espessura
-            grade_dentro = (
-                [
-                    [
-                        para_camera(
-                            pp.transformacao.aplicar(
-                                (_lerp(painel.x1, painel.x2, i / n), _lerp(painel.y1, painel.y2, j / n), espessura)
-                            )
-                        )
-                        for i in range(n + 1)
-                    ]
-                    for j in range(n + 1)
-                ]
-                if espessura > 0
-                else grade
-            )
-            for j in range(n):
-                for i in range(n):
-                    cantos = [grade[j][i], grade[j][i + 1], grade[j + 1][i + 1], grade[j + 1][i]]
-                    if min(c[2] for c in cantos) <= 1.0:
-                        continue  # atrás/encostado na câmera
-                    centro = tuple(sum(c[k] for c in cantos) / 4.0 for k in range(3))
-                    ve_lado_externo = produto_escalar(normal_cam, centro) < 0
-                    if not ve_lado_externo and caixa_fechada:
-                        continue  # caixa fechada é um sólido: o lado de dentro nunca aparece
-                    z_lado = 0.0
-                    if not ve_lado_externo and espessura > 0:
-                        # Lado de dentro: a outra face do papelão, E mm pra dentro.
-                        cantos = [grade_dentro[j][i], grade_dentro[j][i + 1], grade_dentro[j + 1][i + 1], grade_dentro[j + 1][i]]
-                        if min(c[2] for c in cantos) <= 1.0:
-                            continue
-                        centro = tuple(sum(c[k] for c in cantos) / 4.0 for k in range(3))
-                        z_lado = espessura
-                    face_normal = normal_cam if ve_lado_externo else tuple(-c for c in normal_cam)
-                    luz = 0.55 + 0.45 * max(0.0, produto_escalar(face_normal, _LUZ))
-                    base = _COR_EXTERNA if ve_lado_externo else _COR_INTERNA
-                    cor = QColor.fromRgbF(
-                        min(1.0, base.redF() * luz), min(1.0, base.greenF() * luz), min(1.0, base.blueF() * luz)
-                    )
-                    tela = [para_tela(c) for c in cantos]
-                    xa, xb = _lerp(painel.x1, painel.x2, i / n), _lerp(painel.x1, painel.x2, (i + 1) / n)
-                    ya, yb = _lerp(painel.y1, painel.y2, j / n), _lerp(painel.y1, painel.y2, (j + 1) / n)
-                    if caminho_face is None:
-                        desenhos = [QPolygonF(tela)]
-                        bordas = []
-                        if j == 0:
-                            bordas.append((tela[0], tela[1]))
-                        if i == n - 1:
-                            bordas.append((tela[1], tela[2]))
-                        if j == n - 1:
-                            bordas.append((tela[2], tela[3]))
-                        if i == 0:
-                            bordas.append((tela[3], tela[0]))
-                    else:
-                        celula = QPainterPath()
-                        celula.addRect(QRectF(QPointF(xa, ya), QPointF(xb, yb)).normalized())
-                        recortes = celula.intersected(caminho_face).toFillPolygons()
-                        if not recortes:
-                            continue
-
-                        def projetar(q: QPointF, z: float = z_lado) -> QPointF:
-                            return para_tela(para_camera(pp.transformacao.aplicar((q.x(), q.y(), z))))
-
-                        desenhos, bordas = [], []
-                        for recorte in recortes:
-                            pontos = [recorte.at(k) for k in range(recorte.count())]
-                            desenhos.append(QPolygonF([projetar(q) for q in pontos]))
-                            for a, b in zip(pontos, pontos[1:] + pontos[:1]):
-                                if _na_borda(QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2), painel):
-                                    bordas.append((projetar(a), projetar(b)))
-                    profundidade = math.sqrt(produto_escalar(centro, centro))
-                    profundidade += painel.camada * vies_camada
-                    if not ve_lado_externo:
-                        # Lado de dentro só aparece olhando pra dentro da caixa
-                        # aberta — puxar ele pra trás evita que vaze por cima de
-                        # uma face externa quase no mesmo lugar (abas sobrepostas).
-                        profundidade += vies_interno
-                    arte_pedaco = None
-                    if com_arte and ve_lado_externo:
-                        # Densidade (px de tela por mm) que este pedaço ocupa agora.
-                        densidade = razao_pixels * max(
-                            math.dist((tela[1].x(), tela[1].y()), (tela[0].x(), tela[0].y())) / max(abs(xb - xa), 1e-6),
-                            math.dist((tela[3].x(), tela[3].y()), (tela[0].x(), tela[0].y())) / max(abs(yb - ya), 1e-6),
-                        )
-                        densidade_necessaria[painel.id] = max(densidade_necessaria.get(painel.id, 0.0), densidade)
-                        retangulo_painel[painel.id] = QRectF(
-                            QPointF(min(painel.x1, painel.x2), min(painel.y1, painel.y2)),
-                            QPointF(max(painel.x1, painel.x2), max(painel.y1, painel.y2)),
-                        ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
-                        arte_pedaco = (painel.id, xa, xb, ya, yb, painel)
-                    quad_tela = QPolygonF(tela)
-                    for desenho in desenhos:
-                        self._faces_tela.append((profundidade, desenho, painel.id))
-                    for k, desenho in enumerate(desenhos):
-                        # As bordas vão só no 1º pedaço da célula (não duplicar traço).
-                        pedacos.append((profundidade, desenho, cor, bordas if k == 0 else [], arte_pedaco, quad_tela, None))
-            if self._espessura > 0 and not caixa_fechada:
-                # Fechada, a borda do papelão fica escondida nas emendas (e o
-                # pintor por profundidade deixava pedaços vazarem nas quinas).
-                self._faixas_de_espessura(pp, para_camera, para_tela, direita, cima, olhar, caixa_fechada, vies_camada, pedacos)
-
-        self._atualizar_texturas(densidade_necessaria, retangulo_painel)
-        pedacos.sort(key=lambda item: item[0], reverse=True)
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
-        transformacao = QTransform()
-        if foto is not None:
-            # Onde a caixa caiu na imagem (pro recorte da foto).
-            caixa_tela = QRectF()
-            for item in pedacos:
-                caixa_tela = caixa_tela.united(item[1].boundingRect())
-            foto["caixa"] = caixa_tela
-        for _prof, poligono, cor, bordas, arte_pedaco, quad_tela, miolo in pedacos:
-            # Contorno da mesma cor fecha as frestas de antialiasing entre pedaços.
-            caneta_fill = QPen(cor, 1.2)
-            caneta_fill.setCosmetic(True)
-            p.setPen(caneta_fill)
+        info: dict[int, dict] = {}  # por superfície, neste quadro
+        caixa_tela = QRectF()
+        ordem = de_tras_pra_frente(arvore, olho, [])
+        area_visivel = QRectF(0.0, 0.0, self.width(), self.height()).adjusted(-4, -4, 4, 4)
+
+        def projetar_quad(mundo) -> QPolygonF | None:
+            cam = [para_camera(q) for q in mundo]
+            if min(c[2] for c in cam) <= _PERTO:
+                return None
+            return QPolygonF([para_tela(c) for c in cam])
+
+        # 1ª passada, da frente pra trás: projeta e descarta o que está fora da
+        # tela ou inteiro atrás do que já cobre (com zoom, quase tudo atrás da
+        # face da frente) — pintar é o que custa.
+        cobertura = QRegion()
+        a_pintar = []
+        for indice in range(len(ordem) - 1, -1, -1):
+            poligono = ordem[indice]
+            cam = _recortar_perto([para_camera(q) for q in poligono.pontos])
+            if len(cam) < 3:
+                continue
+            tela = QPolygonF([para_tela(c) for c in cam])
+            limites = tela.boundingRect()
+            caixa_tela = caixa_tela.united(limites)
+            sup = poligono.superficie
+            if sup.tipo == "face":
+                self._faces_tela.append((-indice, tela, sup.pp.painel.id))
+            if not limites.intersects(area_visivel):
+                continue  # fora da tela
+            regiao = QRegion(tela.toPolygon())
+            if not cobertura.isEmpty() and regiao.subtracted(cobertura).isEmpty():
+                continue  # escondido atrás do que já foi visto
+            if not (sup.tipo == "face" and sup.pp.painel.furos):
+                cobertura = cobertura.united(regiao)
+            a_pintar.append((indice, poligono, cam, tela))
+
+        for indice, poligono, cam, tela in reversed(a_pintar):
+            sup = poligono.superficie
+            pp, painel = sup.pp, sup.pp.painel
+            dados = info.get(id(sup))
+            if dados is None:
+                normal_cam = (
+                    produto_escalar(sup.normal, direita),
+                    produto_escalar(sup.normal, cima),
+                    produto_escalar(sup.normal, olhar),
+                )
+                if sup.tipo == "face":
+                    luz = 0.55 + 0.45 * max(0.0, produto_escalar(normal_cam, _LUZ))
+                    base = _COR_EXTERNA if sup.externo else _COR_INTERNA
+                else:
+                    luz = 0.5 + 0.5 * max(0.0, produto_escalar(normal_cam, _LUZ))
+                    base = _COR_ESPESSURA
+                cor = QColor.fromRgbF(min(1.0, base.redF() * luz), min(1.0, base.greenF() * luz), min(1.0, base.blueF() * luz))
+                caneta_fill = QPen(cor, 1.0)
+                caneta_fill.setCosmetic(True)  # fecha a fresta de antialiasing entre pedaços
+                quad = projetar_quad(sup.quad_mundo)
+                transformacao = None
+                contorno_tela = None
+                if sup.tipo == "face" and quad is not None:
+                    transformacao = QTransform()
+                    if QTransform.quadToQuad(sup.quad_local, quad, transformacao):
+                        contorno_tela = [transformacao.map(anel) for anel in sup.contorno_local]
+                    else:
+                        transformacao = None
+                dados = {"cor": cor, "caneta": caneta_fill, "quad": quad, "t": transformacao, "contorno": contorno_tela}
+                info[id(sup)] = dados
+                if sup.tipo == "face" and sup.externo and com_arte and quad is not None:
+                    larg = abs(painel.x2 - painel.x1) or 1e-6
+                    alt = abs(painel.y2 - painel.y1) or 1e-6
+                    densidade = razao_pixels * max(
+                        QLineF(quad.at(0), quad.at(1)).length() / larg, QLineF(quad.at(0), quad.at(3)).length() / alt
+                    )
+                    densidade_necessaria[painel.id] = max(densidade_necessaria.get(painel.id, 0.0), densidade)
+                    retangulo_painel[painel.id] = QRectF(
+                        QPointF(min(painel.x1, painel.x2), min(painel.y1, painel.y2)),
+                        QPointF(max(painel.x1, painel.x2), max(painel.y1, painel.y2)),
+                    ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
+            cor, quad, transformacao = dados["cor"], dados["quad"], dados["t"]
+            recortado = not poligono.inteiro or len(cam) != len(poligono.pontos)
+            p.setPen(dados["caneta"])
             p.setBrush(cor)
-            p.drawPolygon(poligono)
-            desenho = self._recorte_da_arte(arte_pedaco, quad_tela) if arte_pedaco is not None else None
-            if desenho is not None and QTransform.quadToQuad(desenho[2], quad_tela, transformacao):
-                # Sem luz nem mistura por cima: a arte mantém a cor original.
-                imagem, recorte, _quad = desenho
+            com_furos = sup.tipo == "face" and painel.furos and transformacao is not None
+            if com_furos:
+                contorno = QPainterPath()
+                contorno.addPolygon(tela)
+                contorno.closeSubpath()
+                area = transformacao.map(_caminho_do_painel(painel)).intersected(contorno)
+                p.drawPath(area)
+            else:
+                p.drawPolygon(tela)
+            if sup.tipo == "face":
+                textura = self._texturas.get(painel.id) if sup.externo and transformacao is not None else None
+                tem_arte = textura is not None and textura[0] is not None
+                if not tem_arte and dados["contorno"] is None:
+                    continue
                 p.save()
-                if poligono != quad_tela:
-                    # Célula recortada pelo contorno da face: a arte também.
-                    contorno = QPainterPath()
-                    contorno.addPolygon(poligono)
-                    p.setClipPath(contorno)
-                p.setTransform(transformacao)
-                p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                p.drawImage(recorte, imagem, recorte)
+                if com_furos:
+                    p.setClipPath(area)
+                elif recortado:
+                    p.setClipRegion(QRegion(tela.toPolygon()))
+                if tem_arte:
+                    imagem, k, retangulo = textura
+                    da_imagem = QTransform.fromScale(1.0 / k, 1.0 / k) * QTransform.fromTranslate(retangulo.left(), retangulo.top())
+                    p.setTransform(da_imagem * transformacao)
+                    p.drawImage(QPointF(0.0, 0.0), imagem)
+                    p.resetTransform()
+                if dados["contorno"] is not None:
+                    p.setPen(caneta_aresta)
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    for anel in dados["contorno"]:
+                        p.drawPolygon(anel)
                 p.restore()
-            if miolo is not None:
-                self._desenhar_miolo(p, quad_tela, miolo, cor)
-            if bordas:
+            elif quad is not None:
+                p.save()
+                if recortado:
+                    p.setClipRegion(QRegion(tela.toPolygon()))
+                self._desenhar_miolo(p, quad, sup.miolo, cor)
                 p.setPen(caneta_aresta)
-                for a, b in bordas:
-                    p.drawLine(a, b)
+                p.drawLine(quad.at(0), quad.at(1))
+                p.drawLine(quad.at(3), quad.at(2))
+                p.restore()
+
+        self._atualizar_texturas(densidade_necessaria, retangulo_painel)
+        if foto is not None:
+            foto["caixa"] = caixa_tela  # onde a caixa caiu na imagem (pro recorte da foto)
 
         if foto:
             return  # foto: só a caixa (e a sombra)
@@ -738,34 +792,6 @@ class VistaCaixa3D(QWidget):
         self._gerar_texturas(agora)
         if self._texturas_pendentes:
             self._timer_texturas.start()
-
-    def _recorte_da_arte(self, arte_pedaco, poligono: QPolygonF):
-        """(imagem, recorte na imagem, quad de origem) do pedaço, ou None."""
-        chave, xa, xb, ya, yb, painel = arte_pedaco
-        textura = self._texturas.get(chave)
-        if textura is None or textura[0] is None:
-            return None
-        imagem, k, retangulo = textura
-        ox, oy = retangulo.left(), retangulo.top()
-
-        def px(x: float, y: float) -> QPointF:
-            return QPointF((x - ox) * k, (y - oy) * k)
-
-        recorte = QRectF(px(xa, ya), px(xb, yb)).normalized()
-        # Avança ~1,5 px DA TELA sobre os pedaços vizinhos da MESMA face
-        # (nunca além da borda dela): o contorno de 1,2 px do preenchimento
-        # do pedaço seguinte, pintado depois, invadia a beirada desta arte.
-        px_tela_por_px_arte = max(
-            math.dist((poligono[1].x(), poligono[1].y()), (poligono[0].x(), poligono[0].y())) / max(recorte.width(), 1e-6),
-            math.dist((poligono[3].x(), poligono[3].y()), (poligono[0].x(), poligono[0].y())) / max(recorte.height(), 1e-6),
-            1e-6,
-        )
-        margem = min(1.5 / px_tela_por_px_arte, recorte.width() / 2, recorte.height() / 2)
-        face = QRectF(px(painel.x1, painel.y1), px(painel.x2, painel.y2)).normalized()
-        recorte = recorte.adjusted(-margem, -margem, margem, margem).intersected(face)
-        # Quad de origem na MESMA ordem dos cantos da tela.
-        quad = QPolygonF([px(xa, ya), px(xb, ya), px(xb, yb), px(xa, yb)])
-        return imagem, recorte, quad
 
     def _desenhar_sombra(self, p: QPainter, para_camera, para_tela, escala: float) -> None:
         """Sombra suave no chão, embaixo da caixa — some junto com a montagem."""
@@ -843,67 +869,17 @@ class VistaCaixa3D(QWidget):
             "Arraste para girar  ·  botão do meio, direito ou Shift + arrastar move  ·  roda aproxima onde está o mouse  ·  duplo clique volta à vista inicial",
         )
 
-    def _faixas_de_espessura(self, pp, para_camera, para_tela, direita, cima, olhar, caixa_fechada, vies_camada, pedacos) -> None:
-        vies_faixa = 0.06 * self._raio_montado
-        """A borda cortada do papelão: uma faixa de E mm em cada aresta do
-        contorno (e dos furos), dividida em trechos pra ordenar direito."""
-        painel = pp.painel
-        e = self._espessura
-        ondas = miolo_do_papelao(e)
-        if painel.poligono:
-            aneis = [list(painel.poligono)] + [list(f) for f in painel.furos]
-        else:
-            aneis = [[(painel.x1, painel.y1), (painel.x2, painel.y1), (painel.x2, painel.y2), (painel.x1, painel.y2)]]
-        maior = max(abs(painel.x2 - painel.x1), abs(painel.y2 - painel.y1), 1e-6)
-        for anel in aneis:
-            for (ax, ay), (bx, by) in zip(anel, anel[1:] + anel[:1]):
-                comprimento = math.hypot(bx - ax, by - ay)
-                if comprimento < 1e-6:
-                    continue
-                trechos = max(1, round(_SUBDIVISOES * comprimento / maior))
-                # As ondas correm na direção Y da faca (na vertical das
-                # paredes, como numa caixa de verdade): corte atravessado a
-                # elas (borda mais em X) mostra a ondulação; corte paralelo,
-                # só as capas.
-                atravessado = abs(bx - ax) >= abs(by - ay)
-                for k in range(trechos):
-                    u0, u1 = k / trechos, (k + 1) / trechos
-                    p0 = (ax + (bx - ax) * u0, ay + (by - ay) * u0)
-                    p1 = (ax + (bx - ax) * u1, ay + (by - ay) * u1)
-                    mundo = [
-                        pp.transformacao.aplicar((p0[0], p0[1], 0.0)),
-                        pp.transformacao.aplicar((p1[0], p1[1], 0.0)),
-                        pp.transformacao.aplicar((p1[0], p1[1], e)),
-                        pp.transformacao.aplicar((p0[0], p0[1], e)),
-                    ]
-                    cam = [para_camera(m) for m in mundo]
-                    if min(c[2] for c in cam) <= 1.0:
-                        continue
-                    centro = tuple(sum(c[i] for c in cam) / 4.0 for i in range(3))
-                    lado_a = tuple(cam[1][i] - cam[0][i] for i in range(3))
-                    lado_b = tuple(cam[3][i] - cam[0][i] for i in range(3))
-                    normal = normalizar(produto_vetorial(lado_a, lado_b))
-                    if produto_escalar(normal, centro) > 0:
-                        normal = tuple(-c for c in normal)  # a faixa vista é a que olha pra câmera
-                    luz = 0.5 + 0.5 * max(0.0, produto_escalar(normal, _LUZ))
-                    cor = QColor.fromRgbF(
-                        min(1.0, _COR_ESPESSURA.redF() * luz),
-                        min(1.0, _COR_ESPESSURA.greenF() * luz),
-                        min(1.0, _COR_ESPESSURA.blueF() * luz),
-                    )
-                    tela = [para_tela(c) for c in cam]
-                    # Um pouco atrás na ordem: a faixa é estreita e o centro dela
-                    # "ganhava" da célula de face que a cobre (bordas de trás
-                    # vazando na lateral da caixa fechada). Na borda aberta
-                    # (tampa de bandeja, aba) nada a cobre e ela continua visível.
-                    profundidade = (
-                        math.sqrt(produto_escalar(centro, centro)) + painel.camada * vies_camada + vies_faixa
-                    )
-                    poligono = QPolygonF(tela)
-                    # Miolo: posição ao longo da borda (mm, pra onda seguir
-                    # sem emenda de um trecho pro outro) e o tipo do corte.
-                    miolo = (comprimento * u0, comprimento * u1, e, ondas, atravessado)
-                    pedacos.append((profundidade, poligono, cor, [(tela[0], tela[1]), (tela[3], tela[2])], None, poligono, miolo))
+    def _arvore(self, caixa_fechada: bool):
+        """Painéis posicionados e a árvore BSP de todas as superfícies — refeita
+        só quando a montagem, o modelo ou o papelão mudam (girar não refaz)."""
+        chave = (self._versao_modelo, self._progresso, self._espessura, caixa_fechada)
+        if self._cache_arvore is not None and self._cache_arvore[0] == chave:
+            return self._cache_arvore[1], self._cache_arvore[2]
+        posicionados = posicionar(self._modelo, self._progresso)
+        poligonos = _superficies(posicionados, self._espessura, caixa_fechada)
+        arvore = construir_bsp(poligonos)
+        self._cache_arvore = (chave, posicionados, arvore)
+        return posicionados, arvore
 
     def _desenhar_miolo(self, p: QPainter, quad_tela: QPolygonF, miolo, cor_faixa: QColor | None = None) -> None:
         """As camadas do papelão dentro da faixa da borda: capas e, no corte
