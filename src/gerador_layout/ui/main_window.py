@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
@@ -52,6 +53,8 @@ from ..paineis import Painel, calcular_paineis
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
+from ..simbologias import tamanho_mm
+from .docker_simbologias import DockerSimbologias
 from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
 from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
@@ -945,6 +948,11 @@ class JanelaPrincipal(QMainWindow):
             acao_simples("ferramenta_imagem", "Importar imagem...", self._adicionar_imagem),
             acao_simples("ferramenta_logo", "Importar logotipo...", self._adicionar_logo),
             acao_simples("lista", "Checklist de cores", self._adicionar_checklist),
+            acao_simples(
+                "ferramenta_simbolo",
+                "Banco de simbologias (Ctrl+Shift+Y) — símbolos prontos e os seus, dois cliques põe no layout",
+                lambda: self.abrir_docker("simbologias"),
+            ),
         )
         self._acoes_ferramenta[FerramentaMockup.SELECIONAR].setChecked(True)
 
@@ -1173,12 +1181,15 @@ class JanelaPrincipal(QMainWindow):
         self.docker_objetos = DockerObjetos(self.canvas)
         self.docker_alinhar = DockerAlinhar(self.canvas)
         self.docker_transformacoes = DockerTransformacoes(self.canvas)
+        self.docker_simbologias = DockerSimbologias()
+        self.docker_simbologias.inserir_simbolo.connect(self.inserir_simbolo)
         self._docks: dict[str, QDockWidget] = {}
         anterior = None
         for chave, titulo, conteudo in (
             ("objetos", "Objetos", self.docker_objetos),
             ("alinhar", "Alinhar e distribuir", self.docker_alinhar),
             ("transformacoes", "Transformações", self.docker_transformacoes),
+            ("simbologias", "Simbologias", self.docker_simbologias),
         ):
             dock = QDockWidget(titulo, self)
             dock.setObjectName(f"docker_{chave}")
@@ -1205,6 +1216,7 @@ class JanelaPrincipal(QMainWindow):
             self._acoes_docker.append(acao)
 
         atalho("Alinhar e distribuir", "Ctrl+Shift+A", lambda: self.abrir_docker("alinhar"))
+        atalho("Simbologias", "Ctrl+Shift+Y", lambda: self.abrir_docker("simbologias"))
         for tecla, aba in (("Alt+F7", "posicao"), ("Alt+F8", "rotacao"), ("Alt+F9", "escala"), ("Alt+F10", "tamanho")):
             atalho(f"Transformações ({aba})", tecla, lambda _c=False, a=aba: self.abrir_docker("transformacoes", a))
 
@@ -1577,6 +1589,30 @@ class JanelaPrincipal(QMainWindow):
         self._adicionar_elemento_mockup_e_selecionar(elemento)
         if isinstance(elemento, ElementoLogoVetorial) and elemento.cores_detectadas:
             self._remapear_cores_logo(elemento)
+
+    def inserir_simbolo(self, caminho: str, nome: str = "") -> ElementoLogoVetorial | None:
+        """Símbolo do banco de simbologias no centro da tela, no tamanho real
+        em que foi desenhado (é um logotipo vetorial: dá pra trocar as cores)."""
+        try:
+            elemento = ElementoLogoVetorial(caminho)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Erro ao abrir símbolo", str(exc))
+            return None
+        real = tamanho_mm(Path(caminho))
+        if real is None:
+            self._adicionar_elemento_mockup_e_selecionar(elemento)
+        else:
+            elemento.definir_tamanho(*real)
+            passo = 8.0 * self._fator_zoom() * (len(self.canvas.elementos_mockup) % 6)  # cascata, como os outros
+            pos = self._posicao_central_canvas() + QPointF(passo, passo)
+            self.canvas.adicionar_elemento_mockup(
+                elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2)
+            )
+            for item in self.canvas.cena.selectedItems():
+                item.setSelected(False)
+            elemento.setSelected(True)
+        self.statusBar().showMessage(f"Símbolo “{nome or Path(caminho).stem}” inserido", 4000)
+        return elemento
 
     def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
         dialogo = DialogoSepararCoresLogo(elemento.cores_detectadas, self._cores_impressao_ativas(), self)
