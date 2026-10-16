@@ -228,6 +228,54 @@ def definir_fonte_padrao_texto(nome: str) -> None:
     _settings().setValue("fonte_padrao_texto", nome)
 
 
+_PADRAO_PASTA_IMAGENS = r"Z:\Imagens"
+
+
+def pasta_imagens_layout() -> str:
+    """Onde o JPG/PDF/SVG do layout é sugerido (vazio = a última usada).
+    Padrão: a pasta de imagens da empresa (Z:, pasta Imagens) — se existir."""
+    valor = _settings().value("pasta_imagens_layout", None)
+    if valor is None:
+        from pathlib import Path
+
+        return _PADRAO_PASTA_IMAGENS if Path(_PADRAO_PASTA_IMAGENS).is_dir() else ""
+    return str(valor)
+
+
+def definir_pasta_imagens_layout(pasta: str) -> None:
+    _settings().setValue("pasta_imagens_layout", pasta)
+
+
+def pasta_imagens_3d() -> str:
+    """Onde a imagem do 3D é sugerida (vazio = a última usada)."""
+    return str(_settings().value("pasta_imagens_3d", "", type=str))
+
+
+def definir_pasta_imagens_3d(pasta: str) -> None:
+    _settings().setValue("pasta_imagens_3d", pasta)
+
+
+def pasta_ultima(chave: str) -> str:
+    """Última pasta usada pra `chave` ("projetos", "exportar", "imagem_3d")."""
+    return str(_settings().value(f"pasta_ultima_{chave}", "", type=str))
+
+
+def definir_pasta_ultima(chave: str, pasta: str) -> None:
+    _settings().setValue(f"pasta_ultima_{chave}", pasta)
+
+
+def projetos_recentes() -> list[str]:
+    valor = _settings().value("projetos_recentes", [])
+    if isinstance(valor, str):
+        valor = [valor]
+    return [str(v) for v in (valor or [])]
+
+
+def adicionar_projeto_recente(caminho: str) -> None:
+    lista = [c for c in projetos_recentes() if c.lower() != caminho.lower()]
+    _settings().setValue("projetos_recentes", ([caminho] + lista)[:10])
+
+
 def restaurar_padroes() -> None:
     s = _settings()
     s.setValue("dpi_exportacao_jpg", _PADRAO_DPI_JPG)

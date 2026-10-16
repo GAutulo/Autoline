@@ -54,6 +54,7 @@ from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
 from ..simbologias import tamanho_mm
+from . import projeto_arquivo
 from .dialogo_construtor_dieline import DialogoConstrutorDieline
 from .docker_simbologias import DockerSimbologias
 from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
@@ -131,6 +132,9 @@ class JanelaPrincipal(QMainWindow):
         self._face_base_3d: int | None = None
         self._assinatura_faca_3d: tuple = ()
         self._dialogo_manual: DialogoManual | None = None
+        # Projeto (.autoline) aberto: caminho e o estado salvo (pra saber se mudou).
+        self._caminho_projeto: str | None = None
+        self._assinatura_salva: str | None = None
 
         self._montar_ui()
         self._montar_abas_tela()
@@ -142,6 +146,14 @@ class JanelaPrincipal(QMainWindow):
         self._conectar_sinais()
         self._ao_trocar_tipo()
         self._trocar_tela(0)  # começa na tela de Dieline
+        self._estado_novo = projeto_arquivo.estado_da_janela(self)
+        self._assinatura_salva = projeto_arquivo.assinatura(self)
+        self._timer_titulo = QTimer(self)
+        self._timer_titulo.setSingleShot(True)
+        self._timer_titulo.setInterval(400)
+        self._timer_titulo.timeout.connect(self._atualizar_titulo)
+        self.canvas.pilha_desfazer.indexChanged.connect(lambda _i: self._timer_titulo.start())
+        self._atualizar_titulo()
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
@@ -497,6 +509,17 @@ class JanelaPrincipal(QMainWindow):
 
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
+        acao = menu_arquivo.addAction("Novo projeto", self.novo_projeto)
+        acao.setShortcut(QKeySequence("Ctrl+N"))
+        acao = menu_arquivo.addAction("Abrir projeto...", self.abrir_projeto)
+        acao.setShortcut(QKeySequence("Ctrl+O"))
+        self._menu_recentes = menu_arquivo.addMenu("Abrir recente")
+        self._menu_recentes.aboutToShow.connect(self._montar_menu_recentes)
+        acao = menu_arquivo.addAction("Salvar projeto", self.salvar_projeto)
+        acao.setShortcut(QKeySequence("Ctrl+S"))
+        acao = menu_arquivo.addAction("Salvar projeto como...", self.salvar_projeto_como)
+        acao.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        menu_arquivo.addSeparator()
         menu_arquivo.addAction("Nova faca em branco (desenho livre)", self._nova_faca_em_branco)
         acao_catalogo = menu_arquivo.addAction("Nova faca a partir de estilo (catálogo)...", self._abrir_catalogo_estilos)
         acao_catalogo.setShortcut(QKeySequence("Ctrl+Shift+N"))
@@ -1715,7 +1738,11 @@ class JanelaPrincipal(QMainWindow):
     def _exportar_svg(self) -> None:
         if not self._layout_pronto_para_exportar():
             return
-        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como SVG", "layout.svg", "SVG (*.svg)")
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Exportar como SVG", self._sugestao_exportar("layout.svg", ".svg"), "SVG (*.svg"
+        )
+        if caminho:
+            configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
         if not caminho:
             return
         try:
@@ -1729,7 +1756,11 @@ class JanelaPrincipal(QMainWindow):
     def _exportar_pdf(self) -> None:
         if not self._layout_pronto_para_exportar():
             return
-        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como PDF", "layout.pdf", "PDF (*.pdf)")
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Exportar como PDF", self._sugestao_exportar("layout.pdf", ".pdf"), "PDF (*.pdf"
+        )
+        if caminho:
+            configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
         if not caminho:
             return
         try:
@@ -1743,7 +1774,11 @@ class JanelaPrincipal(QMainWindow):
     def _exportar_jpg(self) -> None:
         if not self._layout_pronto_para_exportar():
             return
-        caminho, _ = QFileDialog.getSaveFileName(self, "Exportar como JPG", "layout.jpg", "JPEG (*.jpg)")
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Exportar como JPG", self._sugestao_exportar("layout.jpg", ".jpg"), "JPEG (*.jpg"
+        )
+        if caminho:
+            configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
         if not caminho:
             return
         try:
@@ -1762,6 +1797,129 @@ class JanelaPrincipal(QMainWindow):
             QMessageBox.critical(self, "Erro ao conectar", str(exc))
         else:
             self.statusBar().showMessage("Conectado ao CorelDRAW", 6000)
+
+    # ── Projeto (.autoline) ──────────────────────────────────────────
+    @property
+    def caminho_projeto(self) -> str | None:
+        return self._caminho_projeto
+
+    def _nome_projeto(self) -> str:
+        return Path(self._caminho_projeto).stem if self._caminho_projeto else "Sem título"
+
+    def projeto_modificado(self) -> bool:
+        return projeto_arquivo.assinatura(self) != self._assinatura_salva
+
+    def _atualizar_titulo(self) -> None:
+        marca = "• " if self.projeto_modificado() else ""
+        self.setWindowTitle(f"{marca}{self._nome_projeto()} — Autoline")
+        self.visualizacao_3d.vista.nome_sugerido = self._nome_projeto() if self._caminho_projeto else "caixa"
+
+    # Os testes desligam (não há quem responda a pergunta).
+    perguntar_antes_de_descartar = True
+
+    def _pode_descartar(self) -> bool:
+        """Pergunta se salva antes de trocar/fechar o projeto. False = cancelou."""
+        if not self.perguntar_antes_de_descartar or not self.projeto_modificado():
+            return True
+        resposta = QMessageBox.question(
+            self,
+            "Projeto alterado",
+            f"Salvar as alterações em “{self._nome_projeto()}”?",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if resposta == QMessageBox.StandardButton.Cancel:
+            return False
+        if resposta == QMessageBox.StandardButton.Save:
+            return self.salvar_projeto()
+        return True
+
+    def salvar_projeto(self) -> bool:
+        if not self._caminho_projeto:
+            return self.salvar_projeto_como()
+        return self._gravar_projeto(self._caminho_projeto)
+
+    def salvar_projeto_como(self) -> bool:
+        pasta = configuracoes.pasta_ultima("projetos")
+        nome = f"{self._nome_projeto()}{projeto_arquivo.EXTENSAO}" if self._caminho_projeto else "caixa.autoline"
+        sugestao = str(Path(pasta) / nome) if pasta else nome
+        caminho, _ = QFileDialog.getSaveFileName(self, "Salvar projeto", sugestao, projeto_arquivo.FILTRO)
+        if not caminho:
+            return False
+        return self._gravar_projeto(caminho)
+
+    def _gravar_projeto(self, caminho: str) -> bool:
+        try:
+            with self._cursor_espera():
+                destino = projeto_arquivo.salvar(self, caminho)
+        except OSError as exc:
+            QMessageBox.critical(self, "Salvar projeto", f"Não consegui salvar:\n{exc}")
+            return False
+        self._caminho_projeto = str(destino)
+        self._assinatura_salva = projeto_arquivo.assinatura(self)
+        configuracoes.definir_pasta_ultima("projetos", str(destino.parent))
+        configuracoes.adicionar_projeto_recente(str(destino))
+        self._atualizar_titulo()
+        self.statusBar().showMessage(f"Projeto salvo: {destino}", 6000)
+        return True
+
+    def abrir_projeto(self, caminho: str | None = None) -> bool:
+        if not self._pode_descartar():
+            return False
+        if caminho is None:
+            caminho, _ = QFileDialog.getOpenFileName(
+                self, "Abrir projeto", configuracoes.pasta_ultima("projetos"), projeto_arquivo.FILTRO
+            )
+            if not caminho:
+                return False
+        try:
+            dados = projeto_arquivo.ler(caminho)
+            with self._cursor_espera():
+                avisos = projeto_arquivo.aplicar_na_janela(self, dados)
+        except projeto_arquivo.ErroProjeto as exc:
+            QMessageBox.warning(self, "Abrir projeto", str(exc))
+            return False
+        self._caminho_projeto = str(Path(caminho))
+        self._assinatura_salva = projeto_arquivo.assinatura(self)
+        configuracoes.definir_pasta_ultima("projetos", str(Path(caminho).parent))
+        configuracoes.adicionar_projeto_recente(self._caminho_projeto)
+        self._atualizar_titulo()
+        if self.abas_tela.currentIndex() == 2:
+            self._atualizar_arte_3d()
+        if avisos:
+            QMessageBox.information(self, "Abrir projeto", "\n".join(avisos))
+        self.statusBar().showMessage(f"Projeto aberto: {caminho}", 6000)
+        return True
+
+    def novo_projeto(self) -> bool:
+        if not self._pode_descartar():
+            return False
+        projeto_arquivo.aplicar_na_janela(self, self._estado_novo)
+        self._caminho_projeto = None
+        self._assinatura_salva = projeto_arquivo.assinatura(self)
+        self._atualizar_titulo()
+        return True
+
+    def _montar_menu_recentes(self) -> None:
+        self._menu_recentes.clear()
+        recentes = [c for c in configuracoes.projetos_recentes() if Path(c).is_file()]
+        if not recentes:
+            self._menu_recentes.addAction("(nenhum)").setEnabled(False)
+            return
+        for caminho in recentes:
+            self._menu_recentes.addAction(f"{Path(caminho).stem}   —   {Path(caminho).parent}", lambda c=caminho: self.abrir_projeto(c))
+
+    def closeEvent(self, evento) -> None:  # noqa: N802
+        if self._pode_descartar():
+            evento.accept()
+        else:
+            evento.ignore()
+
+    def _sugestao_exportar(self, nome_padrao: str, extensao: str) -> str:
+        """Nome do projeto + pasta das imagens do layout (Configurações) ou a última usada."""
+        pasta = configuracoes.pasta_imagens_layout() or configuracoes.pasta_ultima("exportar")
+        nome = f"{self._nome_projeto()}{extensao}" if self._caminho_projeto else nome_padrao
+        return str(Path(pasta) / nome) if pasta else nome
 
     def _exportar_imagem_3d(self) -> None:
         """Foto da caixa em 3D na vista atual (vai pra aba 3D se precisar)."""
@@ -1817,3 +1975,5 @@ class JanelaPrincipal(QMainWindow):
         self.linha_riscador.definir_total(layout.altura_total)
 
         self.statusBar().showMessage(layout.descricao)
+        if hasattr(self, "_timer_titulo"):
+            self._timer_titulo.start()  # medidas/cores não passam pelo desfazer
