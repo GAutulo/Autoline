@@ -66,6 +66,10 @@ def tamanho_mm(caminho: Path) -> tuple[float, float] | None:
         raiz = ET.parse(caminho).getroot()
     except (ET.ParseError, OSError):
         return None
+    return _tamanho_mm_raiz(raiz)
+
+
+def _tamanho_mm_raiz(raiz: ET.Element) -> tuple[float, float] | None:
     medidas = []
     for atributo in ("width", "height"):
         m = re.fullmatch(r"\s*([\d.]+)\s*(mm|cm|in|pt|pc|px|)\s*", raiz.get(atributo, ""))
@@ -75,6 +79,78 @@ def tamanho_mm(caminho: Path) -> tuple[float, float] | None:
     if medidas[0] <= 0 or medidas[1] <= 0:
         return None
     return medidas[0], medidas[1]
+
+
+def enquadrar_no_desenho(conteudo: str) -> tuple[str, tuple[float, float] | None]:
+    """O SVG com a "página" (viewBox) justa em volta do desenho, e o tamanho
+    real dele em mm (None se o arquivo não diz a unidade).
+
+    O CorelDRAW exporta a página, não o desenho: o que passa da borda da
+    página era cortado reto (o bico do pássaro do Blue Moby) e a sobra de
+    página em volta deixava a caixa do logotipo maior que ele."""
+    from PySide6.QtCore import QByteArray, QRectF
+    from PySide6.QtSvg import QSvgRenderer
+
+    try:
+        raiz = ET.fromstring(conteudo)
+    except ET.ParseError:
+        return conteudo, None
+    caixa_antes = _caixa_da_pagina(raiz)
+    tamanho_antes = _tamanho_mm_raiz(raiz)
+    if caixa_antes is None:
+        return conteudo, tamanho_antes
+    pais = {filho: pai for pai in raiz.iter() for filho in pai}
+    folhas = [el for el in raiz.iter() if _local(el.tag) in _FOLHAS and not _dentro_de_defs(el, pais)]
+    ids_novos = []
+    for k, el in enumerate(folhas):
+        if not el.get("id"):
+            el.set("id", f"_enq{k}")
+            ids_novos.append(el)
+    renderer = QSvgRenderer(QByteArray(ET.tostring(raiz)))
+    if not renderer.isValid():
+        return conteudo, tamanho_antes
+    area = QRectF()
+    for el in folhas:
+        i = el.get("id")
+        if renderer.elementExists(i):
+            area = area.united(renderer.transformForElement(i).mapRect(renderer.boundsOnElement(i)))
+    for el in ids_novos:
+        del el.attrib["id"]
+    if area.isEmpty():
+        return conteudo, tamanho_antes
+    margem = max(area.width(), area.height()) * 0.01  # traço grosso fica um pouco pra fora da geometria
+    area = area.adjusted(-margem, -margem, margem, margem)
+    x, y, w, h = caixa_antes
+    if abs(area.left() - x) < 1e-6 * w and abs(area.width() - w) < 1e-6 * w and abs(area.top() - y) < 1e-6 * h and abs(area.height() - h) < 1e-6 * h:
+        return conteudo, tamanho_antes
+    raiz.set("viewBox", f"{area.x():.4f} {area.y():.4f} {area.width():.4f} {area.height():.4f}")
+    tamanho = None
+    if tamanho_antes is not None:
+        mm_por_unidade = tamanho_antes[0] / w
+        tamanho = (area.width() * mm_por_unidade, area.height() * mm_por_unidade)
+        raiz.set("width", f"{tamanho[0]:.3f}mm")
+        raiz.set("height", f"{tamanho[1]:.3f}mm")
+    else:
+        for atributo in ("width", "height"):
+            raiz.attrib.pop(atributo, None)
+    return ET.tostring(raiz, encoding="unicode"), tamanho
+
+
+def _caixa_da_pagina(raiz: ET.Element) -> tuple[float, float, float, float] | None:
+    numeros = re.split(r"[\s,]+", (raiz.get("viewBox") or "").strip())
+    if len(numeros) == 4:
+        try:
+            x, y, w, h = map(float, numeros)
+        except ValueError:
+            return None
+        return (x, y, w, h) if w > 0 and h > 0 else None
+    medidas = []
+    for atributo in ("width", "height"):
+        m = re.fullmatch(r"\s*([\d.]+)\s*(px|)\s*", raiz.get(atributo, ""))
+        if not m:
+            return None
+        medidas.append(float(m.group(1)))
+    return (0.0, 0.0, medidas[0], medidas[1])
 
 
 # ── Separar uma folha ────────────────────────────────────────────────
