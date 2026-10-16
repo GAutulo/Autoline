@@ -208,3 +208,39 @@ def test_recuperacao_depois_de_fechar_sem_querer(tmp_path):
     assert projeto_arquivo.recuperacao_pendente() is None
     m.deleteLater()
     n.close()
+
+
+def test_salvar_e_exportar_tudo(tmp_path):
+    from gerador_layout.ui import configuracoes
+
+    cliente, imagens, pasta_3d = tmp_path / "Cliente", tmp_path / "Imagens", tmp_path / "3D"
+    for pasta in (cliente, imagens, pasta_3d):
+        pasta.mkdir()
+    configuracoes.definir_pasta_imagens_layout(str(imagens))
+    configuracoes.definir_pasta_imagens_3d("")
+    configuracoes.definir_pasta_ultima("imagem_3d", "")
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j._gravar_projeto(str(cliente / "Gabinete Flora"))
+    j.spin_comprimento.setValue(605)
+    perguntas = []
+
+    def perguntar(titulo):
+        perguntas.append(titulo)
+        return str(pasta_3d)
+
+    feitos = j.salvar_e_exportar_tudo(perguntar_pasta=perguntar, confirmar_substituir=lambda _e: True)
+    assert [p.name for p in feitos] == ["Gabinete Flora.autoline", "Gabinete Flora.jpg", "Gabinete Flora 3D.jpg"]
+    assert all(p.is_file() for p in feitos)
+    assert feitos[1].parent == imagens and feitos[2].parent == pasta_3d
+    assert perguntas == ["Pasta das imagens do 3D"]  # só a que faltava, e fica guardada
+    assert configuracoes.pasta_imagens_3d() == str(pasta_3d)
+    assert not j.projeto_modificado() and j.abas_tela.currentIndex() == 0  # volta pra tela de antes
+    assert QImage(str(feitos[2])).width() > 1000
+    # de novo, com as imagens já lá: pergunta antes de substituir; "não" não mexe em nada
+    antes = feitos[1].stat().st_mtime_ns
+    vistos = []
+    assert j.salvar_e_exportar_tudo(perguntar_pasta=perguntar, confirmar_substituir=lambda e: vistos.append(e) or False) == []
+    assert len(vistos[0]) == 2 and feitos[1].stat().st_mtime_ns == antes
+    j.close()

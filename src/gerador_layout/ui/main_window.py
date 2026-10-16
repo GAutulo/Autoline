@@ -489,6 +489,11 @@ class JanelaPrincipal(QMainWindow):
         barra.addAction("↓ SVG", self._exportar_svg)
         barra.addAction("↓ PDF", self._exportar_pdf)
         barra.addAction("↓ JPG", self._exportar_jpg)
+        acao_tudo = barra.addAction("↓ Salvar tudo", self.salvar_e_exportar_tudo)
+        acao_tudo.setToolTip(
+            "Salvar e exportar tudo (Ctrl+Shift+E): o projeto .autoline, a imagem do layout e a do 3D, "
+            "cada um na sua pasta, com o nome do projeto"
+        )
         barra.addSeparator()
         barra.addAction("→ CorelDRAW", self._exportar_corel)
 
@@ -524,6 +529,9 @@ class JanelaPrincipal(QMainWindow):
         acao.setShortcut(QKeySequence("Ctrl+S"))
         acao = menu_arquivo.addAction("Salvar projeto como...", self.salvar_projeto_como)
         acao.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        acao = menu_arquivo.addAction("Salvar e exportar tudo", self.salvar_e_exportar_tudo)
+        acao.setShortcut(QKeySequence("Ctrl+Shift+E"))
+        acao.setToolTip("Salva o projeto, a imagem do layout e a do 3D, cada um na sua pasta, com o nome do projeto")
         menu_arquivo.addSeparator()
         menu_arquivo.addAction("Nova faca em branco (desenho livre)", self._nova_faca_em_branco)
         acao_catalogo = menu_arquivo.addAction("Nova faca a partir de estilo (catálogo)...", self._abrir_catalogo_estilos)
@@ -1744,7 +1752,7 @@ class JanelaPrincipal(QMainWindow):
         if not self._layout_pronto_para_exportar():
             return
         caminho, _ = QFileDialog.getSaveFileName(
-            self, "Exportar como SVG", self._sugestao_exportar("layout.svg", ".svg"), "SVG (*.svg"
+            self, "Exportar como SVG", self._sugestao_exportar("layout.svg", ".svg"), "SVG (*.svg)"
         )
         if caminho:
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
@@ -1762,7 +1770,7 @@ class JanelaPrincipal(QMainWindow):
         if not self._layout_pronto_para_exportar():
             return
         caminho, _ = QFileDialog.getSaveFileName(
-            self, "Exportar como PDF", self._sugestao_exportar("layout.pdf", ".pdf"), "PDF (*.pdf"
+            self, "Exportar como PDF", self._sugestao_exportar("layout.pdf", ".pdf"), "PDF (*.pdf)"
         )
         if caminho:
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
@@ -1780,7 +1788,7 @@ class JanelaPrincipal(QMainWindow):
         if not self._layout_pronto_para_exportar():
             return
         caminho, _ = QFileDialog.getSaveFileName(
-            self, "Exportar como JPG", self._sugestao_exportar("layout.jpg", ".jpg"), "JPEG (*.jpg"
+            self, "Exportar como JPG", self._sugestao_exportar("layout.jpg", ".jpg"), "JPEG (*.jpg)"
         )
         if caminho:
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
@@ -1970,6 +1978,66 @@ class JanelaPrincipal(QMainWindow):
         pasta = configuracoes.pasta_imagens_layout() or configuracoes.pasta_ultima("exportar")
         nome = f"{self._nome_projeto()}{extensao}" if self._caminho_projeto else nome_padrao
         return str(Path(pasta) / nome) if pasta else nome
+
+    def _pasta_para(self, chave_config: str, chave_ultima: str, titulo: str, perguntar_pasta) -> str | None:
+        """A pasta configurada; sem ela, pergunta (e passa a usar a escolhida)."""
+        pasta = getattr(configuracoes, chave_config)() or configuracoes.pasta_ultima(chave_ultima)
+        if pasta and Path(pasta).is_dir():
+            return pasta
+        pasta = perguntar_pasta(titulo)
+        if not pasta:
+            return None
+        getattr(configuracoes, "definir_" + chave_config)(pasta)
+        return pasta
+
+    def salvar_e_exportar_tudo(self, perguntar_pasta=None, confirmar_substituir=None) -> list[Path]:
+        """Um clique depois de alterar: salva o .autoline (na pasta do cliente),
+        a imagem do layout (pasta das imagens) e a do 3D (pasta do 3D), todos
+        com o nome do projeto. Pasta não configurada é perguntada uma vez e
+        fica guardada. `perguntar_pasta`/`confirmar_substituir` são pros testes."""
+        if not self._layout_pronto_para_exportar() or not self.salvar_projeto():
+            return []
+        if perguntar_pasta is None:
+            def perguntar_pasta(titulo: str) -> str:
+                return QFileDialog.getExistingDirectory(self, titulo)
+        if confirmar_substituir is None:
+            def confirmar_substituir(existentes: list[Path]) -> bool:
+                lista = "\n".join(str(p) for p in existentes)
+                return QMessageBox.question(
+                    self, "Salvar e exportar tudo", f"Substituir as imagens que já existem?\n\n{lista}"
+                ) == QMessageBox.StandardButton.Yes
+
+        pasta_layout = self._pasta_para(
+            "pasta_imagens_layout", "exportar", "Pasta das imagens do layout", perguntar_pasta
+        )
+        if pasta_layout is None:
+            return []
+        pasta_3d = self._pasta_para("pasta_imagens_3d", "imagem_3d", "Pasta das imagens do 3D", perguntar_pasta)
+        if pasta_3d is None:
+            return []
+        nome = self._nome_projeto()
+        imagem_layout = Path(pasta_layout) / f"{nome}.jpg"
+        imagem_3d = Path(pasta_3d) / f"{nome} 3D.jpg"
+        existentes = [p for p in (imagem_layout, imagem_3d) if p.exists()]
+        if existentes and not confirmar_substituir(existentes):
+            return []
+        tela_antes = self.abas_tela.currentIndex()
+        try:
+            with self._cursor_espera():
+                exportacao.exportar_jpg(self.canvas.cena, self.canvas.layout_efetivo, str(imagem_layout))
+                if self.abas_tela.currentIndex() != 2:
+                    self.abas_tela.setCurrentIndex(2)  # a foto sai da vista 3D como ela está
+                    QApplication.processEvents()
+                salvo_3d = self.visualizacao_3d.salvar_imagem(str(imagem_3d))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Salvar e exportar tudo", f"Não consegui exportar:\n{exc}")
+            return []
+        finally:
+            if self.abas_tela.currentIndex() != tela_antes:
+                self.abas_tela.setCurrentIndex(tela_antes)
+        feitos = [Path(self._caminho_projeto), imagem_layout] + ([Path(salvo_3d)] if salvo_3d else [])
+        self.statusBar().showMessage("Salvo: " + "  ·  ".join(str(p) for p in feitos), 12000)
+        return feitos
 
     def _exportar_imagem_3d(self) -> None:
         """Foto da caixa em 3D na vista atual (vai pra aba 3D se precisar)."""
