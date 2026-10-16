@@ -257,7 +257,9 @@ class _PenasExportacao:
     lia como "um traço grande e um pequeno" no meio de um padrão que
     devia ser uniforme."""
 
-    def __init__(self, scene: QGraphicsScene) -> None:
+    def __init__(self, scene: QGraphicsScene, fator: float = 1.0) -> None:
+        # `fator` engrossa traço e tracejado juntos (layout reduzido numa
+        # folha, ex.: a de aprovação, onde o traço de 1 pt sumiria).
         self._originais: list[tuple[QGraphicsLineItem | QGraphicsPathItem, QPen]] = []
         for item in scene.items():
             # Retas da faca são QGraphicsLineItem; ARCOS da faca são
@@ -272,16 +274,18 @@ class _PenasExportacao:
             pen_exportacao = QPen(pen_original)
             pen_exportacao.setCosmetic(False)
             pen_exportacao.setColor(_COR_EXPORTACAO)
-            pen_exportacao.setWidthF(_LARGURA_LINHA_MM)
+            pen_exportacao.setWidthF(_LARGURA_LINHA_MM * fator)
             if item.data(0) == TipoLinha.VINCO:
                 # setDashPattern usa múltiplos da espessura da pena, não mm
                 # direto — converte pra sair no tamanho ajustado calculado
                 # por `_traco_ajustado`. Lê de Configurações a cada chamada
                 # (não cacheia) pelo mesmo motivo de `_fonte_e_escala_legenda`.
                 comprimento = item.path().length() if arco else item.line().length()
-                traco, espaco = _traco_ajustado(comprimento, *configuracoes.traco_vinco_mm())
+                traco_cfg, espaco_cfg = configuracoes.traco_vinco_mm()
+                traco, espaco = _traco_ajustado(comprimento, traco_cfg * fator, espaco_cfg * fator)
                 pen_exportacao.setStyle(Qt.PenStyle.CustomDashLine)
-                pen_exportacao.setDashPattern([traco / _LARGURA_LINHA_MM, espaco / _LARGURA_LINHA_MM])
+                largura = _LARGURA_LINHA_MM * fator
+                pen_exportacao.setDashPattern([traco / largura, espaco / largura])
             else:
                 pen_exportacao.setStyle(Qt.PenStyle.SolidLine)
             item.setPen(pen_exportacao)
