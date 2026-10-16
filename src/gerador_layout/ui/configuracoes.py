@@ -97,8 +97,9 @@ def definir_altura_legenda_mm(valor: float) -> None:
 
 
 def espessura_papelao_mm() -> float:
-    """Papelão do 3D (mm) — lembrado entre as sessões. 0 = folha fina."""
-    return float(_settings().value("espessura_papelao_mm", 0.0, type=float))
+    """Papelão do 3D (mm) — lembrado entre as sessões. Padrão 0,3 mm: onda B
+    na escala 1:10 em que as caixas costumam ser desenhadas. 0 = folha fina."""
+    return float(_settings().value("espessura_papelao_mm", 0.3, type=float))
 
 
 def definir_espessura_papelao_mm(valor: float) -> None:

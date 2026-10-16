@@ -75,6 +75,9 @@ _COR_ESPESSURA = QColor("#9C7444")
 # Papelões comuns (espessura em mm), como na escolha de papelão do ArtiosCAD.
 PAPELOES = (
     ("Fino (sem espessura)", 0.0),
+    # Escala reduzida (caixa desenhada em 1:10, como 605 mm → 60,5 mm).
+    ("Onda B 1:10 (0,3 mm)", 0.3),
+    ("Onda dupla BC 1:10 (0,7 mm)", 0.7),
     ("Cartão (0,5 mm)", 0.5),
     ("Micro-ondulado E (1,5 mm)", 1.5),
     ("Onda B (3 mm)", 3.0),
@@ -85,6 +88,8 @@ PAPELOES = (
 # Miolo do papelão visto na borda cortada: passo (mm) de cada ondulação, de
 # fora pra dentro. Vazio = sem onda (folha ou cartão maciço).
 _MIOLO_POR_ESPESSURA = {
+    0.3: (0.65,),  # onda B em 1:10
+    0.7: (0.65, 0.8),  # onda BC em 1:10
     0.5: (),
     1.5: (3.5,),  # E
     3.0: (6.5,),  # B
@@ -96,14 +101,15 @@ _CAPA_MM = 0.25  # espessura de cada capa (liner)
 
 def miolo_do_papelao(espessura_mm: float) -> tuple[float, ...]:
     """Passos das ondulações do papelão com esta espessura: os da lista; um
-    valor digitado vira onda simples até 5 mm e dupla acima disso."""
+    valor digitado vira onda simples até 5 mm e dupla acima disso, com o
+    passo proporcional (vale pra desenho em escala reduzida também)."""
     for mm, ondas in _MIOLO_POR_ESPESSURA.items():
         if abs(mm - espessura_mm) < 1e-6:
             return ondas
-    if espessura_mm < 0.9:
+    if espessura_mm <= 0:
         return ()
     if espessura_mm <= 5.0:
-        return (max(3.0, 2.2 * espessura_mm),)
+        return (2.2 * espessura_mm,)
     fator = espessura_mm / 7.0
     return (6.5 * fator, 8.0 * fator)
 # Fundo claro neutro (mesmo no tema escuro: é um "estúdio" pra ver a caixa).
@@ -1090,7 +1096,7 @@ class Visualizacao3D(QWidget):
         self.campo_espessura = QDoubleSpinBox()
         self.campo_espessura.setRange(0.0, 30.0)
         self.campo_espessura.setDecimals(2)
-        self.campo_espessura.setSingleStep(0.1)
+        self.campo_espessura.setSingleStep(0.05)
         self.campo_espessura.setSuffix(" mm")
         self.campo_espessura.setKeyboardTracking(False)
         self.campo_espessura.setToolTip("Espessura do papelão no 3D (0 = folha fina). Fica guardada pra próxima vez.")
