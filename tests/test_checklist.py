@@ -216,3 +216,46 @@ def test_padrao_antigo_arial_vira_arial_black_uma_vez():
     configuracoes.definir_fonte_padrao_texto("Arial")  # escolhida de propósito depois: vale
     assert configuracoes.fonte_padrao_texto() == "Arial"
     configuracoes.definir_fonte_padrao_texto("Arial Black")
+
+
+def test_tabela_nova_no_padrao_da_maquina():
+    import pytest
+    from PySide6.QtWidgets import QApplication, QDoubleSpinBox
+
+    QApplication.instance() or QApplication([])
+    from gerador_layout.ui import projeto_arquivo
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_tabela import ElementoTabela
+
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    j.canvas.tabela_solicitada.emit(j._posicao_central_canvas())  # o clique da ferramenta Tabela
+    t = next(e for e in j.canvas.elementos_mockup if isinstance(e, ElementoTabela))
+    t.definir_celulas([["COR", "QTD"], ["PRETO", "2"]])
+    assert t.fonte_familia == "Arial Black"
+    itens = t.textos_layout()
+    assert all(i["altura"] == pytest.approx(2.0) for i in itens)
+    assert all(i["escala_x"] == pytest.approx(i["escala_y"] * 0.667) for i in itens)
+    # a altura fica fixa mesmo com a tabela maior (não estica pra encher a célula)
+    t.definir_tamanho(t.largura * 2, t.altura * 2)
+    assert all(i["altura"] == pytest.approx(2.0) for i in t.textos_layout())
+    # "cabe" (0) volta ao jeito antigo: a maior letra que cabe
+    t.definir_altura_letra_mm(None)
+    assert all(i["altura"] > 2.0 for i in t.textos_layout())
+    t.definir_altura_letra_mm(2.0)
+    # barra de propriedades
+    j.painel_propriedades_mockup.definir_elemento(t)
+    altura = j.painel_propriedades_mockup.findChild(QDoubleSpinBox, "alturaLetraTabela")
+    largura = j.painel_propriedades_mockup.findChild(QDoubleSpinBox, "larguraLetraTabela")
+    assert altura.value() == pytest.approx(2.0) and largura.value() == pytest.approx(66.7)
+    altura.setValue(3.0)
+    assert t.altura_letra_mm == pytest.approx(3.0)
+    # clone e projeto guardam o padrão
+    c = t.clonar()
+    assert (c.fonte_familia, c.altura_letra_mm, c.largura_letra) == ("Arial Black", pytest.approx(3.0), pytest.approx(0.667))
+    d = projeto_arquivo.elemento_para_dict(t, projeto_arquivo._Arquivos())
+    volta = projeto_arquivo.elemento_de_dict(d, projeto_arquivo._Arquivos())
+    assert (volta.fonte_familia, volta.altura_letra_mm, volta.largura_letra) == ("Arial Black", pytest.approx(3.0), pytest.approx(0.667))
+    j.close()

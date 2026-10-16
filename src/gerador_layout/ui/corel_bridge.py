@@ -711,22 +711,20 @@ def _desenhar_tabela_cdr(app, layer, elemento: "ElementoTabela", altura_total: f
         linha.Outline.Width = 0.3
         formas.append(linha)
 
-    margem = min(largura_celula, altura_celula) * 0.12
-    for l in range(elemento.linhas):
-        for c in range(elemento.colunas):
-            texto = elemento.celulas[l][c]
-            if not texto:
-                continue
-            tx0, ty0 = ponto_cdr(c * largura_celula + margem, l * altura_celula + margem)
-            tx1, ty1 = ponto_cdr(
-                (c + 1) * largura_celula - margem, (l + 1) * altura_celula - margem
-            )
-            texto_shape = layer.CreateArtisticText(0, 0, texto, Size=_TAMANHO_FONTE_REFERENCIA_CDR)
-            texto_shape.Text.Story.Bold = l == 0
-            _aplicar_cor_preenchimento(app, texto_shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
-            texto_shape.SetSize(max(0.1, abs(tx1 - tx0)), max(0.1, abs(ty1 - ty0)))
-            texto_shape.SetPosition(min(tx0, tx1), max(ty0, ty1))
-            formas.append(texto_shape)
+    # Mesmas posições e tamanhos da tela (`textos_layout`): letra no padrão
+    # escolhido, não esticada pra encher a célula.
+    for item in elemento.textos_layout():
+        tx0, ty0 = ponto_cdr(item["x"], item["base"] - item["altura"])
+        tx1, ty1 = ponto_cdr(item["x"] + item["largura"], item["base"])
+        if elemento.fonte_familia:
+            texto_shape = layer.CreateArtisticText(0, 0, item["texto"], Font=elemento.fonte_familia, Size=_TAMANHO_FONTE_REFERENCIA_CDR)
+        else:
+            texto_shape = layer.CreateArtisticText(0, 0, item["texto"], Size=_TAMANHO_FONTE_REFERENCIA_CDR)
+        texto_shape.Text.Story.Bold = item["negrito"]
+        _aplicar_cor_preenchimento(app, texto_shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
+        texto_shape.SetSize(max(0.1, abs(tx1 - tx0)), max(0.1, abs(ty1 - ty0)))
+        texto_shape.SetPosition(min(tx0, tx1), max(ty0, ty1))
+        formas.append(texto_shape)
 
     if angulo and formas:
         intervalo = app.CreateShapeRange()

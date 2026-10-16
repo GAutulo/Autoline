@@ -1548,7 +1548,12 @@ class JanelaPrincipal(QMainWindow):
         elemento.iniciar_edicao_inline()
 
     def _criar_tabela_por_clique(self, pos: QPointF) -> None:
-        elemento = ElementoTabela(cor_tinta=self._cor_tinta_padrao())
+        elemento = ElementoTabela(
+            cor_tinta=self._cor_tinta_padrao(),
+            fonte_familia=configuracoes.fonte_padrao_texto(),
+            altura_letra_mm=configuracoes.altura_letra_padrao_mm(),
+            largura_letra=configuracoes.largura_letra_padrao(),
+        )
         self._ajustar_ao_zoom(elemento)
         self.canvas.adicionar_elemento_mockup(elemento, pos)
         self._selecionar_e_voltar_ao_ponteiro(elemento)
