@@ -5,7 +5,11 @@ a = Analysis(
     ['app.py'],
     pathex=['src'],
     binaries=[],
-    datas=[('assets/fonts', 'assets/fonts'), ('assets/icon.ico', 'assets')],
+    datas=[
+        ('assets/fonts', 'assets/fonts'),
+        ('assets/icon.ico', 'assets'),
+        ('src/gerador_layout/simbolos', 'gerador_layout/simbolos'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
