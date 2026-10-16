@@ -72,3 +72,33 @@ def test_cadeado_aberto_e_fechado():
     assert el.proporcao_travada and "travada" in trava.toolTip()
     assert trava.icon().pixmap(18, 18).toImage() != icone_aberto  # outro desenho
     j.close()
+
+
+def test_mais_tintas_e_tinta_criada_pelo_usuario(tmp_path):
+    from gerador_layout.ui import configuracoes, projeto_arquivo
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    configuracoes.definir_cores_personalizadas([])
+    j = JanelaPrincipal()
+    nomes = list(j._chips_cor)
+    assert nomes[:8] == ["Preto", "Vermelho", "Azul", "Amarelo", "Verde", "Ciano", "Magenta", "Laranja"]  # as de antes
+    assert {"Azul Escuro", "Verde Escuro", "Vinho", "Marrom", "Cinza", "Branco", "Dourado"} <= set(nomes)
+    # criar uma tinta: entra marcada, vai pra legenda, pra paleta e pras próximas vezes
+    assert j._nova_cor_personalizada("Pantone 286", (0, 51, 160))
+    assert j._chips_cor["Pantone 286"][0].isChecked()
+    assert any(c.nome == "PANTONE 286" for c in j._cores_impressao_ativas())
+    assert ("Pantone 286", (0, 51, 160)) in configuracoes.cores_personalizadas()
+    assert not j._nova_cor_personalizada("pantone 286", (1, 2, 3))  # nome repetido não duplica
+    # o projeto leva o tom junto: abre noutro computador sem a tinta cadastrada
+    destino = projeto_arquivo.salvar(j, tmp_path / "x.autoline")
+    j.close()
+    configuracoes.definir_cores_personalizadas([])
+    k = JanelaPrincipal()
+    assert "Pantone 286" not in k._chips_cor
+    projeto_arquivo.aplicar_na_janela(k, projeto_arquivo.ler(destino))
+    assert k._chips_cor["Pantone 286"][0].isChecked() and k._chips_cor["Pantone 286"][1] == (0, 51, 160)
+    # tirar a tinta criada
+    assert k._remover_cor_personalizada("Pantone 286", confirmar=lambda: True)
+    assert "Pantone 286" not in k._chips_cor
+    k.close()
+    configuracoes.definir_cores_personalizadas([])

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -86,7 +88,9 @@ from .preview_canvas import AJUSTAR_A, FerramentaMockup, PainelLegendaCores, Pre
 from .segmented_row import LinhaTrechos
 from .visualizacao_3d import Visualizacao3D, renderizar_arte_regioes
 
-_CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
+# Tintas de impressão (flexo em papelão): as de sempre + as mais pedidas.
+# As 8 primeiras mantêm nome e tom de antes (projetos salvos usam o nome).
+_CORES_PADRAO: list[tuple[str, tuple[int, int, int]]] = [
     ("Preto", (0, 0, 0)),
     ("Vermelho", (255, 0, 0)),
     ("Azul", (0, 0, 255)),
@@ -95,7 +99,24 @@ _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
     ("Ciano", (0, 170, 220)),
     ("Magenta", (220, 0, 180)),
     ("Laranja", (255, 120, 0)),
+    ("Azul Escuro", (0, 40, 110)),
+    ("Azul Royal", (0, 80, 180)),
+    ("Verde Escuro", (0, 90, 45)),
+    ("Verde Limão", (140, 200, 0)),
+    ("Vinho", (120, 0, 40)),
+    ("Marrom", (110, 60, 20)),
+    ("Roxo", (110, 30, 140)),
+    ("Rosa", (240, 110, 170)),
+    ("Cinza", (128, 128, 128)),
+    ("Dourado", (196, 156, 48)),
+    ("Branco", (255, 255, 255)),
 ]
+
+
+def _cores_disponiveis() -> list[tuple[str, tuple[int, int, int]]]:
+    """As padrão + as criadas pelo usuário (Configurações guarda)."""
+    nomes = {nome for nome, _rgb in _CORES_PADRAO}
+    return _CORES_PADRAO + [(n, rgb) for n, rgb in configuracoes.cores_personalizadas() if n not in nomes]
 
 # Rótulos exibidos em cada trecho, por tipo de caixa. A Impressora sempre
 # tem 5 trechos; o Riscador tem 3 na maleta e 5 no envoltório.
@@ -172,7 +193,17 @@ class JanelaPrincipal(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout_raiz.addWidget(splitter)
 
-        self.painel_esquerdo = self._montar_painel_esquerdo()
+        # Com rolagem: com muitas tintas na legenda, numa tela baixa (notebook)
+        # o painel não empurra a janela pra fora da tela.
+        conteudo_esquerdo = self._montar_painel_esquerdo()
+        self.painel_esquerdo = QScrollArea()
+        self.painel_esquerdo.setObjectName("rolagemPainelEsquerdo")
+        self.painel_esquerdo.setWidget(conteudo_esquerdo)
+        self.painel_esquerdo.setWidgetResizable(True)
+        self.painel_esquerdo.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.painel_esquerdo.setFrameShape(QFrame.Shape.NoFrame)
+        self.painel_esquerdo.setMaximumWidth(conteudo_esquerdo.maximumWidth() + 12)
+        self.painel_esquerdo.setMinimumWidth(min(conteudo_esquerdo.sizeHint().width() + 12, conteudo_esquerdo.maximumWidth() + 12))
         splitter.addWidget(self.painel_esquerdo)
         splitter.addWidget(self._montar_painel_direito())
         splitter.setStretchFactor(0, 0)
@@ -235,17 +266,10 @@ class JanelaPrincipal(QMainWindow):
         vbox.addWidget(grupo_medidas)
 
         grupo_cores = QGroupBox("Legenda de cores")
-        grid_cores = QGridLayout(grupo_cores)
-        grid_cores.setHorizontalSpacing(8)
-        grid_cores.setVerticalSpacing(8)
-        # 3 colunas — usadas normalmente só 1-2 cores por vez, então vale
-        # mais compactar na vertical do que espalhar por 4 linhas (testei
-        # 4 colunas antes e cortava o texto de nomes maiores).
-        _COLUNAS_CORES = 3
-        for i, (nome, rgb) in enumerate(_CORES_DISPONIVEIS):
-            chip = self._montar_chip_cor(nome, rgb)
-            self._chips_cor[nome] = (chip, rgb)
-            grid_cores.addWidget(chip, i // _COLUNAS_CORES, i % _COLUNAS_CORES)
+        self._grid_cores = QGridLayout(grupo_cores)
+        self._grid_cores.setHorizontalSpacing(8)
+        self._grid_cores.setVerticalSpacing(8)
+        self._montar_chips_cores()
         self._chips_cor["Preto"][0].setChecked(True)
         vbox.addWidget(grupo_cores)
 
@@ -344,8 +368,6 @@ class JanelaPrincipal(QMainWindow):
         """Conecta todos os sinais de UI depois que toda a janela já existe,
         evitando disparar _recalcular() com widgets ainda não criados."""
         self.combo_tipo.currentIndexChanged.connect(self._ao_trocar_tipo)
-        for chip, _rgb in self._chips_cor.values():
-            chip.toggled.connect(self._recalcular)
         for spin in (self.spin_comprimento, self.spin_largura, self.spin_altura):
             spin.valueChanged.connect(self._recalcular)
         self.linha_impressora.valor_alterado.connect(self._recalcular)
@@ -359,6 +381,79 @@ class JanelaPrincipal(QMainWindow):
         spin.setSuffix(" mm")
         spin.setValue(valor_padrao)
         return spin
+
+    def _montar_chips_cores(self) -> None:
+        """Os chips da legenda (todas as tintas, 3 por linha) e o "+ Nova cor".
+        Refazer mantém as marcadas."""
+        marcadas = {nome for nome, (chip, _rgb) in self._chips_cor.items() if chip.isChecked()}
+        grid = self._grid_cores
+        while grid.count():
+            item = grid.takeAt(0)
+            if item.widget() is not None:
+                item.widget().hide()
+                item.widget().deleteLater()
+        self._chips_cor = {}
+        colunas = 2  # nomes compostos ("Azul Escuro", "Verde Limão") cortavam com 3
+        cores = _cores_disponiveis()
+        personalizadas = {n for n, _rgb in configuracoes.cores_personalizadas()}
+        for i, (nome, rgb) in enumerate(cores):
+            chip = self._montar_chip_cor(nome, rgb)
+            chip.setChecked(nome in marcadas)
+            chip.toggled.connect(self._ao_alternar_cor)
+            if nome in personalizadas:
+                chip.setToolTip(f"{nome} (sua) — botão direito pra tirar")
+                chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                chip.customContextMenuRequested.connect(lambda _p, n=nome: self._remover_cor_personalizada(n))
+            self._chips_cor[nome] = (chip, rgb)
+            grid.addWidget(chip, i // colunas, i % colunas)
+        botao_nova = QPushButton("+ Nova cor")
+        botao_nova.setProperty("chipCor", True)
+        botao_nova.setCursor(Qt.CursorShape.PointingHandCursor)
+        botao_nova.setToolTip("Criar uma tinta (nome e tom) — fica guardada pras próximas vezes")
+        botao_nova.clicked.connect(self._nova_cor_personalizada)
+        grid.addWidget(botao_nova, len(cores) // colunas, len(cores) % colunas)
+        if hasattr(self, "_paleta_cores"):
+            self._paleta_cores.definir_cores(cores)
+
+    def _ao_alternar_cor(self, _marcado: bool = False) -> None:
+        if hasattr(self, "canvas") and hasattr(self, "linha_riscador"):  # já montada
+            self._recalcular()
+
+    def _nova_cor_personalizada(self, nome: str | None = None, rgb: tuple[int, int, int] | None = None) -> bool:
+        """Tinta nova: escolhe o tom e o nome (ex.: "Pantone 286"). Fica nas
+        Configurações e aparece na legenda e na paleta da direita."""
+        from PySide6.QtWidgets import QColorDialog
+
+        if rgb is None:
+            cor = QColorDialog.getColor(QColor(0, 0, 0), self, "Tom da nova tinta")
+            if not cor.isValid():
+                return False
+            rgb = (cor.red(), cor.green(), cor.blue())
+        if nome is None:
+            nome, ok = QInputDialog.getText(self, "Nova tinta", "Nome da tinta (ex.: Pantone 286, Azul Cliente):")
+            if not ok:
+                return False
+        nome = nome.strip()
+        if not nome:
+            return False
+        existentes = {n.lower() for n, _rgb in _cores_disponiveis()}
+        if nome.lower() in existentes:
+            self.statusBar().showMessage(f"Já existe uma tinta chamada “{nome}”.", 6000)
+            return False
+        configuracoes.definir_cores_personalizadas(configuracoes.cores_personalizadas() + [(nome, rgb)])
+        self._montar_chips_cores()
+        self._chips_cor[nome][0].setChecked(True)  # criou pra usar: já marca
+        return True
+
+    def _remover_cor_personalizada(self, nome: str, confirmar=None) -> bool:
+        if confirmar is None:
+            confirmar = lambda: QMessageBox.question(self, "Tirar tinta", f"Tirar “{nome}” da lista de tintas?") == QMessageBox.StandardButton.Yes  # noqa: E731
+        if not confirmar():
+            return False
+        configuracoes.definir_cores_personalizadas([(n, rgb) for n, rgb in configuracoes.cores_personalizadas() if n != nome])
+        self._montar_chips_cores()
+        self._recalcular()
+        return True
 
     def _montar_chip_cor(self, nome: str, rgb: tuple[int, int, int]) -> QPushButton:
         """Botão de alternância que mostra a própria cor, em vez de um
@@ -1332,7 +1427,8 @@ class JanelaPrincipal(QMainWindow):
         barra.setMovable(False)
         barra.setOrientation(Qt.Orientation.Vertical)
         self.addToolBar(Qt.ToolBarArea.RightToolBarArea, barra)
-        paleta = PaletaCores(_CORES_DISPONIVEIS)
+        paleta = PaletaCores(_cores_disponiveis())
+        self._paleta_cores = paleta
         paleta.preenchimento_escolhido.connect(lambda cor: self._aplicar_cor_paleta(cor, contorno=False))
         paleta.contorno_escolhido.connect(lambda cor: self._aplicar_cor_paleta(cor, contorno=True))
         barra.addWidget(paleta)

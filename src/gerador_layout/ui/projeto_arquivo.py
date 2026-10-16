@@ -319,6 +319,8 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
             "riscador": trechos(janela.linha_riscador),
         },
         "cores": [nome for nome, (chip, _rgb) in janela._chips_cor.items() if chip.isChecked()],
+        # Tom de cada tinta marcada: uma tinta criada noutro computador volta junto.
+        "cores_rgb": {nome: list(rgb) for nome, (chip, rgb) in janela._chips_cor.items() if chip.isChecked()},
         "faca": {
             "editada": canvas.faca_editada,
             "linhas": [_linha(l) for l in canvas.linhas_faca()] if canvas.faca_editada else [],
@@ -437,6 +439,12 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
     for linha, valores in ((janela.linha_impressora, caixa["impressora"]), (janela.linha_riscador, caixa["riscador"])):
         linha.definir_valores_manuais(valores)
     ativas = set(dados.get("cores", []))
+    faltando = [(n, tuple(rgb)) for n, rgb in (dados.get("cores_rgb") or {}).items() if n not in janela._chips_cor]
+    if faltando:
+        from . import configuracoes as _config
+
+        _config.definir_cores_personalizadas(_config.cores_personalizadas() + faltando)
+        janela._montar_chips_cores()
     for nome, (chip, _rgb) in janela._chips_cor.items():
         chip.blockSignals(True)
         chip.setChecked(nome in ativas)
