@@ -130,3 +130,34 @@ def test_aba_3d_leva_a_arte_do_layout():
     _imagem, k_perto, _r = vista.textura_do_painel("frente")
     assert k_perto > k * 2
     j.close()
+
+
+def test_giro_livre_olha_por_baixo():
+    """O giro vertical não trava em 90°: dá pra olhar a caixa por baixo."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.abas_tela.setCurrentIndex(2)
+    vista = j.visualizacao_3d.vista
+    vista.resize(600, 400)
+    cima = vista._modelo.cima
+    olho_antes = vista._camera()[0]
+    vista._arrasto = (QPointF(0, 0), 0.0, 0.0)
+    ponto = QPointF(0, -500)
+    vista.mouseMoveEvent(QMouseEvent(QMouseEvent.Type.MouseMove, ponto, ponto, Qt.MouseButton.NoButton,
+                                     Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    assert vista._pitch_usuario == -200.0  # passou dos 90°, sem trava
+    olho = vista._camera()[0]
+    centro = vista._centro_montado
+    altura = lambda o: sum((o[i] - centro[i]) * cima[i] for i in range(3))  # noqa: E731
+    assert altura(olho_antes) > 0 and altura(olho) < 0  # foi pra baixo da caixa
+    vista.grab()  # pinta sem erro vista de baixo (sem a sombra do chão)
+    j.close()
