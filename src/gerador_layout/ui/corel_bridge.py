@@ -449,8 +449,9 @@ def _desenhar_imagem_cdr(app, layer, elemento, altura_total: float) -> None:
     x, y, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
     antes = layer.Shapes.Count
     arquivo = elemento.caminho_arquivo
-    if getattr(elemento, "mapa_cores", None):
-        # Cores trocadas no Autoline: o Corel recebe o SVG já com elas.
+    if hasattr(elemento, "conteudo_svg"):
+        # Logotipo vetorial: o Corel recebe o SVG como está na tela — cores
+        # trocadas, caminhos corrigidos (ver svg_corel.py) e enquadrado.
         import tempfile
 
         with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as temporario:
