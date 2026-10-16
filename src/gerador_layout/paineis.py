@@ -25,9 +25,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .models import TIPOS_MALETA as _TIPOS_MALETA
 from .models import TipoCaixa
-
-_TIPOS_MALETA = {TipoCaixa.MALETA_NORMAL, TipoCaixa.MALETA_TRANSPASSADA}
 
 
 @dataclass(frozen=True)
@@ -63,7 +62,27 @@ def calcular_paineis(
     reais usados no desenho, já com os padrões aplicados)."""
     if tipo in _TIPOS_MALETA:
         return _paineis_maleta(segmentos_impressora, segmentos_riscador)
+    if tipo == TipoCaixa.ENVOLTORIO_CAPA:
+        return _paineis_capa(segmentos_impressora, segmentos_riscador)
     return _paineis_envoltorio(segmentos_impressora, segmentos_riscador)
+
+
+def _paineis_capa(segmentos_impressora: list[float], segmentos_riscador: list[float]) -> list[Painel]:
+    xs = _bordas_cumulativas(segmentos_impressora)
+    ys = _bordas_cumulativas(segmentos_riscador)
+    if len(xs) < 4 or len(ys) < 4:
+        return []
+    definicoes = [
+        ("centro", "Centro", 1, 1),
+        ("lateral1", "Lateral 1", 0, 1),
+        ("lateral2", "Lateral 2", 2, 1),
+        ("parede_sup", "Parede superior", 1, 0),
+        ("parede_inf", "Parede inferior", 1, 2),
+    ]
+    return [
+        Painel(id_, nome, xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=False)
+        for id_, nome, col, linha in definicoes
+    ]
 
 
 def _bordas_cumulativas(segmentos: list[float]) -> list[float]:
@@ -82,7 +101,7 @@ def _paineis_maleta(segmentos_impressora: list[float], segmentos_riscador: list[
     # aqui (ver docstring do módulo).
     xs = _bordas_cumulativas(segmentos_impressora)
     ys = _bordas_cumulativas(segmentos_riscador)
-    if len(xs) < 6 or len(ys) < 4:
+    if len(xs) < 4 or len(ys) < 4:
         return []
 
     definicoes = [
@@ -92,9 +111,11 @@ def _paineis_maleta(segmentos_impressora: list[float], segmentos_riscador: list[
         ("lateral2", "Lateral 2", 3, False),
         ("verso", "Verso", 4, False),
     ]
+    # Meia caixa (Aba | L | C) só tem as três primeiras.
     return [
         Painel(id_, nome, xs[col], ys[1], xs[col + 1], ys[2], eh_aba)
         for id_, nome, col, eh_aba in definicoes
+        if col + 1 < len(xs)
     ]
 
 
