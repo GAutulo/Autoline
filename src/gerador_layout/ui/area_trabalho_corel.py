@@ -142,13 +142,20 @@ class PaletaCores(QWidget):
 
 class _AmostraStatus(QWidget):
     """Amostra de preenchimento (quadrado cheio) ou contorno (moldura) da
-    barra de status."""
+    barra de status — clicável, como no CorelDRAW: abre a lista de tintas."""
+
+    clicada = Signal()
 
     def __init__(self, contorno: bool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._contorno = contorno
         self._cor: QColor | None = None
-        self.setFixedSize(_TAMANHO_AMOSTRA, _TAMANHO_AMOSTRA)
+        self.setFixedSize(_TAMANHO_AMOSTRA + 4, _TAMANHO_AMOSTRA + 4)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, evento) -> None:  # noqa: N802
+        if evento.button() == Qt.MouseButton.LeftButton:
+            self.clicada.emit()
 
     def definir_cor(self, cor: QColor | None) -> None:
         self._cor = cor
@@ -185,18 +192,26 @@ class PainelStatus(QWidget):
         self.rotulo_posicao.setMinimumWidth(170)
         self.rotulo_objeto = QLabel("")
         self.rotulo_objeto.setMinimumWidth(220)
+        self.rotulo_cor = QLabel("Cor:")
+        self.rotulo_cor.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
         self.amostra_preenchimento = _AmostraStatus(contorno=False)
-        self.amostra_preenchimento.setToolTip("Preenchimento do objeto selecionado")
+        self.amostra_preenchimento.setToolTip("Preenchimento — clique pra escolher a tinta")
         self.amostra_contorno = _AmostraStatus(contorno=True)
-        self.amostra_contorno.setToolTip("Contorno do objeto selecionado")
+        self.amostra_contorno.setToolTip("Contorno — clique pra escolher a tinta")
+        self.botao_conta_gotas = QToolButton()
+        self.botao_conta_gotas.setObjectName("botaoIconePropriedade")
+        self.botao_conta_gotas.setToolTip("Conta-gotas — clique numa cor do desenho pra aplicar no selecionado")
+        self.botao_conta_gotas.setAutoRaise(True)
 
         hbox = QHBoxLayout(self)
         hbox.setContentsMargins(0, 0, 8, 0)
-        hbox.setSpacing(10)
+        hbox.setSpacing(8)
         hbox.addWidget(self.rotulo_posicao)
         hbox.addWidget(self.rotulo_objeto)
+        hbox.addWidget(self.rotulo_cor)
         hbox.addWidget(self.amostra_preenchimento)
         hbox.addWidget(self.amostra_contorno)
+        hbox.addWidget(self.botao_conta_gotas)
 
     def definir_posicao(self, ponto: QPointF | None) -> None:
         if ponto is None:
@@ -206,7 +221,10 @@ class PainelStatus(QWidget):
 
     def definir_objeto(self, descricao: str, preenchimento: QColor | None, contorno: QColor | None, mostrar_amostras: bool) -> None:
         self.rotulo_objeto.setText(descricao)
-        self.amostra_preenchimento.setVisible(mostrar_amostras)
-        self.amostra_contorno.setVisible(mostrar_amostras)
-        self.amostra_preenchimento.definir_cor(preenchimento)
-        self.amostra_contorno.definir_cor(contorno)
+        self.amostra_preenchimento.definir_cor(preenchimento if mostrar_amostras else None)
+        self.amostra_contorno.definir_cor(contorno if mostrar_amostras else None)
+
+    def definir_controles_de_cor(self, visiveis: bool) -> None:
+        """Só na tela de Layout (onde tem objeto pra pintar)."""
+        for w in (self.rotulo_cor, self.amostra_preenchimento, self.amostra_contorno, self.botao_conta_gotas):
+            w.setVisible(visiveis)
