@@ -49,6 +49,9 @@ class ElementoChecklistCores(ElementoMockup):
         # Largura das letras em relação à normal (0,667 = meio esticada, o
         # padrão da máquina); a altura vem do tamanho em pontos.
         self._largura_letra = max(0.05, float(largura_letra))
+        # Espaçamento (F10 do CorelDRAW): entre letras e entre as linhas/itens.
+        self._espaco_letras = 0.0
+        self._espaco_linhas = 1.0
         self._variantes = list(variantes) if variantes else ["Cor 1", "Cor 2"]
         self._fonte_familia = fonte_familia
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
@@ -157,7 +160,28 @@ class ElementoChecklistCores(ElementoMockup):
         fonte = QFont(self._fonte_familia)
         fonte.setPixelSize(int(_PIXELS_REFERENCIA))
         fonte.setBold(self._negrito)
+        espaco = getattr(self, "_espaco_letras", 0.0)
+        if espaco:
+            fonte.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, espaco * _PIXELS_REFERENCIA)
         return fonte
+
+    @property
+    def espaco_letras(self) -> float:
+        return self._espaco_letras
+
+    def definir_espaco_letras(self, fracao: float) -> None:
+        self._espaco_letras = max(-0.5, min(2.0, float(fracao)))
+        self._ajustar_ao_conteudo(largura_natural=self._disposicao == EMPILHADO)
+        self.update()
+
+    @property
+    def espaco_linhas(self) -> float:
+        return self._espaco_linhas
+
+    def definir_espaco_linhas(self, fator: float) -> None:
+        self._espaco_linhas = max(0.3, min(5.0, float(fator)))
+        self._ajustar_ao_conteudo()
+        self.update()
 
     def _medidas(self) -> dict:
         """Tudo em mm a partir do tamanho da letra em pontos."""
@@ -170,7 +194,7 @@ class ElementoChecklistCores(ElementoMockup):
             "escala": escala,
             "metrica": metrica,
             "lado": maiuscula * 1.15,  # quadradinho ~ altura da maiúscula
-            "linha": em * 1.45,
+            "linha": em * 1.45 * getattr(self, "_espaco_linhas", 1.0),
             "espaco_caixa": em * 0.4,
             "espaco_itens": em * 1.1,
             "traco": max(0.05, maiuscula * 0.09),
@@ -494,6 +518,7 @@ class ElementoChecklistCores(ElementoMockup):
             disposicao=self._disposicao,
             largura_letra=self._largura_letra,
         )
+        novo._espaco_letras, novo._espaco_linhas = self._espaco_letras, self._espaco_linhas
         self._copiar_geometria_para(novo)
         novo.definir_tamanho(self._largura, self._altura)
         return novo

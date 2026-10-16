@@ -255,6 +255,25 @@ def _desenhar_icone(tipo: str) -> QIcon:
         painter.drawArc(QRectF(3, 3, 12, 12), 20 * 16, 220 * 16)
         fim = QPointF(c + 6 * 0.35, c - 6 * 0.93)
         _seta(painter, QPointF(c + 6 * 0.7, c - 6 * 0.6), fim, cabeca=2.0)
+    elif tipo == "espaco_letras":  # "AV" com setas pros lados
+        fonte = painter.font()
+        fonte.setPixelSize(8)
+        fonte.setBold(True)
+        painter.setFont(fonte)
+        painter.drawText(QRectF(2, 1, 14, 9), Qt.AlignmentFlag.AlignCenter, "AV")
+        painter.drawLine(QPointF(2, 13.5), QPointF(16, 13.5))
+        painter.drawLine(QPointF(2, 13.5), QPointF(4.5, 11.5))
+        painter.drawLine(QPointF(2, 13.5), QPointF(4.5, 15.5))
+        painter.drawLine(QPointF(16, 13.5), QPointF(13.5, 11.5))
+        painter.drawLine(QPointF(16, 13.5), QPointF(13.5, 15.5))
+    elif tipo == "espaco_linhas":  # linhas de texto com seta de altura
+        for y in (4, 9, 14):
+            painter.drawLine(QPointF(7, y), QPointF(16, y))
+        painter.drawLine(QPointF(3, 2.5), QPointF(3, 15.5))
+        painter.drawLine(QPointF(3, 2.5), QPointF(1.3, 4.5))
+        painter.drawLine(QPointF(3, 2.5), QPointF(4.7, 4.5))
+        painter.drawLine(QPointF(3, 15.5), QPointF(1.3, 13.5))
+        painter.drawLine(QPointF(3, 15.5), QPointF(4.7, 13.5))
     elif tipo == "trava":  # cadeado fechado
         painter.drawRoundedRect(QRectF(4, 8, 10, 7), 1.5, 1.5)
         painter.drawArc(QRectF(6, 2, 6, 8), 0, 180 * 16)

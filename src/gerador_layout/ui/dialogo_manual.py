@@ -491,6 +491,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 propriedades ficam fonte, tamanho em pontos, negrito, cor e o
                 <b>arranjo</b> — <b>Empilhado</b> (um embaixo do outro) ou <b>Lado a
                 lado</b> (em linha, quebrando pra baixo quando não cabe na largura).
+                <b>Espaçamento</b> (o que o F10 do CorelDRAW ajusta): no texto e no
+                checklist, os campos <b>AV</b> (entre letras: 0% normal, mais afasta,
+                negativo aproxima) e <b>entre linhas</b> (100% normal; menos aproxima as
+                linhas/itens). A letra não muda de tamanho, só o espaço.
                 <b>Padrão da máquina</b>: texto, checklist e tabela novos já nascem em Arial Black,
                 letra de <b>2 mm</b> de altura e <b>meio esticada</b> (66,7% da largura
                 normal), em qualquer zoom. No checklist dá pra mudar a altura da letra (mm)
