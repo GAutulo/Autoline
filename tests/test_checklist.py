@@ -259,3 +259,26 @@ def test_tabela_nova_no_padrao_da_maquina():
     volta = projeto_arquivo.elemento_de_dict(d, projeto_arquivo._Arquivos())
     assert (volta.fonte_familia, volta.altura_letra_mm, volta.largura_letra) == ("Arial Black", pytest.approx(3.0), pytest.approx(0.667))
     j.close()
+
+
+def test_quadrinho_do_tamanho_da_letra_e_traco_de_1pt():
+    import pytest
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from gerador_layout.ui import projeto_arquivo
+    from gerador_layout.ui.mockup_checklist import ElementoChecklistCores
+
+    c = ElementoChecklistCores(["20 UN."], fonte_familia="Arial Black")
+    c.definir_altura_letra_mm(2.0)
+    m = c._medidas()
+    assert m["lado"] == pytest.approx(2.0)  # quadrinho = altura da letra
+    assert c.espessura_quadro_pt == pytest.approx(1.0)  # 1 pt com letra de 2 mm
+    c.definir_altura_letra_mm(4.0)
+    assert c.espessura_quadro_pt == pytest.approx(2.0)  # acompanha a letra
+    c.definir_espessura_quadro_pt(1.5)
+    c.definir_altura_letra_mm(2.0)
+    assert c.espessura_quadro_pt == pytest.approx(0.75)
+    assert c.clonar().espessura_quadro_pt == pytest.approx(0.75)
+    d = projeto_arquivo.elemento_para_dict(c, projeto_arquivo._Arquivos())
+    assert projeto_arquivo.elemento_de_dict(d, projeto_arquivo._Arquivos()).espessura_quadro_pt == pytest.approx(0.75)

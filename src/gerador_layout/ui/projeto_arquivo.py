@@ -150,7 +150,7 @@ def elemento_para_dict(el: ElementoMockup, arquivos: _Arquivos) -> dict | None:
         d.update(
             variantes=el.variantes, fonte=el.fonte_familia, negrito=el.negrito, cor=_cor(el.cor_tinta),
             tamanho_pt=el.tamanho_pt, disposicao=el.disposicao, largura_letra=el.largura_letra,
-            espaco_letras=el.espaco_letras, espaco_linhas=el.espaco_linhas,
+            espaco_letras=el.espaco_letras, espaco_linhas=el.espaco_linhas, traco_relativo=el._traco_relativo,
         )
     elif isinstance(el, (ElementoRetangulo, ElementoElipse)):
         d.update(_forma(el))
@@ -233,6 +233,8 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
         )
         el._espaco_letras = float(d.get("espaco_letras", 0.0))
         el._espaco_linhas = float(d.get("espaco_linhas", 1.0))
+        if "traco_relativo" in d:
+            el._traco_relativo = float(d["traco_relativo"])
     elif tipo == "ElementoRetangulo":
         el = ElementoRetangulo(cor_tinta=cor, preenchido=d["preenchido"], largura_traco=d["traco"])
     elif tipo == "ElementoElipse":
