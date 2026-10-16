@@ -422,8 +422,19 @@ class PainelPropriedadesMockup(QWidget):
             self._grupo(tipo_icone, spin, tooltip)
 
         botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
+        botao_trava.setObjectName("botaoIconePropriedade")
+
+        def mostrar_trava(travada: bool) -> None:
+            # Dois desenhos, como no CorelDRAW: cadeado fechado = proporção travada.
+            botao_trava.setIcon(construir_icone("trava" if travada else "trava_aberta"))
+            botao_trava.setToolTip(
+                "Proporção travada — clique pra destravar" if travada else "Proporção livre — clique pra travar"
+            )
+
         botao_trava.setChecked(elemento.proporcao_travada)
+        mostrar_trava(elemento.proporcao_travada)
         botao_trava.toggled.connect(elemento.definir_proporcao_travada)
+        botao_trava.toggled.connect(mostrar_trava)
 
         if not isinstance(elemento, GrupoMockup):
             botao_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)

@@ -3908,12 +3908,13 @@ class PainelLegendaCores(QWidget):
         )
         item_layout.addWidget(bolinha)
 
-        cor_legivel = _cor_texto_legivel(cor.r, cor.g, cor.b)
+        # Essa linha fica no fundo da janela (escuro no tema escuro): "PRETO"
+        # em preto sumia. A cor é clareada/escurecida só o bastante pra ler.
+        from .estilo import cor_legivel_sobre
+
+        lr, lg, lb = cor_legivel_sobre(cor.r, cor.g, cor.b)
         nome = QLabel(cor.nome)
-        nome.setStyleSheet(
-            f"color: rgb({cor_legivel.red()},{cor_legivel.green()},{cor_legivel.blue()}); "
-            "font-weight: 600; font-size: 12px;"
-        )
+        nome.setStyleSheet(f"color: rgb({lr},{lg},{lb}); font-weight: 600; font-size: 12px;")
         item_layout.addWidget(nome)
 
         return item
