@@ -168,6 +168,31 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Construtor de dieline",
+                """
+                <p><b>Construtor de dieline</b> (Ctrl+Shift+D, Arquivo, ou o botão de régua
+                da barra Faca): monta uma faca nova no nosso padrão de trechos, sem escrever
+                fórmula de linha. Comece de um modelo (em branco, maleta Aba | L | C | L | C,
+                bandeja) ou de um seu.</p>
+                <p>À esquerda: as <b>medidas</b> (C, L, A, E e as que você criar, com o valor
+                padrão), os trechos da <b>impressora</b> (colunas, da esquerda pra direita) e
+                do <b>riscador</b> (linhas, de cima pra baixo), cada um com a medida em
+                fórmula (<code>L / 2</code>, <code>A + E</code>, <code>30</code>).</p>
+                <p>No desenho: <b>clique numa divisa</b> entre duas peças pra escolher o tipo
+                — vinco (com o ângulo da dobra e a ordem de montagem: ordem 1 dobra antes),
+                corte, fenda (com a largura, ex.: <code>E + 2</code>), meio-corte, serrilha ou
+                sem linha. "Aplicar nas iguais desta linha" muda de uma vez, por exemplo,
+                todas as fendas entre L e C. <b>Clique numa peça</b> pra tirar (refugo) ou
+                pôr, escolher a que fica parada no 3D e, nas pontas, o chanfro da aba de
+                cola. O contorno e a borda com o refugo são sempre corte.</p>
+                <p>Embaixo, o <b>resumo pra faca</b>: tamanho da chapa, quantos vincos,
+                cortes e fendas, e os metros de vinco e de corte. <b>Usar na faca</b> põe na
+                tela (o 3D já dobra com os ângulos e a ordem). <b>Salvar no catálogo</b>
+                guarda como estilo: abre em qualquer medida pelo catálogo e volta pro
+                construtor em "Começar de" pra editar.</p>
+                """,
+            ),
+            (
                 "Navegar no canvas",
                 """
                 <p><b>Zoom:</b> roda do mouse.</p>

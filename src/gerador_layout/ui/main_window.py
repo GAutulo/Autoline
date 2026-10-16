@@ -54,6 +54,7 @@ from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
 from ..simbologias import tamanho_mm
+from .dialogo_construtor_dieline import DialogoConstrutorDieline
 from .docker_simbologias import DockerSimbologias
 from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
 from .dialogo_logo import DialogoSepararCoresLogo
@@ -499,6 +500,8 @@ class JanelaPrincipal(QMainWindow):
         menu_arquivo.addAction("Nova faca em branco (desenho livre)", self._nova_faca_em_branco)
         acao_catalogo = menu_arquivo.addAction("Nova faca a partir de estilo (catálogo)...", self._abrir_catalogo_estilos)
         acao_catalogo.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        acao_construtor = menu_arquivo.addAction("Construtor de dieline...", self._abrir_construtor_dieline)
+        acao_construtor.setShortcut(QKeySequence("Ctrl+Shift+D"))
         menu_arquivo.addAction("Salvar faca como estilo...", self._salvar_faca_como_estilo)
         menu_arquivo.addSeparator()
         menu_arquivo.addAction("Conectar ao CorelDRAW", self._conectar_corel)
@@ -688,6 +691,12 @@ class JanelaPrincipal(QMainWindow):
         if dialogo.exec() != QDialog.DialogCode.Accepted or dialogo.faca is None:
             return
         self.aplicar_estilo(dialogo.estilo_escolhido, dialogo.valores, dialogo.faca)
+
+    def _abrir_construtor_dieline(self) -> None:
+        dialogo = DialogoConstrutorDieline(self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted or dialogo.faca is None:
+            return
+        self.aplicar_estilo(dialogo.estilo, dialogo.valores, dialogo.faca)
 
     def aplicar_estilo(self, estilo, valores: dict, faca) -> None:
         """Troca a faca pela do estilo (Ctrl+Z volta). A chapa fica do
@@ -1035,6 +1044,10 @@ class JanelaPrincipal(QMainWindow):
         self._acao_icone(
             barra, "lista", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
             self._abrir_catalogo_estilos,
+        )
+        self._acao_icone(
+            barra, "medida", "Construtor de dieline (Ctrl+Shift+D) — monte uma faca nova por trechos: vincos, cortes, fendas e dobras",
+            self._abrir_construtor_dieline,
         )
         barra.addSeparator()
 
