@@ -131,6 +131,17 @@ class DialogoConfiguracoes(QDialog):
             self.combo_fonte_texto.setCurrentText(fonte_atual)
         form_ferramentas.addRow("Fonte padrão de texto novo:", self.combo_fonte_texto)
 
+        self.spin_altura_letra = self._criar_spin_mm(configuracoes.altura_letra_padrao_mm())
+        self.spin_altura_letra.setToolTip("Altura da maiúscula de texto e checklist novos (padrão da máquina: 2 mm)")
+        form_ferramentas.addRow("Altura da letra de texto novo:", self.spin_altura_letra)
+        self.spin_largura_letra = QDoubleSpinBox()
+        self.spin_largura_letra.setRange(20.0, 200.0)
+        self.spin_largura_letra.setDecimals(1)
+        self.spin_largura_letra.setSuffix(" %")
+        self.spin_largura_letra.setValue(configuracoes.largura_letra_padrao() * 100)
+        self.spin_largura_letra.setToolTip("Largura das letras em relação à normal da fonte (padrão da máquina: 66,7%, a Arial Black meio esticada)")
+        form_ferramentas.addRow("Largura das letras de texto novo:", self.spin_largura_letra)
+
         vbox_conteudo.addWidget(grupo_ferramentas)
         vbox_conteudo.addStretch(1)
 
@@ -178,6 +189,8 @@ class DialogoConfiguracoes(QDialog):
         self.spin_passo_nudge_shift.setValue(passo_nudge_shift)
         self.spin_passo_duplicar.setValue(configuracoes.passo_duplicar_mm())
         self.combo_fonte_texto.setCurrentText(configuracoes.fonte_padrao_texto())
+        self.spin_altura_letra.setValue(configuracoes.altura_letra_padrao_mm())
+        self.spin_largura_letra.setValue(configuracoes.largura_letra_padrao() * 100)
         # Tema não tem "padrão" salvo em restaurar_padroes (é intencional
         # que o usuário não perca o tema escolhido sem querer) — só reseta
         # os números.
@@ -195,4 +208,6 @@ class DialogoConfiguracoes(QDialog):
         configuracoes.definir_passo_nudge_mm(self.spin_passo_nudge.value(), self.spin_passo_nudge_shift.value())
         configuracoes.definir_passo_duplicar_mm(self.spin_passo_duplicar.value())
         configuracoes.definir_fonte_padrao_texto(self.combo_fonte_texto.currentText())
+        configuracoes.definir_altura_letra_padrao_mm(self.spin_altura_letra.value())
+        configuracoes.definir_largura_letra_padrao(self.spin_largura_letra.value() / 100)
         self.accept()
