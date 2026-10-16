@@ -18,7 +18,9 @@ import warnings
 from typing import Callable
 
 from PySide6.QtGui import QFont
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QSizePolicy,
     QComboBox,
     QFontComboBox,
     QDoubleSpinBox,
@@ -45,6 +47,7 @@ from .mockup_cota import ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
+from .layout_fluxo import LayoutFluxo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
@@ -121,14 +124,13 @@ class PainelPropriedadesMockup(QWidget):
         self._rotulo_tipo.setVisible(False)
         raiz.addWidget(self._rotulo_tipo)
 
+        # Em fluxo: o que não cabe na largura da janela desce pra uma segunda
+        # linha, em vez de alargar a janela além da tela (ver layout_fluxo.py).
         self._container_campos = QWidget()
-        self._layout_campos = QHBoxLayout(self._container_campos)
-        self._layout_campos.setContentsMargins(0, 0, 0, 0)
-        self._layout_campos.setSpacing(5)
+        self._layout_campos = LayoutFluxo(self._container_campos, espaco=5)
+        self._container_campos.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._container_campos.setVisible(False)
-        raiz.addWidget(self._container_campos)
-
-        raiz.addStretch(1)
+        raiz.addWidget(self._container_campos, 1)
 
         self._botao_remover = QToolButton()
         self._botao_remover.setObjectName("botaoIconePropriedade")
@@ -204,7 +206,27 @@ class PainelPropriedadesMockup(QWidget):
             except (TypeError, RuntimeError):
                 pass
 
+    def resizeEvent(self, evento) -> None:  # noqa: N802
+        super().resizeEvent(evento)
+        self._ajustar_altura_campos()
+
+    def _ajustar_altura_campos(self) -> None:
+        """Altura da área dos campos = a que o fluxo precisa na largura atual
+        (uma linha ou duas); a barra acompanha."""
+        largura = self._container_campos.width()
+        if largura <= 0 or not self._container_campos.isVisible():
+            return
+        altura = self._layout_campos.heightForWidth(largura)
+        if self._container_campos.minimumHeight() != altura:
+            self._container_campos.setMinimumHeight(altura)
+
     def definir_elemento(self, elemento: ElementoMockup | None) -> None:
+        self._definir_campos(elemento)
+        # Os campos mudaram: depois de o Qt assentá-los, a barra pode precisar
+        # de uma ou duas linhas.
+        QTimer.singleShot(0, self._ajustar_altura_campos)
+
+    def _definir_campos(self, elemento: ElementoMockup | None) -> None:
         self._modo_multiplo = False
         # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
         # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
