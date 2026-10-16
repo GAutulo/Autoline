@@ -6,7 +6,7 @@ import math
 from contextlib import contextmanager
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -763,6 +763,8 @@ class JanelaPrincipal(QMainWindow):
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
+        if hasattr(self, "painel_status"):
+            self.painel_status.definir_controles_de_cor(modo_layout)
         self.barra_faca.setVisible(indice == 0)
         self._atalho_editar_faca.setEnabled(indice == 0)  # no Layout, F10 é a Forma de curvas
         if indice != 0:
@@ -1492,6 +1494,37 @@ class JanelaPrincipal(QMainWindow):
         self.statusBar().addPermanentWidget(self.painel_status)
         self.canvas.cursor_movido.connect(self.painel_status.definir_posicao)
         self.painel_status.definir_objeto("", None, None, False)
+        # Cor do objeto embaixo, como no CorelDRAW: clicar na amostra abre as
+        # tintas; o conta-gotas pega a cor de outro objeto.
+        self.painel_status.botao_conta_gotas.setIcon(construir_icone("conta_gotas"))
+        self.painel_status.botao_conta_gotas.clicked.connect(
+            lambda: self.canvas.definir_ferramenta(FerramentaMockup.CONTA_GOTAS)
+        )
+        self.painel_status.amostra_preenchimento.clicada.connect(lambda: self._menu_cor_status(contorno=False))
+        self.painel_status.amostra_contorno.clicada.connect(lambda: self._menu_cor_status(contorno=True))
+        self.painel_status.definir_controles_de_cor(False)
+
+    def _menu_cor_status(self, contorno: bool, executar: bool = True) -> QMenu:
+        """Lista de tintas (com amostra) pra aplicar no selecionado — o mesmo
+        que clicar na paleta: esquerdo = preenchimento, aqui escolhido pela
+        amostra clicada."""
+        from PySide6.QtGui import QIcon, QPixmap
+
+        menu = QMenu(self)
+        nenhum = menu.addAction("Nenhum" if not contorno else "Nenhum (só preenchimento)")
+        nenhum.triggered.connect(lambda: self._aplicar_cor_paleta(None, contorno=contorno))
+        menu.addSeparator()
+        for nome, rgb in _cores_disponiveis():
+            amostra = QPixmap(14, 14)
+            amostra.fill(QColor(*rgb))
+            acao = menu.addAction(QIcon(amostra), nome)
+            acao.triggered.connect(lambda _c=False, n=nome, c=rgb: self._aplicar_cor_paleta((n, c), contorno=contorno))
+        menu.addSeparator()
+        menu.addAction("Nova cor…", self._nova_cor_personalizada)
+        if executar:
+            alvo = self.painel_status.amostra_contorno if contorno else self.painel_status.amostra_preenchimento
+            menu.exec(alvo.mapToGlobal(alvo.rect().topLeft()) - QPoint(0, menu.sizeHint().height()))
+        return menu
 
     def _atualizar_status_objeto(self, selecionados: list[ElementoMockup]) -> None:
         if not selecionados:
