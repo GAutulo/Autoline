@@ -17,9 +17,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QVBoxLayout,
@@ -143,6 +148,22 @@ class DialogoConfiguracoes(QDialog):
         form_ferramentas.addRow("Largura das letras de texto novo:", self.spin_largura_letra)
 
         vbox_conteudo.addWidget(grupo_ferramentas)
+
+        grupo_pastas = QGroupBox("Arquivos")
+        form_pastas = QFormLayout(grupo_pastas)
+        form_pastas.setVerticalSpacing(10)
+        self.campo_pasta_imagens = self._campo_pasta(configuracoes.pasta_imagens_layout())
+        form_pastas.addRow("Pasta das imagens do layout:", self.campo_pasta_imagens)
+        self.campo_pasta_3d = self._campo_pasta(configuracoes.pasta_imagens_3d())
+        form_pastas.addRow("Pasta das imagens do 3D:", self.campo_pasta_3d)
+        botao_associar = QPushButton("Abrir projetos .autoline com dois cliques")
+        botao_associar.setToolTip(
+            "Faz o Windows abrir os arquivos .autoline no Autoline (só pro seu usuário). "
+            "Funciona no Autoline.exe."
+        )
+        botao_associar.clicked.connect(self._associar_arquivos)
+        form_pastas.addRow(botao_associar)
+        vbox_conteudo.addWidget(grupo_pastas)
         vbox_conteudo.addStretch(1)
 
         # Qt não localiza os textos padrão pro português nesta instalação
@@ -163,6 +184,39 @@ class DialogoConfiguracoes(QDialog):
         vbox.addWidget(botoes)
 
         self.tema_alterado = False
+
+    def _campo_pasta(self, valor: str) -> QWidget:
+        linha = QWidget()
+        lay = QHBoxLayout(linha)
+        lay.setContentsMargins(0, 0, 0, 0)
+        campo = QLineEdit(valor)
+        campo.setPlaceholderText("a última usada")
+        botao = QPushButton("…")
+        botao.setFixedWidth(28)
+        botao.setToolTip("Escolher a pasta")
+
+        def escolher() -> None:
+            pasta = QFileDialog.getExistingDirectory(self, "Escolher pasta", campo.text())
+            if pasta:
+                campo.setText(pasta.replace("/", "\\"))
+
+        botao.clicked.connect(escolher)
+        lay.addWidget(campo, 1)
+        lay.addWidget(botao)
+        linha.campo = campo
+        return linha
+
+    def _associar_arquivos(self) -> None:
+        from . import associacao_arquivo
+
+        try:
+            associacao_arquivo.associar()
+        except associacao_arquivo.ErroAssociacao as exc:
+            QMessageBox.information(self, "Abrir com dois cliques", str(exc))
+        else:
+            QMessageBox.information(
+                self, "Abrir com dois cliques", "Pronto: os arquivos .autoline agora abrem no Autoline com dois cliques."
+            )
 
     @staticmethod
     def _criar_spin_mm(valor: float) -> QDoubleSpinBox:
@@ -208,6 +262,8 @@ class DialogoConfiguracoes(QDialog):
         configuracoes.definir_passo_nudge_mm(self.spin_passo_nudge.value(), self.spin_passo_nudge_shift.value())
         configuracoes.definir_passo_duplicar_mm(self.spin_passo_duplicar.value())
         configuracoes.definir_fonte_padrao_texto(self.combo_fonte_texto.currentText())
+        configuracoes.definir_pasta_imagens_layout(self.campo_pasta_imagens.campo.text().strip())
+        configuracoes.definir_pasta_imagens_3d(self.campo_pasta_3d.campo.text().strip())
         configuracoes.definir_altura_letra_padrao_mm(self.spin_altura_letra.value())
         configuracoes.definir_largura_letra_padrao(self.spin_largura_letra.value() / 100)
         self.accept()

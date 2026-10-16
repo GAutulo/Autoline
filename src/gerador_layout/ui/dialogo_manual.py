@@ -193,6 +193,25 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Salvar o projeto (.autoline)",
+                """
+                <p><b>Arquivo &gt; Salvar projeto</b> (Ctrl+S) guarda o modelo inteiro num
+                arquivo <b>.autoline</b>, onde você quiser — normalmente na pasta do
+                cliente, junto do arquivo do Corel: tipo de caixa, medidas e trechos
+                digitados, cores, a faca (calculada ou editada), todos os objetos do Layout
+                e o papelão/ângulos do 3D. Os logotipos e imagens vão <b>dentro</b> do
+                arquivo: dá pra mover, copiar ou mandar pra outro computador sem perder
+                nada. Quando o cliente pedir alteração, é só abrir (Ctrl+O, ou Arquivo &gt;
+                Abrir recente) e mudar.</p>
+                <p>O título da janela mostra o nome do projeto, com um • quando tem
+                alteração não salva; fechar ou abrir outro pergunta se quer salvar. Em
+                Configurações &gt; Arquivos: a pasta das imagens do layout (padrão
+                Z:\\Imagens) e a das imagens do 3D, que os botões de exportar já sugerem
+                com o nome do projeto, e o botão que faz os .autoline abrirem com dois
+                cliques.</p>
+                """,
+            ),
+            (
                 "Navegar no canvas",
                 """
                 <p><b>Zoom:</b> roda do mouse.</p>
