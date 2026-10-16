@@ -395,11 +395,84 @@ def assinatura(janela) -> str:
     return hashlib.sha1(json.dumps(estado_da_janela(janela, com_arquivos=False), sort_keys=True).encode()).hexdigest()
 
 
+LADO_MINIATURA = 512
+
+
+def miniatura_png(janela, lado: int = LADO_MINIATURA) -> bytes | None:
+    """O layout (faca + arte) num PNG de até `lado` px, fundo branco — a
+    prévia do projeto (no Autoline e no ícone do arquivo no Explorer)."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .exportacao import _PenasExportacao, _SelecaoOculta
+    from .mockup_itens import cache_desligado
+
+    layout = janela.canvas.layout_efetivo
+    if layout is None or layout.largura_total <= 0 or layout.altura_total <= 0:
+        return None
+    fonte = QRectF(0.0, 0.0, layout.largura_total, layout.altura_total).adjusted(-2, -2, 2, 2)
+    escala = lado / max(fonte.width(), fonte.height())
+    largura, altura = max(1, round(fonte.width() * escala)), max(1, round(fonte.height() * escala))
+    imagem = QImage(largura, altura, QImage.Format.Format_RGB32)
+    imagem.fill(QColor(255, 255, 255))
+    cena = janela.canvas.cena
+    selecao = _SelecaoOculta(cena)
+    penas = _PenasExportacao(cena, fator=max(1.0, 1.2 / escala / 0.3528))  # traço visível na miniatura
+    sem_cache = cache_desligado(cena)
+    sem_cache.__enter__()
+    try:
+        p = QPainter(imagem)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        cena.render(p, QRectF(0, 0, largura, altura), fonte, Qt.AspectRatioMode.KeepAspectRatio)
+        p.end()
+    finally:
+        sem_cache.__exit__(None, None, None)
+        penas.restaurar()
+        selecao.restaurar()
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    imagem.save(buffer, "PNG")
+    return bytes(buffer.data())
+
+
+def ler_miniatura(caminho: str | Path):
+    """A miniatura guardada no projeto (QImage) sem ler o arquivo inteiro —
+    ela fica logo no começo dele. None se não tiver (projeto antigo)."""
+    from PySide6.QtGui import QImage
+
+    try:
+        with open(caminho, "rb") as arquivo:
+            inicio = arquivo.read(2_000_000)
+    except OSError:
+        return None
+    marca = b'"miniatura": "'
+    i = inicio.find(marca)
+    if i < 0:
+        return None
+    j = inicio.find(b'"', i + len(marca))
+    if j < 0:
+        return None
+    try:
+        dados = base64.b64decode(inicio[i + len(marca) : j])
+    except ValueError:
+        return None
+    imagem = QImage()
+    return imagem if imagem.loadFromData(dados, "PNG") else None
+
+
 def salvar(janela, caminho: str | Path) -> Path:
     caminho = Path(caminho)
     if caminho.suffix.lower() != EXTENSAO:
         caminho = caminho.with_name(caminho.name + EXTENSAO)
-    texto = json.dumps(estado_da_janela(janela), ensure_ascii=False, indent=1)
+    estado = estado_da_janela(janela)
+    png = miniatura_png(janela)
+    if png:
+        # Logo depois do formato/versão: o ícone do Explorer e o "Abrir
+        # recente" leem só o começo do arquivo.
+        primeiro = {k: estado.pop(k) for k in ("formato", "versao")}
+        estado = {**primeiro, "miniatura": base64.b64encode(png).decode("ascii"), **estado}
+    texto = json.dumps(estado, ensure_ascii=False, indent=1)
     temporario = caminho.with_name(caminho.name + ".salvando")
     temporario.write_text(texto, encoding="utf-8")
     temporario.replace(caminho)  # nunca deixa o arquivo pela metade se algo falhar no meio

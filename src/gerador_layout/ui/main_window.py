@@ -2064,8 +2064,54 @@ class JanelaPrincipal(QMainWindow):
         if not recentes:
             self._menu_recentes.addAction("(nenhum)").setEnabled(False)
             return
+        from PySide6.QtGui import QIcon, QPixmap
+
         for caminho in recentes:
-            self._menu_recentes.addAction(f"{Path(caminho).stem}   —   {Path(caminho).parent}", lambda c=caminho: self.abrir_projeto(c))
+            acao = self._menu_recentes.addAction(
+                f"{Path(caminho).stem}   —   {Path(caminho).parent}", lambda c=caminho: self.abrir_projeto(c)
+            )
+            miniatura = projeto_arquivo.ler_miniatura(caminho)
+            if miniatura is not None:
+                acao.setIcon(QIcon(QPixmap.fromImage(miniatura)))
+        self._menu_recentes.setStyleSheet("QMenu { icon-size: 48px; }")
+        self._menu_recentes.addSeparator()
+        self._menu_recentes.addAction("Ver todos com prévia…", self.abrir_galeria_recentes)
+
+    def abrir_galeria_recentes(self, executar: bool = True):
+        """Os projetos recentes em miniatura; dois cliques abre."""
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QIcon, QPixmap
+        from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem
+
+        dialogo = QDialog(self)
+        dialogo.setWindowTitle("Projetos recentes")
+        dialogo.resize(980, 640)
+        lista = QListWidget(dialogo)
+        lista.setViewMode(QListView.ViewMode.IconMode)
+        lista.setIconSize(QSize(260, 180))
+        lista.setGridSize(QSize(290, 230))
+        lista.setResizeMode(QListView.ResizeMode.Adjust)
+        lista.setMovement(QListView.Movement.Static)
+        lista.setWordWrap(True)
+        for caminho in [c for c in configuracoes.projetos_recentes() if Path(c).is_file()]:
+            miniatura = projeto_arquivo.ler_miniatura(caminho)
+            icone = QIcon(QPixmap.fromImage(miniatura)) if miniatura is not None else QIcon()
+            item = QListWidgetItem(icone, Path(caminho).stem)
+            item.setToolTip(caminho)
+            item.setData(Qt.ItemDataRole.UserRole, caminho)
+            lista.addItem(item)
+
+        def abrir_item(item) -> None:
+            dialogo.accept()
+            self.abrir_projeto(item.data(Qt.ItemDataRole.UserRole))
+
+        lista.itemActivated.connect(abrir_item)
+        layout = QVBoxLayout(dialogo)
+        layout.addWidget(QLabel("Dois cliques abre o projeto."))
+        layout.addWidget(lista, 1)
+        if executar:
+            dialogo.exec()
+        return dialogo, lista
 
     def closeEvent(self, evento) -> None:  # noqa: N802
         if self._pode_descartar():
