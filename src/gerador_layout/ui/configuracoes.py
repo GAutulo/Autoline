@@ -49,7 +49,10 @@ _PADRAO_FONTE_TEXTO = "Arial"
 
 
 def _settings() -> QSettings:
-    return QSettings(_ORGANIZACAO, _APLICATIVO)
+    # Formato padrão explícito (no app é o registro do Windows): o construtor
+    # curto QSettings(org, app) sempre usa o registro e ignorava o .ini
+    # temporário dos testes — rodar os testes mexia nas preferências reais.
+    return QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, _ORGANIZACAO, _APLICATIVO)
 
 
 def tema() -> str:
@@ -99,7 +102,16 @@ def definir_altura_legenda_mm(valor: float) -> None:
 def espessura_papelao_mm() -> float:
     """Papelão do 3D (mm) — lembrado entre as sessões. Padrão 0,3 mm: onda B
     na escala 1:10 em que as caixas costumam ser desenhadas. 0 = folha fina."""
-    return float(_settings().value("espessura_papelao_mm", 0.3, type=float))
+    s = _settings()
+    valor = float(s.value("espessura_papelao_mm", 0.3, type=float))
+    if not s.value("papelao_escala_1_10_revisto", False, type=bool):
+        # Uma vez só: quem tinha ficado com um papelão de tamanho real (a
+        # lista antiga misturava as escalas) passa pro mesmo papelão em 1:10.
+        s.setValue("papelao_escala_1_10_revisto", True)
+        if any(abs(valor - mm) < 1e-6 for mm in (1.5, 3.0, 4.0, 7.0)):
+            valor = round(valor / 10, 3)
+            s.setValue("espessura_papelao_mm", valor)
+    return valor
 
 
 def definir_espessura_papelao_mm(valor: float) -> None:
