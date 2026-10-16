@@ -433,6 +433,15 @@ def _desenhar_texto_cdr(app, layer, elemento: ElementoTexto, altura_total: float
     shape.Text.Story.Bold = elemento.negrito
     # cdrAlignment do CorelDRAW (lido da type library): 1 esquerda, 2 direita, 3 centro.
     shape.Text.Story.Alignment = _CDR_ALINHAMENTO_TEXTO.get(elemento.alinhamento, 1)
+    try:
+        # CharSpacing do Corel é % da largura do espaço (~1/3 da letra);
+        # LineSpacing é % da altura. O SetSize abaixo acerta o resto.
+        if getattr(elemento, "espaco_letras", 0.0):
+            shape.Text.Story.CharSpacing = elemento.espaco_letras * 300.0
+        if getattr(elemento, "espaco_linhas", 1.0) != 1.0:
+            shape.Text.Story.LineSpacing = elemento.espaco_linhas * 100.0
+    except Exception:  # noqa: BLE001 — versão do Corel sem a propriedade: segue sem
+        pass
     _aplicar_cor_preenchimento(app, shape, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
     # Força pro tamanho exato que o usuário viu na tela (ver `SetSize`
     # na nota grande acima) — em vez de tentar replicar a métrica de

@@ -142,11 +142,15 @@ def elemento_para_dict(el: ElementoMockup, arquivos: _Arquivos) -> dict | None:
     if isinstance(el, GrupoMockup):
         d["elementos"] = [x for x in (elemento_para_dict(f, arquivos) for f in el.elementos) if x is not None]
     elif isinstance(el, ElementoTexto):
-        d.update(texto=el.texto, fonte=el.fonte_familia, negrito=el.negrito, cor=_cor(el.cor_tinta), alinhamento=el.alinhamento)
+        d.update(
+            texto=el.texto, fonte=el.fonte_familia, negrito=el.negrito, cor=_cor(el.cor_tinta), alinhamento=el.alinhamento,
+            espaco_letras=el.espaco_letras, espaco_linhas=el.espaco_linhas,
+        )
     elif isinstance(el, ElementoChecklistCores):
         d.update(
             variantes=el.variantes, fonte=el.fonte_familia, negrito=el.negrito, cor=_cor(el.cor_tinta),
             tamanho_pt=el.tamanho_pt, disposicao=el.disposicao, largura_letra=el.largura_letra,
+            espaco_letras=el.espaco_letras, espaco_linhas=el.espaco_linhas,
         )
     elif isinstance(el, (ElementoRetangulo, ElementoElipse)):
         d.update(_forma(el))
@@ -220,11 +224,15 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
     if tipo == "ElementoTexto":
         el = ElementoTexto(texto=d["texto"], fonte_familia=d["fonte"], negrito=d["negrito"], cor_tinta=cor)
         el.definir_alinhamento(d.get("alinhamento", "esquerda"))
+        el._espaco_letras = float(d.get("espaco_letras", 0.0))
+        el._espaco_linhas = float(d.get("espaco_linhas", 1.0))
     elif tipo == "ElementoChecklistCores":
         el = ElementoChecklistCores(
             variantes=d["variantes"], fonte_familia=d["fonte"], cor_tinta=cor, tamanho_pt=d["tamanho_pt"],
             negrito=d["negrito"], disposicao=d["disposicao"], largura_letra=d.get("largura_letra", 1.0),
         )
+        el._espaco_letras = float(d.get("espaco_letras", 0.0))
+        el._espaco_linhas = float(d.get("espaco_linhas", 1.0))
     elif tipo == "ElementoRetangulo":
         el = ElementoRetangulo(cor_tinta=cor, preenchido=d["preenchido"], largura_traco=d["traco"])
     elif tipo == "ElementoElipse":
