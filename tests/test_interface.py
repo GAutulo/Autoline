@@ -102,3 +102,40 @@ def test_mais_tintas_e_tinta_criada_pelo_usuario(tmp_path):
     assert "Pantone 286" not in k._chips_cor
     k.close()
     configuracoes.definir_cores_personalizadas([])
+
+
+def test_barra_de_propriedades_nao_alarga_a_janela_e_cor_embaixo():
+    from PySide6.QtCore import QPointF
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_checklist import ElementoChecklistCores
+    from gerador_layout.ui.preview_canvas import FerramentaMockup
+
+    j = JanelaPrincipal()
+    j.resize(1366, 700)
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    el = ElementoChecklistCores(["20 UN.", "30 UN."])
+    j.canvas.adicionar_elemento_mockup(el, QPointF(50, 50))
+    j.canvas.cena.clearSelection()
+    el.setSelected(True)
+    for _ in range(6):
+        QApplication.processEvents()
+    # a barra quebra em linhas em vez de exigir a largura toda (antes ~1730 px)
+    barra = j.barra_propriedades_mockup
+    assert barra.minimumSizeHint().width() < 700
+    assert j.minimumSizeHint().width() < 1366
+    painel = j.painel_propriedades_mockup
+    assert painel._layout_campos.heightForWidth(500) > painel._layout_campos.heightForWidth(3000)
+    # cor embaixo: amostras clicáveis com a lista de tintas, e o conta-gotas
+    status = j.painel_status
+    assert status.amostra_preenchimento.isVisible() and status.botao_conta_gotas.isVisible()
+    menu = j._menu_cor_status(contorno=False, executar=False)
+    acao = next(a for a in menu.actions() if a.text() == "Azul Escuro")
+    acao.trigger()
+    assert (el.cor_tinta.r, el.cor_tinta.g, el.cor_tinta.b) == (0, 40, 110)
+    status.botao_conta_gotas.click()
+    assert j.canvas._ferramenta == FerramentaMockup.CONTA_GOTAS
+    j.abas_tela.setCurrentIndex(0)  # fora do Layout, os controles de cor somem
+    assert not status.botao_conta_gotas.isVisible()
+    j.close()
