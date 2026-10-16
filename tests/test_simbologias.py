@@ -126,7 +126,9 @@ def test_inserir_no_layout_no_tamanho_real():
     elemento = j.inserir_simbolo(str(simbolo.caminho))
     assert isinstance(elemento, ElementoLogoVetorial)
     assert len(j.canvas.elementos_mockup) == antes + 1 and elemento.isSelected()
-    assert (elemento.largura, elemento.altura) == pytest.approx(tamanho_mm(simbolo.caminho))
+    assert (elemento.largura, elemento.altura) == pytest.approx(elemento.tamanho_real_mm)
+    # justo no desenho: o arquivo do símbolo tem um pouco de margem a mais
+    assert (elemento.largura, elemento.altura) == pytest.approx(tamanho_mm(simbolo.caminho), rel=0.05)
     assert "#ed3237" in elemento.cores_detectadas  # dá pra trocar as cores como num logotipo (classes do Corel)
     outro = j.inserir_simbolo(str(simbolo.caminho), simbolo.nome)
     assert outro.pos() != elemento.pos()  # o segundo não cai exatamente em cima do primeiro
@@ -216,3 +218,39 @@ def test_simbolos_de_papelao_validos():
     for s in banco:
         assert QSvgRenderer(str(s.caminho)).isValid(), s.nome
         assert s.categoria
+
+
+def test_logo_que_passa_da_pagina_nao_corta_e_caixa_fica_justa(tmp_path):
+    """Logo do Corel com parte fora da página (o bico do Blue Moby): o
+    desenho todo aparece e a caixa do logotipo é a do desenho."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from PySide6.QtCore import QRectF
+
+    from gerador_layout.simbologias import enquadrar_no_desenho
+    from gerador_layout.ui.mockup_logo import ElementoLogoVetorial
+
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 10000 10000">
+    <defs><style>.a{fill:#FD8323}</style></defs>
+    <rect x="2000" y="5000" width="4000" height="4000" fill="#000000"/>
+    <rect class="a" x="4000" y="-2000" width="2000" height="4000"/></svg>"""
+    novo, tamanho = enquadrar_no_desenho(svg)
+    # desenho: x 2000..6000, y -2000..9000 → 40 × 110 mm (+1% de margem em cada lado)
+    assert tamanho == pytest.approx((40 + 2.2, 110 + 2.2), abs=0.01)
+    assert 'viewBox="1890' in novo
+    caminho = tmp_path / "logo.svg"
+    caminho.write_text(svg, encoding="utf-8")
+    el = ElementoLogoVetorial(str(caminho))
+    assert el.tamanho_real_mm == pytest.approx(tamanho)
+    assert el.altura / el.largura == pytest.approx(tamanho[1] / tamanho[0])
+    img = QImage(100, 260, QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    el._renderer.render(p, QRectF(0, 0, 100, 260))
+    p.end()
+    assert QColor(img.pixel(80, 8)).name() == "#fd8323"  # a ponta de cima (fora da página) aparece
+    # trocar a cor continua valendo no desenho enquadrado
+    el.definir_mapa_cores({"#fd8323": "#0000ff"})
+    assert "#0000ff" in el.conteudo_svg() and 'viewBox="1890' in el.conteudo_svg()
+    # SVG sem nada fora e já justo: não mexe
+    justo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+    assert enquadrar_no_desenho(justo)[0].count("viewBox") == 1
