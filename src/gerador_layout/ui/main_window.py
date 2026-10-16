@@ -1295,6 +1295,8 @@ class JanelaPrincipal(QMainWindow):
             for el in selecionados:
                 if hasattr(el, "definir_preenchido"):
                     el.definir_preenchido(False)
+                elif isinstance(el, ElementoLogoVetorial):
+                    el.pintar_numa_tinta(None)  # X no logotipo/símbolo: volta às cores do arquivo
         else:
             nome, rgb = cor
             chip = self._chips_cor.get(nome, (None,))[0]
@@ -1302,6 +1304,8 @@ class JanelaPrincipal(QMainWindow):
                 chip.setChecked(True)
             tinta = CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
             for el in selecionados:
+                if isinstance(el, ElementoLogoVetorial):
+                    el.pintar_numa_tinta(tinta)
                 if hasattr(el, "definir_cor_tinta"):
                     el.definir_cor_tinta(tinta)
                 if hasattr(el, "definir_preenchido"):

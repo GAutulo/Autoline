@@ -12,9 +12,10 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
+from ..models import CorImpressao
 from . import svg_cores
 from .mockup_itens import ElementoMockup
 
@@ -72,6 +73,7 @@ class ElementoLogoVetorial(ElementoMockup):
         except Exception:  # noqa: BLE001 — XML malformado não pode derrubar o app, só perde a separação de cor
             self._cores_detectadas = []
         self._mapa_cores: dict[str, str] = {}
+        self._tinta_unica: CorImpressao | None = None
         self._renderer = renderer
 
     @property
@@ -96,8 +98,32 @@ class ElementoLogoVetorial(ElementoMockup):
         if not novo_renderer.load(conteudo.encode("utf-8")):
             raise ValueError("O mapeamento de cores gerou um SVG inválido.")
         self._mapa_cores = dict(mapa)
+        self._tinta_unica = None
         self._renderer = novo_renderer
         self.update()
+
+    @property
+    def tinta_unica(self) -> CorImpressao | None:
+        """A tinta em que o desenho todo foi pintado (`pintar_numa_tinta`),
+        ou None (cores originais ou separação cor a cor)."""
+        return self._tinta_unica
+
+    def pintar_numa_tinta(self, tinta: CorImpressao | None) -> None:
+        """Pinta o desenho todo numa tinta só — o caso de símbolo de
+        manuseio, que sai numa cor do trabalho. O branco (vazado, miolo
+        dos ícones) continua branco. None volta às cores originais."""
+        if tinta is None:
+            self.definir_mapa_cores({})
+            return
+        nova = QColor(tinta.r, tinta.g, tinta.b).name()
+        self.definir_mapa_cores({c: nova for c in self._cores_detectadas if not _quase_branca(c)})
+        self._tinta_unica = tinta
+
+    def conteudo_svg(self) -> str:
+        """O SVG como aparece na tela (com as cores trocadas)."""
+        if not self._mapa_cores:
+            return self._conteudo_original
+        return svg_cores.aplicar_mapa_cores(self._conteudo_original, self._mapa_cores)
 
     def _pintar_conteudo(self, painter: QPainter) -> None:
         self._renderer.render(painter, QRectF(0, 0, self._largura, self._altura))
@@ -106,8 +132,13 @@ class ElementoLogoVetorial(ElementoMockup):
         novo = ElementoLogoVetorial(self._caminho_arquivo)
         if self._mapa_cores:
             novo.definir_mapa_cores(self._mapa_cores)
+            novo._tinta_unica = self._tinta_unica
         self._copiar_geometria_para(novo)
         return novo
+
+
+def _quase_branca(cor: str) -> bool:
+    return QColor(cor).lightnessF() >= 0.94
 
 
 def _tamanho_inicial_mm(renderer: QSvgRenderer) -> tuple[float, float]:

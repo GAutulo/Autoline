@@ -124,10 +124,12 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 resolução, recortada em volta da caixa e sem os textos de ajuda. <b>Girar sozinho</b>
                 deixa a caixa montada girando devagar (desligado por padrão: girando, o
                 3D fica redesenhando o tempo todo).</p>
-                <p><b>Papelão</b> (na barra do 3D): escolhe a espessura — fino, <b>onda B
-                ou BC em escala 1:10</b> (0,3 e 0,7 mm, pra caixa desenhada em escala
-                reduzida; é o padrão), cartão, micro-ondulado E, onda B, C ou dupla BC
-                — ou digite o valor exato no campo ao lado ("Personalizado"). A última espessura fica guardada pra
+                <p><b>Papelão</b> (na barra do 3D): escolhe a espessura. Em cima, os da <b>escala
+                1:10</b> (a caixa desenhada reduzida, o normal aqui): onda B (0,3 mm, o
+                padrão), dupla BC (0,7 mm) e micro-ondulado E (0,15 mm). Embaixo,
+                separados, os de <b>tamanho real</b> (onda B 3 mm, C 4 mm, BC 7 mm, E,
+                cartão) — só pra caixa desenhada em tamanho real; numa caixa em 1:10
+                eles saem 10 vezes grossos demais. Ou digite o valor exato no campo ao lado ("Personalizado"). A última espessura fica guardada pra
                 próxima vez que abrir o app. De perto, a borda cortada mostra as camadas do papelão: as capas
                 e o miolo ondulado — uma ondulação na onda simples (E, B, C) e duas, com
                 a capa do meio, na onda dupla BC. As ondas correm na vertical das
@@ -396,7 +398,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 os símbolos prontos (cuidado frágil, ícones de manuseio, não pise…) e os
                 seus, com miniatura e busca. <b>Dois cliques</b> (ou <b>Inserir</b>) põe
                 o símbolo no layout <b>no tamanho real</b> em que foi desenhado; ele é um
-                logotipo vetorial, então dá pra trocar as cores pelas tintas do trabalho.</p>
+                logotipo vetorial: com ele selecionado, <b>um clique numa cor da paleta</b>
+                (ou o campo de cor na barra de propriedades) pinta o símbolo todo nessa
+                tinta — o branco continua branco; o X da paleta volta às cores do arquivo.
+                Pra trocar cor a cor, o botão ao lado separa as cores do arquivo.</p>
                 <p><b>Adicionar SVG…</b> guarda um arquivo por símbolo. <b>Importar
                 folha…</b> recebe um SVG com vários símbolos (exportado do CorelDRAW):
                 cada <b>grupo</b> da folha vira um símbolo — agrupe no Corel do jeito que

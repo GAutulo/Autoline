@@ -87,30 +87,36 @@ _COR_ARESTA = QColor(74, 54, 30, 210)
 _COR_ESPESSURA = QColor("#9C7444")
 
 # Papelões comuns (espessura em mm), como na escolha de papelão do ArtiosCAD.
-PAPELOES = (
+# Primeiro os da escala 1:10 (a caixa desenhada em 1:10, como 605 mm → 60,5
+# mm — o normal aqui); depois, separados, os de tamanho real.
+PAPELOES_1_10 = (
     ("Fino (sem espessura)", 0.0),
-    # Escala reduzida (caixa desenhada em 1:10, como 605 mm → 60,5 mm).
-    ("Onda B 1:10 (0,3 mm)", 0.3),
-    ("Onda dupla BC 1:10 (0,7 mm)", 0.7),
-    ("Cartão (0,5 mm)", 0.5),
-    ("Micro-ondulado E (1,5 mm)", 1.5),
-    ("Onda B (3 mm)", 3.0),
-    ("Onda C (4 mm)", 4.0),
-    ("Onda dupla BC (7 mm)", 7.0),
+    ("Onda B — escala 1:10 (0,3 mm)", 0.3),
+    ("Onda dupla BC — escala 1:10 (0,7 mm)", 0.7),
+    ("Micro-ondulado E — escala 1:10 (0,15 mm)", 0.15),
 )
+PAPELOES_TAMANHO_REAL = (
+    ("Onda B — tamanho real (3 mm)", 3.0),
+    ("Onda C — tamanho real (4 mm)", 4.0),
+    ("Onda dupla BC — tamanho real (7 mm)", 7.0),
+    ("Micro-ondulado E — tamanho real (1,5 mm)", 1.5),
+    ("Cartão — tamanho real (0,5 mm)", 0.5),
+)
+PAPELOES = PAPELOES_1_10 + PAPELOES_TAMANHO_REAL
 
 # Miolo do papelão visto na borda cortada: passo (mm) de cada ondulação, de
 # fora pra dentro. Vazio = sem onda (folha ou cartão maciço).
 _MIOLO_POR_ESPESSURA = {
     0.3: (0.65,),  # onda B em 1:10
     0.7: (0.65, 0.8),  # onda BC em 1:10
+    0.15: (0.35,),  # E em 1:10
     0.5: (),
     1.5: (3.5,),  # E
     3.0: (6.5,),  # B
     4.0: (8.0,),  # C
     7.0: (6.5, 8.0),  # BC: onda B por fora, C por dentro
 }
-_CAPA_MM = 0.25  # espessura de cada capa (liner)
+_CAPA_FRACAO = 0.08  # cada capa (liner) ≈ 0,25 mm de 3 mm, em qualquer escala
 
 
 def miolo_do_papelao(espessura_mm: float) -> tuple[float, ...]:
@@ -913,7 +919,7 @@ class VistaCaixa3D(QWidget):
         transformacao = QTransform()
         if not QTransform.quadToQuad(quadrado, quad_tela, transformacao):
             return
-        capa = min(0.2, _CAPA_MM / espessura)
+        capa = _CAPA_FRACAO
         # Cores tiradas da própria faixa (já com a luz daquela face): o vão
         # entre as ondas escuro, capas e onda (papel) claras — senão, numa
         # face mais escura, a onda sumia na cor da faixa.
@@ -935,7 +941,7 @@ class VistaCaixa3D(QWidget):
         if ondas and atravessado:
             faixas = [(capa, 1.0 - capa)] if len(ondas) == 1 else [(capa, 0.5 - capa / 2), (0.5 + capa / 2, 1.0 - capa)]
             comprimento = max(s1 - s0, 1e-6)
-            caneta_onda = QPen(cor_papel, 1.8)
+            caneta_onda = QPen(cor_papel, 1.1)
             caneta_onda.setCosmetic(True)
             p.setPen(caneta_onda)
             for (w0, w1), passo in zip(faixas, ondas):
@@ -1175,9 +1181,19 @@ class Visualizacao3D(QWidget):
         ferramentas.addWidget(QLabel("Papelão:"))
         self.combo_papelao = QComboBox()
         self.combo_papelao.setToolTip("Papelões comuns — ou digite a espessura exata no campo ao lado")
-        for nome, mm in PAPELOES:
+        for nome, mm in PAPELOES_1_10:
             self.combo_papelao.addItem(nome, mm)
+        self.combo_papelao.insertSeparator(self.combo_papelao.count())
+        for nome, mm in PAPELOES_TAMANHO_REAL:
+            self.combo_papelao.addItem(nome, mm)
+        self.combo_papelao.insertSeparator(self.combo_papelao.count())
         self.combo_papelao.addItem("Personalizado", None)
+        # Fechada, a caixinha fica curta (o nome inteiro está na dica e na
+        # lista aberta) — senão a barra do 3D alargava a janela toda.
+        self.combo_papelao.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_papelao.setMinimumContentsLength(22)
+        self.combo_papelao.view().setMinimumWidth(self.combo_papelao.view().sizeHintForColumn(0) + 24)
+        self.combo_papelao.currentTextChanged.connect(self.combo_papelao.setToolTip)
         self.combo_papelao.activated.connect(self._ao_escolher_papelao)
         ferramentas.addWidget(self.combo_papelao)
         # Espessura exata: digitada aqui (qualquer valor), ou vem da lista.
