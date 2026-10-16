@@ -389,6 +389,24 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 """,
             ),
             (
+                "Banco de simbologias",
+                """
+                <p>Janela de encaixe <b>Simbologias</b> (Ctrl+Shift+Y, ou o último botão
+                do grupo de imagem/logotipo na paleta, ou Exibir &gt; Janelas de encaixe):
+                os símbolos prontos (cuidado frágil, ícones de manuseio, não pise…) e os
+                seus, com miniatura e busca. <b>Dois cliques</b> (ou <b>Inserir</b>) põe
+                o símbolo no layout <b>no tamanho real</b> em que foi desenhado; ele é um
+                logotipo vetorial, então dá pra trocar as cores pelas tintas do trabalho.</p>
+                <p><b>Adicionar SVG…</b> guarda um arquivo por símbolo. <b>Importar
+                folha…</b> recebe um SVG com vários símbolos (exportado do CorelDRAW):
+                cada <b>grupo</b> da folha vira um símbolo — agrupe no Corel do jeito que
+                quer separar. Botão direito num símbolo seu: renomear ou apagar.</p>
+                <p>Dica: converta os textos em curvas no Corel (Ctrl+Q) antes de exportar
+                — a fonte embutida no SVG não é lida aqui, e o texto sai numa fonte
+                parecida.</p>
+                """,
+            ),
+            (
                 "Checklist de cores",
                 """
                 <p>Botão de ícone na paleta — uma lista de "quadradinho + nome" pra
