@@ -446,6 +446,12 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 propriedades ficam fonte, tamanho em pontos, negrito, cor e o
                 <b>arranjo</b> — <b>Empilhado</b> (um embaixo do outro) ou <b>Lado a
                 lado</b> (em linha, quebrando pra baixo quando não cabe na largura).
+                <b>Padrão da máquina</b>: texto e checklist novos já nascem em Arial Black,
+                letra de <b>2 mm</b> de altura e <b>meio esticada</b> (66,7% da largura
+                normal), em qualquer zoom. No checklist dá pra mudar a altura da letra (mm)
+                e a largura (%) na barra; no texto, a altura (H) com o cadeado fechado
+                mantém o mesmo esticado. O padrão muda em Configurações (fonte, altura e
+                largura das letras de texto novo).
                 <b>Duplo clique</b> edita no desenho: cada linha é uma cor, Enter cria a
                 próxima, apagar a linha tira a cor (linha vazia não vira cor); Esc ou
                 clicar fora termina, e Ctrl+Z desfaz. Puxar a <b>lateral</b> da caixa

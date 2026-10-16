@@ -1485,7 +1485,8 @@ class JanelaPrincipal(QMainWindow):
         elemento = ElementoTexto(
             texto="", fonte_familia=configuracoes.fonte_padrao_texto(), cor_tinta=self._cor_tinta_padrao()
         )
-        elemento.definir_tamanho_pt(24.0 * self.canvas.mm_por_px() / (25.4 / 72.0))
+        # Padrão da máquina (Configurações): Arial Black, 2 mm, meio esticada.
+        elemento.aplicar_letra(configuracoes.altura_letra_padrao_mm(), configuracoes.largura_letra_padrao())
         self.canvas.iniciar_texto_novo(elemento, QPointF(pos.x(), pos.y() - elemento.altura))
 
     def _criar_elipse_por_arrasto(self, rect: QRectF) -> None:
@@ -1569,9 +1570,20 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
 
     def _adicionar_checklist(self) -> None:
-        self._adicionar_elemento_mockup_e_selecionar(
-            ElementoChecklistCores(variantes=["Cor 1", "Cor 2"], cor_tinta=self._cor_tinta_padrao())
+        # No padrão da máquina, como o texto (não acompanha o zoom: a letra
+        # tem a altura certa de impressão).
+        elemento = ElementoChecklistCores(
+            variantes=["Cor 1", "Cor 2"],
+            cor_tinta=self._cor_tinta_padrao(),
+            fonte_familia=configuracoes.fonte_padrao_texto(),
+            largura_letra=configuracoes.largura_letra_padrao(),
         )
+        elemento.definir_altura_letra_mm(configuracoes.altura_letra_padrao_mm())
+        pos = self._posicao_central_canvas()
+        self.canvas.adicionar_elemento_mockup(elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2))
+        for item in self.canvas.cena.selectedItems():
+            item.setSelected(False)
+        elemento.setSelected(True)
 
     def _adicionar_imagem(self) -> None:
         caminho, _ = QFileDialog.getOpenFileName(self, "Adicionar imagem", "", "Imagens (*.png)")

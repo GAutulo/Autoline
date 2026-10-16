@@ -122,22 +122,24 @@ def test_ferramenta_texto_em_texto_existente_edita_e_atalhos_nao_disparam(janela
     assert texto.texto == "ABCLP" and texto.pos() == pos
 
 
-def test_tamanho_novo_acompanha_o_zoom(janela):
+def test_texto_novo_no_padrao_da_maquina_em_qualquer_zoom(janela):
+    """Arial Black, 2 mm de altura de letra, meio esticada (66,7%) — o que
+    a máquina faz; não depende do zoom."""
     canvas = janela.canvas
-    canvas.definir_ferramenta(FerramentaMockup.TEXTO)
-    _clique(janela, (300, 150))
-    QTest.keyClicks(canvas, "A")
-    texto = _texto_em_edicao(canvas)
-    altura_tela = texto.altura * canvas.transform().m11()
-    QTest.keyClick(canvas, Qt.Key.Key_Escape)
-    canvas.scale(5, 5)
-    canvas._zoom_atual *= 5
-    canvas.zoom_alterado.emit(canvas._zoom_atual)
-    canvas.definir_ferramenta(FerramentaMockup.TEXTO)
-    _clique(janela, (310, 160))
-    QTest.keyClicks(canvas, "A")
-    outro = _texto_em_edicao(canvas)
-    assert outro.altura * canvas.transform().m11() == pytest.approx(altura_tela, rel=0.02)
+    for zoom in (1, 5):
+        if zoom != 1:
+            canvas.scale(zoom, zoom)
+            canvas._zoom_atual *= zoom
+            canvas.zoom_alterado.emit(canvas._zoom_atual)
+        canvas.definir_ferramenta(FerramentaMockup.TEXTO)
+        _clique(janela, (300 + zoom, 150 + zoom))
+        QTest.keyClicks(canvas, "GABINETE FLORA")
+        texto = _texto_em_edicao(canvas)
+        assert texto.fonte_familia == "Arial Black"
+        assert texto.altura_letra_mm == pytest.approx(2.0)
+        assert texto.altura == pytest.approx(2.0)  # uma linha: a caixa é a altura da letra
+        assert texto.largura_letra == pytest.approx(0.667, abs=1e-3)
+        QTest.keyClick(canvas, Qt.Key.Key_Escape)
 
 
 def test_seletor_de_fonte_reaproveitado_entre_selecoes():

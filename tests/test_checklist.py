@@ -165,3 +165,54 @@ def test_checklist_vai_pro_corel_nas_mesmas_posicoes(app):
     corel_bridge._desenhar_elemento_mockup(_Falso(registro), _Falso(registro, "layer"), el, 350.0)
     chamadas = [nome for nome, *_ in registro if nome != "set"]
     assert chamadas.count("CreateRectangle2") == 3 and chamadas.count("CreateArtisticText") == 3
+
+
+def test_checklist_novo_no_padrao_da_maquina():
+    """Mesmo padrão do texto: Arial Black, 2 mm de letra, meio esticada."""
+    import pytest
+    from PySide6.QtWidgets import QApplication, QDoubleSpinBox
+
+    QApplication.instance() or QApplication([])
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_checklist import ElementoChecklistCores
+
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    j._adicionar_checklist()
+    el = next(e for e in j.canvas.elementos_mockup if isinstance(e, ElementoChecklistCores))
+    assert el.fonte_familia == "Arial Black"
+    assert el.altura_letra_mm == pytest.approx(2.0)
+    assert el.largura_letra == pytest.approx(0.667)
+    # o texto encolhe na largura junto com a letra (a altura não muda)
+    largo = ElementoChecklistCores(variantes=["OFF WHITE/NATURE"], fonte_familia="Arial Black")
+    largo.definir_altura_letra_mm(2.0)
+    estreito = largo.clonar()
+    estreito.definir_largura_letra(0.667)
+    texto = lambda e: e.itens_layout()[0][0]["largura"] - e._medidas()["lado"] - e._medidas()["espaco_caixa"]  # noqa: E731
+    assert texto(estreito) == pytest.approx(texto(largo) * 0.667)
+    assert estreito.altura == pytest.approx(largo.altura)
+    assert estreito.clonar().largura_letra == pytest.approx(0.667)
+    # painel: altura em mm e largura em %
+    j.painel_propriedades_mockup.definir_elemento(el)
+    altura = j.painel_propriedades_mockup.findChild(QDoubleSpinBox, "alturaLetraChecklist")
+    largura = j.painel_propriedades_mockup.findChild(QDoubleSpinBox, "larguraLetraChecklist")
+    assert altura.value() == pytest.approx(2.0) and largura.value() == pytest.approx(66.7)
+    altura.setValue(3.5)
+    assert el.altura_letra_mm == pytest.approx(3.5)
+    largura.setValue(100)
+    assert el.largura_letra == pytest.approx(1.0)
+    j.close()
+
+
+def test_padrao_antigo_arial_vira_arial_black_uma_vez():
+    from gerador_layout.ui import configuracoes
+
+    s = configuracoes._settings()
+    s.remove("texto_padrao_maquina_revisto")
+    configuracoes.definir_fonte_padrao_texto("Arial")
+    assert configuracoes.fonte_padrao_texto() == "Arial Black"
+    configuracoes.definir_fonte_padrao_texto("Arial")  # escolhida de propósito depois: vale
+    assert configuracoes.fonte_padrao_texto() == "Arial"
+    configuracoes.definir_fonte_padrao_texto("Arial Black")
