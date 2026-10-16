@@ -1,0 +1,118 @@
+"""Meia caixa (maleta normal/transpassada só com Aba | L | C) e envoltório
+capa (bandeja: A | C | A × A | L | A), mais a lista de tipos na tela."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from gerador_layout.dobra3d import caixa_envolvente, montar_modelo, posicionar  # noqa: E402
+from gerador_layout.dobra_generica import achar_faces  # noqa: E402
+from gerador_layout.layout_service import ServicoLayoutCaixa  # noqa: E402
+from gerador_layout.models import (  # noqa: E402
+    NOME_EXIBICAO_TIPO_CAIXA,
+    ORDEM_TIPOS_CAIXA,
+    MedidasCaixa,
+    TipoCaixa,
+    TipoLinha,
+)
+from gerador_layout.paineis import calcular_paineis  # noqa: E402
+
+
+def _layout(tipo, **kw):
+    kw.setdefault("impressora_aba", 0.0)  # como a tela manda: 0 = trecho automático
+    return ServicoLayoutCaixa().calcular(MedidasCaixa(tipo=tipo, **kw))
+
+
+@pytest.mark.parametrize("tipo", [TipoCaixa.MALETA_NORMAL_MEIA, TipoCaixa.MALETA_TRANSPASSADA_MEIA])
+def test_meia_caixa_so_tem_aba_l_c(tipo):
+    # o exemplo: impressora 40 × 240 × 590
+    layout = _layout(tipo, comprimento=590, largura=240, altura=300, impressora_aba=40)
+    assert layout.segmentos_impressora == pytest.approx([40, 240, 590])
+    assert layout.largura_total == pytest.approx(40 + 240 + 590)
+    assert max(max(l.x1, l.x2) for l in layout.linhas) == pytest.approx(870)
+    assert "meia caixa" in layout.descricao
+    # riscador: normal = L/2 nas abas; transpassada = L inteiro
+    aba = 240 if tipo == TipoCaixa.MALETA_TRANSPASSADA_MEIA else 120
+    assert layout.segmentos_riscador == pytest.approx([aba, 300, aba])
+    # faca fechada: aba de cola, lateral, frente e as 4 abas de cima/baixo
+    assert len(achar_faces(layout.linhas).faces) == 3 + 4
+    paineis = calcular_paineis(tipo, layout.segmentos_impressora, layout.segmentos_riscador)
+    assert [p.id for p in paineis] == ["aba_cola", "lateral1", "frente"]
+
+
+def test_meia_caixa_no_3d_e_aberta():
+    layout = _layout(TipoCaixa.MALETA_NORMAL_MEIA, comprimento=300, largura=200, altura=150)
+    modelo = montar_modelo(TipoCaixa.MALETA_NORMAL_MEIA, layout.segmentos_impressora, layout.segmentos_riscador)
+    assert not modelo.vazio and not modelo.solido_fechado
+    ids = {p.id for p in modelo.paineis}
+    assert {"frente", "lateral1", "aba_cola"} <= ids and "verso" not in ids and "lateral2" not in ids
+    mn, mx = caixa_envolvente([p for p in posicionar(modelo, 1.0) if p.painel.id in {"frente", "lateral1"}])
+    assert sorted(round(mx[i] - mn[i], 3) for i in range(3)) == pytest.approx([150, 200, 300])
+
+
+def test_capa_tres_por_tres_com_cantos_do_envoltorio():
+    layout = _layout(TipoCaixa.ENVOLTORIO_CAPA, comprimento=300, largura=200, altura=40)
+    assert layout.segmentos_impressora == pytest.approx([40, 300, 40])
+    assert layout.segmentos_riscador == pytest.approx([40, 200, 40])
+    assert (layout.largura_total, layout.altura_total) == pytest.approx((380, 280))
+    # fundo + 2 laterais + 2 paredes + 4 cantos
+    assert len(achar_faces(layout.linhas).faces) == 9
+    assert sum(1 for l in layout.linhas if l.tipo == TipoLinha.CORTE_SERRA) == 8  # 2 fendas × 2 lados × 2 bordas
+    # trechos digitados valem (aqui: paredes mais baixas no riscador)
+    menor = _layout(TipoCaixa.ENVOLTORIO_CAPA, comprimento=300, largura=200, altura=40, riscador_superior=30, riscador_inferior=30)
+    assert menor.segmentos_riscador == pytest.approx([30, 200, 30])
+    paineis = calcular_paineis(TipoCaixa.ENVOLTORIO_CAPA, layout.segmentos_impressora, layout.segmentos_riscador)
+    assert {p.id for p in paineis} == {"centro", "lateral1", "lateral2", "parede_sup", "parede_inf"}
+
+
+def test_capa_no_3d_vira_bandeja():
+    layout = _layout(TipoCaixa.ENVOLTORIO_CAPA, comprimento=300, largura=200, altura=40)
+    modelo = montar_modelo(TipoCaixa.ENVOLTORIO_CAPA, layout.segmentos_impressora, layout.segmentos_riscador)
+    assert not modelo.solido_fechado
+    mn, mx = caixa_envolvente(posicionar(modelo, 1.0))
+    assert sorted(round(mx[i] - mn[i], 3) for i in range(3)) == pytest.approx([40, 200, 300], abs=0.5)
+    plana = posicionar(modelo, 0.0)
+    assert all(abs(pp.ponto(p.x1, p.y1)[2]) < 1e-6 for pp in plana for p in [pp.painel])
+
+
+def test_nomes_curtos_e_agrupados():
+    assert set(ORDEM_TIPOS_CAIXA) == set(TipoCaixa)  # todo tipo aparece na lista
+    assert all(len(NOME_EXIBICAO_TIPO_CAIXA[t]) <= 36 for t in TipoCaixa)
+    assert len(set(NOME_EXIBICAO_TIPO_CAIXA.values())) == len(TipoCaixa)  # nenhum nome repetido
+    familias = ["Maleta" if NOME_EXIBICAO_TIPO_CAIXA[t].startswith("Maleta") else "Envoltório" for t in ORDEM_TIPOS_CAIXA]
+    assert familias == sorted(familias, key=lambda f: f != "Maleta")  # maletas juntas, depois envoltórios
+
+
+def test_tela_mostra_tres_trechos_e_lista_inteira():
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = JanelaPrincipal()
+    j.show()
+    combo = j.combo_tipo
+    assert combo.view().minimumWidth() >= combo.view().sizeHintForColumn(0)  # a lista aberta não corta
+    combo.setCurrentIndex(combo.findData(TipoCaixa.MALETA_NORMAL_MEIA))
+    QApplication.processEvents()
+    visiveis = [c.isVisibleTo(j.linha_impressora) for c in j.linha_impressora._colunas]
+    assert visiveis == [True, True, True, False, False]
+    assert "Aba | L | C" in combo.toolTip()
+    assert j.canvas.layout_atual.segmentos_impressora == pytest.approx([4.0, 200.0, 300.0])
+    combo.setCurrentIndex(combo.findData(TipoCaixa.ENVOLTORIO_CAPA))
+    QApplication.processEvents()
+    assert [c.isVisibleTo(j.linha_riscador) for c in j.linha_riscador._colunas] == [True, True, True, False, False]
+    assert len(j._paineis_disponiveis()) == 5
+    assert j.canvas.layout_atual.segmentos_impressora == pytest.approx([150.0, 300.0, 150.0])  # A | C | A
+    assert j.canvas.layout_atual.segmentos_riscador == pytest.approx([150.0, 200.0, 150.0])  # A | L | A
+    j.abas_tela.setCurrentIndex(2)
+    QApplication.processEvents()
+    assert j.visualizacao_3d.vista._modelo.descricao == "Envoltório capa (bandeja)"
+    j.close()

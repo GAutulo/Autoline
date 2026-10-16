@@ -11,6 +11,8 @@ from __future__ import annotations
 import math
 
 from .models import (
+    TIPOS_MEIA_CAIXA,
+    TIPOS_TRANSPASSADA,
     CorImpressao,
     LayoutCaixa,
     LinhaDesenho,
@@ -66,6 +68,10 @@ class ServicoLayoutCaixa:
             return self._calc_maleta_normal(m)
         if m.tipo == TipoCaixa.MALETA_TRANSPASSADA:
             return self._calc_maleta_transpassada(m)
+        if m.tipo in TIPOS_MEIA_CAIXA:
+            return self._calc_maleta_normal(m)
+        if m.tipo == TipoCaixa.ENVOLTORIO_CAPA:
+            return self._calc_envoltorio_capa(m)
         raise NotImplementedError(f"Tipo {m.tipo} não implementado.")
 
     # ════════════════════════════════════════════════════════════════
@@ -219,7 +225,8 @@ class ServicoLayoutCaixa:
         largura2 = _valor_ou_padrao(m.impressora_largura_2, m.largura)
         comprimento2 = _valor_ou_padrao(m.impressora_comprimento_2, m.comprimento)
 
-        aba_riscador_padrao = m.largura if m.tipo == TipoCaixa.MALETA_TRANSPASSADA else m.largura / 2.0
+        aba_riscador_padrao = m.largura if m.tipo in TIPOS_TRANSPASSADA else m.largura / 2.0
+        meia = m.tipo in TIPOS_MEIA_CAIXA
         topo = _valor_ou_padrao(m.riscador_superior, aba_riscador_padrao)
         centro = _valor_ou_padrao(m.riscador_centro, m.altura)
         inferior = _valor_ou_padrao(m.riscador_inferior, aba_riscador_padrao)
@@ -233,6 +240,9 @@ class ServicoLayoutCaixa:
         x3 = x2 + comprimento1
         x4 = x3 + largura2
         x5 = x4 + comprimento2
+        if meia:
+            # Meia caixa: a faca acaba no primeiro C (Aba | L | C).
+            x4 = x5 = x3
 
         y0 = 0.0
         y1 = y0 + topo
@@ -241,16 +251,20 @@ class ServicoLayoutCaixa:
 
         layout.largura_total = x5
         layout.altura_total = y3
-        layout.descricao = "Maleta normal — medidas por trecho"
-        layout.segmentos_impressora = [aba_lat, largura1, comprimento1, largura2, comprimento2]
+        nome = "Maleta transpassada" if m.tipo in TIPOS_TRANSPASSADA else "Maleta normal"
+        layout.descricao = f"{nome} — meia caixa (Aba × L × C)" if meia else f"{nome} — medidas por trecho"
+        layout.segmentos_impressora = (
+            [aba_lat, largura1, comprimento1] if meia else [aba_lat, largura1, comprimento1, largura2, comprimento2]
+        )
         layout.segmentos_riscador = [topo, centro, inferior]
+        serras = [x2] if meia else [x2, x3, x4]
 
         # ── CORTES EXTERNOS ────────────────────────────────────────
         _adicionar_segmentos_horizontais_com_serra(
-            linhas, y0, x1, x5, [x2, x3, x4], meia_serra, TipoLinha.CORTE
+            linhas, y0, x1, x5, serras, meia_serra, TipoLinha.CORTE
         )
         _adicionar_segmentos_horizontais_com_serra(
-            linhas, y3, x1, x5, [x2, x3, x4], meia_serra, TipoLinha.CORTE
+            linhas, y3, x1, x5, serras, meia_serra, TipoLinha.CORTE
         )
 
         linhas.append(LinhaDesenho(x5, y0, x5, y3, TipoLinha.CORTE))
@@ -263,14 +277,14 @@ class ServicoLayoutCaixa:
         linhas.append(LinhaDesenho(x1, y2, x0, y2 - chanfro, TipoLinha.CORTE))
 
         # ── VINCOS ────────────────────────────────────────────────
-        for xv in (x1, x2, x3, x4):
+        for xv in (x1, x2) if meia else (x1, x2, x3, x4):
             linhas.append(LinhaDesenho(xv, y1, xv, y2, TipoLinha.VINCO))
 
         linhas.append(LinhaDesenho(x1, y1, x5, y1, TipoLinha.VINCO))
         linhas.append(LinhaDesenho(x1, y2, x5, y2, TipoLinha.VINCO))
 
         # ── CORTE SERRA ───────────────────────────────────────────
-        for xv in (x2, x3, x4):
+        for xv in serras:
             xa, xb = xv - meia_serra, xv + meia_serra
             linhas.append(LinhaDesenho(xa, y0, xa, y1, TipoLinha.CORTE_SERRA))
             linhas.append(LinhaDesenho(xb, y0, xb, y1, TipoLinha.CORTE_SERRA))
@@ -288,6 +302,49 @@ class ServicoLayoutCaixa:
     # Largura/2 × Altura × Largura/2 (ajuste tratado na camada de UI,
     # que preenche riscador_superior/inferior antes de chamar aqui).
     # ════════════════════════════════════════════════════════════════
+    # ════════════════════════════════════════════════════════════════
+    # 4. ENVOLTÓRIO CAPA (bandeja)
+    #
+    #  IMPRESSORA (X): A × C × A      RISCADOR (Y): A × L × A
+    #  Mesma lógica do envoltório "sem corte": cantos presos nas laterais
+    #  pelo vinco horizontal, separados das paredes por corte-serra.
+    # ════════════════════════════════════════════════════════════════
+    def _calc_envoltorio_capa(self, m: MedidasCaixa) -> LayoutCaixa:
+        layout = LayoutCaixa()
+        linhas = layout.linhas
+        imp1 = _valor_ou_padrao(m.impressora_aba, m.altura)
+        imp2 = _valor_ou_padrao(m.impressora_largura_1, m.comprimento)
+        imp3 = _valor_ou_padrao(m.impressora_comprimento_1, m.altura)
+        ris1 = _valor_ou_padrao(m.riscador_superior, m.altura)
+        ris2 = _valor_ou_padrao(m.riscador_centro, m.largura)
+        ris3 = _valor_ou_padrao(m.riscador_inferior, m.altura)
+
+        x0, x1, x2, x3 = 0.0, imp1, imp1 + imp2, imp1 + imp2 + imp3
+        y0, y1, y2, y3 = 0.0, ris1, ris1 + ris2, ris1 + ris2 + ris3
+        layout.largura_total = x3
+        layout.altura_total = y3
+        layout.segmentos_impressora = [imp1, imp2, imp3]
+        layout.segmentos_riscador = [ris1, ris2, ris3]
+        layout.descricao = "Envoltório capa (bandeja)"
+
+        meia_serra = LARGURA_SERRA_MM / 2.0
+        _adicionar_segmentos_horizontais_com_serra(linhas, y0, x0, x3, [x1, x2], meia_serra, TipoLinha.CORTE)
+        _adicionar_segmentos_horizontais_com_serra(linhas, y3, x0, x3, [x1, x2], meia_serra, TipoLinha.CORTE)
+        linhas.append(LinhaDesenho(x0, y0, x0, y3, TipoLinha.CORTE))
+        linhas.append(LinhaDesenho(x3, y0, x3, y3, TipoLinha.CORTE))
+        for yh in (y1, y2):
+            linhas.append(LinhaDesenho(x0, yh, x3, yh, TipoLinha.VINCO))
+        for xv in (x1, x2):
+            xa, xb = xv - meia_serra, xv + meia_serra
+            linhas.append(LinhaDesenho(xa, y0, xa, y1, TipoLinha.CORTE_SERRA))
+            linhas.append(LinhaDesenho(xb, y0, xb, y1, TipoLinha.CORTE_SERRA))
+            linhas.append(LinhaDesenho(xa, y2, xa, y3, TipoLinha.CORTE_SERRA))
+            linhas.append(LinhaDesenho(xb, y2, xb, y3, TipoLinha.CORTE_SERRA))
+            linhas.append(LinhaDesenho(xv, y1, xv, y2, TipoLinha.VINCO))
+
+        _copiar_cores_legenda(m, layout)
+        return layout
+
     def _calc_maleta_transpassada(self, m: MedidasCaixa) -> LayoutCaixa:
         layout = self._calc_maleta_normal(m)
         layout.descricao = "Maleta transpassada — medidas por trecho"

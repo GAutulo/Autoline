@@ -34,6 +34,15 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 sobre o mesmo desenho:</p>
                 <p><b>Dieline</b> — medidas, tipo de caixa, cores de impressão e a faca
                 de corte/vinco calculada automaticamente. É aqui que a caixa nasce.</p>
+                <p><b>Tipos de caixa</b> (passe o mouse na lista pra ver a explicação de
+                cada um): maleta normal e transpassada, cada uma também em <b>meia
+                caixa</b> — só Aba × L × C na impressora (ex.: 40 × 240 × 590), pra
+                caixa grande feita em duas metades coladas depois —; os envoltórios
+                (fechamento normal ou no meio, com ou sem corte); e o <b>envoltório
+                capa (bandeja)</b>: A × C × A na impressora e A × L × A no riscador,
+                fundo com 4 paredes e os cantos do envoltório, sem tampa. Em
+                "Medidas geradas / ajustáveis" aparecem só os trechos que o tipo usa;
+                um trecho em <b>0</b> volta pro valor automático.</p>
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
                 posicionar texto, formas, imagens, logotipo e símbolos de manuseio por
                 cima (o "mockup").</p>
