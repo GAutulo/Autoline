@@ -10,6 +10,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 QApplication.instance() or QApplication([])
@@ -139,3 +140,73 @@ def test_barra_de_propriedades_nao_alarga_a_janela_e_cor_embaixo():
     j.abas_tela.setCurrentIndex(0)  # fora do Layout, os controles de cor somem
     assert not status.botao_conta_gotas.isVisible()
     j.close()
+
+
+def test_conta_gotas_pega_a_tinta_do_objeto_clicado():
+    """Como no CorelDRAW: seleciona o que vai receber, clica com o
+    conta-gotas no que tem a cor. Funciona com tinta que nem está marcada."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+    from gerador_layout.ui.preview_canvas import FerramentaMockup
+
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    azul = CorImpressao(nome="AZUL ESCURO", r=0, g=40, b=110)
+    fonte = ElementoRetangulo(largura=60, altura=40, cor_tinta=azul, preenchido=True)
+    alvo = ElementoRetangulo(largura=60, altura=40, preenchido=True)
+    j.canvas.adicionar_elemento_mockup(fonte, QPointF(100, 100))
+    j.canvas.adicionar_elemento_mockup(alvo, QPointF(250, 100))
+    assert not j._chips_cor["Azul Escuro"][0].isChecked()
+    j.canvas.cena.clearSelection()
+    alvo.setSelected(True)
+    j.canvas.definir_ferramenta(FerramentaMockup.CONTA_GOTAS)
+    QApplication.processEvents()
+    ponto = j.canvas.mapFromScene(fonte.sceneBoundingRect().center())
+    QTest.mouseClick(j.canvas.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    assert (alvo.cor_tinta.r, alvo.cor_tinta.g, alvo.cor_tinta.b) == (0, 40, 110)
+    assert j._chips_cor["Azul Escuro"][0].isChecked()  # a tinta usada entra na legenda
+    assert j.canvas._ferramenta == FerramentaMockup.SELECIONAR
+    # pixel solto (sem objeto): a tinta da lista mais parecida, mesmo não marcada
+    j._ao_cor_amostrada(QColor(250, 115, 5))
+    assert alvo.cor_tinta.nome == "LARANJA" and j._chips_cor["Laranja"][0].isChecked()
+    j.close()
+
+
+def test_cursor_da_ferramenta_e_campo_de_texto_legivel():
+    from PySide6.QtCore import QPointF, Qt
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+    from gerador_layout.ui.preview_canvas import FerramentaMockup, _cursor_da_ferramenta
+
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    for ferramenta in (FerramentaMockup.RETANGULO, FerramentaMockup.CONTA_GOTAS, FerramentaMockup.COTA_PARALELA):
+        j.canvas.definir_ferramenta(ferramenta)
+        cursor = j.canvas.viewport().cursor()
+        assert cursor.shape() == Qt.CursorShape.BitmapCursor  # cursor próprio, com o desenho da ferramenta
+        assert not cursor.pixmap().isNull()
+    assert _cursor_da_ferramenta(FerramentaMockup.CONTA_GOTAS).hotSpot().x() < 8  # ponta do conta-gotas
+    # passando por cima de um objeto com outra ferramenta: não impõe a seta dele
+    el = ElementoRetangulo()
+    j.canvas.adicionar_elemento_mockup(el, QPointF(50, 50))
+    from PySide6.QtWidgets import QGraphicsSceneHoverEvent
+
+    evento = QGraphicsSceneHoverEvent()
+    evento.setPos(QPointF(5, 5))
+    el.hoverMoveEvent(evento)
+    assert not el.hasCursor()
+    j.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
+    el.hoverMoveEvent(evento)
+    assert el.hasCursor()
+    j.close()
+    # campos de texto com cor de texto do tema (no escuro sumiam)
+    assert "QLineEdit" in estilo.FOLHA_DE_ESTILO.split("selection-background-color")[0]

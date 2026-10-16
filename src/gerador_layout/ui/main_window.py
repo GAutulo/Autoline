@@ -1118,6 +1118,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.mensagem_status.connect(lambda texto: self.statusBar().showMessage(texto, 6000))
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
+        self.canvas.tinta_amostrada.connect(self._ao_tinta_amostrada)
         self.canvas.elipse_desenhada.connect(self._criar_elipse_por_arrasto)
         self.canvas.poligono_desenhado.connect(self._criar_poligono_por_arrasto)
         self.canvas.acabamento_desenhado.connect(self._criar_acabamento_por_arrasto)
@@ -1717,37 +1718,48 @@ class JanelaPrincipal(QMainWindow):
     )
 
     def _ao_cor_amostrada(self, cor: QColor) -> None:
-        """Conta-gotas: aplica a cor mais PRÓXIMA entre as tintas
-        marcadas na legenda ao(s) elemento(s) selecionado(s) — a caixa só
-        imprime nas cores de tinta reais (ver docstring de `estilo.py`),
-        então não faz sentido aplicar o RGB exato de um pixel amostrado
-        (isso ia gerar uma "3ª tinta" fora do que a legenda permite)."""
-        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, self._TIPOS_COM_COR_TINTA)]
+        """Conta-gotas num pixel (imagem, fundo): a tinta da lista mais
+        PRÓXIMA da cor — a caixa só imprime em tintas reais, nunca num RGB
+        solto."""
+
+        def distancia(item) -> int:
+            _nome, (r, g, b) = item
+            return (r - cor.red()) ** 2 + (g - cor.green()) ** 2 + (b - cor.blue()) ** 2
+
+        nome, (r, g, b) = min(_cores_disponiveis(), key=distancia)
+        self._ao_tinta_amostrada(CorImpressao(nome=nome.upper(), r=r, g=g, b=b))
+
+    def _ao_tinta_amostrada(self, tinta: CorImpressao) -> None:
+        """Conta-gotas: a tinta pega vai pro(s) objeto(s) selecionado(s) e
+        fica marcada na legenda (se ainda não estava)."""
+        selecionados = [
+            it for it in self.canvas.cena.selectedItems()
+            if isinstance(it, ElementoLogoVetorial) or hasattr(it, "definir_cor_tinta")
+        ]
         if not selecionados:
             self.statusBar().showMessage(
-                "Selecione um elemento com cor de tinta antes de usar o conta-gotas.", 6000
+                "Selecione o objeto que vai receber a cor e depois clique com o conta-gotas no que tem a cor.", 8000
             )
-            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
             return
-
-        cores_ativas = self._cores_impressao_ativas()
-        if not cores_ativas:
-            self.statusBar().showMessage("Marque uma cor na legenda pra poder aplicar aqui.", 6000)
-            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
-            return
-
-        def distancia(tinta: CorImpressao) -> int:
-            return (tinta.r - cor.red()) ** 2 + (tinta.g - cor.green()) ** 2 + (tinta.b - cor.blue()) ** 2
-
-        cor_mais_proxima = min(cores_ativas, key=distancia)
         for elemento in selecionados:
-            elemento.definir_cor_tinta(cor_mais_proxima)
+            if isinstance(elemento, ElementoLogoVetorial):
+                elemento.pintar_numa_tinta(tinta)
+            else:
+                elemento.definir_cor_tinta(tinta)
+        chip = next((c for n, (c, _rgb) in self._chips_cor.items() if n.upper() == tinta.nome.upper()), None)
+        if chip is None:
+            # Tinta que não está na lista (projeto de outro computador): entra como sua.
+            configuracoes.definir_cores_personalizadas(
+                configuracoes.cores_personalizadas() + [(tinta.nome.title(), (tinta.r, tinta.g, tinta.b))]
+            )
+            self._montar_chips_cores()
+            chip = next((c for n, (c, _rgb) in self._chips_cor.items() if n.upper() == tinta.nome.upper()), None)
+        if chip is not None and not chip.isChecked():
+            chip.setChecked(True)
         if len(selecionados) == 1:
-            # Reconstrói a barra de propriedades pra refletir a nova cor
-            # no combo — `definir_cor_tinta` só repinta o elemento, não
-            # avisa o combo sozinho.
             self.painel_propriedades_mockup.definir_elemento(selecionados[0])
-        self.statusBar().showMessage(f"Cor aplicada: {cor_mais_proxima.nome}", 6000)
+        self._ao_selecao_mockup_mudar()
+        self.statusBar().showMessage(f"Cor aplicada: {tinta.nome}", 6000)
         self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
 
     def _adicionar_checklist(self) -> None:

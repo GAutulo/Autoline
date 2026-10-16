@@ -111,10 +111,10 @@ def test_alinhamento_das_linhas_do_texto(janela):
     janela.canvas._scene.clearSelection()
     t.setSelected(True)
     QApplication.processEvents()
-    _botao(janela, lambda x: x.objectName() == "alinhar_texto_centro").click()
+    _botao(janela, lambda x: x.property("alinharTexto") == "centro").click()
     assert t.alinhamento == "centro"
-    assert _botao(janela, lambda x: x.objectName() == "alinhar_texto_centro").isChecked()
-    assert not _botao(janela, lambda x: x.objectName() == "alinhar_texto_direita").isChecked()
+    assert _botao(janela, lambda x: x.property("alinharTexto") == "centro").isChecked()
+    assert not _botao(janela, lambda x: x.property("alinharTexto") == "direita").isChecked()
     assert t.clonar().alinhamento == "centro"
 
 
