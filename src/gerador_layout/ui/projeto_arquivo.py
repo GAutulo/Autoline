@@ -338,6 +338,39 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
     return dados
 
 
+# ── Recuperação (cópia automática) ──────────────────────────────────
+INTERVALO_RECUPERACAO_MS = 2 * 60 * 1000
+
+
+def pasta_recuperacao() -> Path:
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    return Path(base) / "recuperacao"
+
+
+def salvar_recuperacao(janela, caminho_original: str | None) -> Path:
+    """Cópia do projeto aberto na pasta de recuperação (uma só, sobrescrita),
+    com o caminho do arquivo de verdade dentro — pra voltar pro lugar certo."""
+    pasta = pasta_recuperacao()
+    pasta.mkdir(parents=True, exist_ok=True)
+    dados = estado_da_janela(janela)
+    dados["recuperacao"] = {"caminho_original": caminho_original}
+    destino = pasta / f"recuperacao{EXTENSAO}"
+    temporario = destino.with_name(destino.name + ".salvando")
+    temporario.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+    temporario.replace(destino)
+    return destino
+
+
+def recuperacao_pendente() -> Path | None:
+    destino = pasta_recuperacao() / f"recuperacao{EXTENSAO}"
+    return destino if destino.is_file() else None
+
+
+def apagar_recuperacao() -> None:
+    destino = pasta_recuperacao() / f"recuperacao{EXTENSAO}"
+    destino.unlink(missing_ok=True)
+
+
 def assinatura(janela) -> str:
     """Resumo do estado (sem o conteúdo dos arquivos embutidos): igual ao
     do último salvar = nada a salvar."""
