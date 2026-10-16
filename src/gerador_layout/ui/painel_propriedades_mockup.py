@@ -917,6 +917,38 @@ class PainelPropriedadesMockup(QWidget):
         tamanho.valueChanged.connect(el.definir_tamanho_pt)
         self._grupo("letra_a", tamanho, "Tamanho da letra (pontos)")
 
+        altura = QDoubleSpinBox()
+        altura.setRange(0.1, 500.0)
+        altura.setDecimals(2)
+        altura.setSuffix(" mm")
+        altura.setValue(el.altura_letra_mm)
+        altura.setKeyboardTracking(False)
+        altura.setMaximumWidth(78)
+        altura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        altura.setObjectName("alturaLetraChecklist")
+
+        def mudar_altura(mm: float) -> None:
+            el.definir_altura_letra_mm(mm)
+            tamanho.blockSignals(True)
+            tamanho.setValue(el.tamanho_pt)
+            tamanho.blockSignals(False)
+
+        altura.valueChanged.connect(mudar_altura)
+        tamanho.valueChanged.connect(lambda _pt: (altura.blockSignals(True), altura.setValue(el.altura_letra_mm), altura.blockSignals(False)))
+        self._grupo("altura", altura, "Altura da letra (maiúscula), em mm — o padrão da máquina é 2 mm")
+
+        largura = QDoubleSpinBox()
+        largura.setRange(20.0, 200.0)
+        largura.setDecimals(1)
+        largura.setSuffix(" %")
+        largura.setValue(el.largura_letra * 100)
+        largura.setKeyboardTracking(False)
+        largura.setMaximumWidth(70)
+        largura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        largura.setObjectName("larguraLetraChecklist")
+        largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
+        self._grupo("largura", largura, "Largura das letras (100% = normal; 66,7% = meio esticada, o padrão da máquina)")
+
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
         botao_negrito.toggled.connect(el.definir_negrito)

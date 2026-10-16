@@ -45,7 +45,11 @@ _PADRAO_PASSO_GRADE_MM = 10.0
 _PADRAO_PASSO_NUDGE_MM = 1.0
 _PADRAO_PASSO_NUDGE_SHIFT_MM = 10.0
 _PADRAO_PASSO_DUPLICAR_MM = 6.0
-_PADRAO_FONTE_TEXTO = "Arial"
+_PADRAO_FONTE_TEXTO = "Arial Black"
+# Padrão da máquina: letra de 2 mm de altura (maiúscula), na largura de 2/3
+# da normal — a Arial Black "meio esticada" (18,28 mm de "GABINETE FLORA").
+_PADRAO_ALTURA_LETRA_MM = 2.0
+_PADRAO_LARGURA_LETRA = 0.667
 
 
 def _settings() -> QSettings:
@@ -189,10 +193,35 @@ def definir_passo_duplicar_mm(valor: float) -> None:
 
 
 def fonte_padrao_texto() -> str:
-    """Família de fonte usada quando um elemento de Texto/Callout novo é
-    criado — o usuário ainda troca por elemento depois, na barra de
+    """Família de fonte usada quando um elemento de Texto/Callout/checklist
+    novo é criado — o usuário ainda troca por elemento depois, na barra de
     propriedades; isso só define o ponto de partida."""
-    return str(_settings().value("fonte_padrao_texto", _PADRAO_FONTE_TEXTO, type=str))
+    s = _settings()
+    if not s.value("texto_padrao_maquina_revisto", False, type=bool):
+        # Uma vez só: o padrão antigo (Arial) passa pro da máquina.
+        s.setValue("texto_padrao_maquina_revisto", True)
+        if s.value("fonte_padrao_texto", "", type=str) == "Arial":
+            s.setValue("fonte_padrao_texto", _PADRAO_FONTE_TEXTO)
+    return str(s.value("fonte_padrao_texto", _PADRAO_FONTE_TEXTO, type=str))
+
+
+def altura_letra_padrao_mm() -> float:
+    """Altura da letra (maiúscula) de texto e checklist novos, em mm."""
+    return float(_settings().value("altura_letra_padrao_mm", _PADRAO_ALTURA_LETRA_MM, type=float))
+
+
+def definir_altura_letra_padrao_mm(valor: float) -> None:
+    _settings().setValue("altura_letra_padrao_mm", float(valor))
+
+
+def largura_letra_padrao() -> float:
+    """Largura das letras de texto e checklist novos (1 = normal da fonte;
+    0,667 = o "meio esticado" que a máquina faz)."""
+    return float(_settings().value("largura_letra_padrao", _PADRAO_LARGURA_LETRA, type=float))
+
+
+def definir_largura_letra_padrao(valor: float) -> None:
+    _settings().setValue("largura_letra_padrao", float(valor))
 
 
 def definir_fonte_padrao_texto(nome: str) -> None:
@@ -212,3 +241,5 @@ def restaurar_padroes() -> None:
     s.setValue("passo_nudge_shift_mm", _PADRAO_PASSO_NUDGE_SHIFT_MM)
     s.setValue("passo_duplicar_mm", _PADRAO_PASSO_DUPLICAR_MM)
     s.setValue("fonte_padrao_texto", _PADRAO_FONTE_TEXTO)
+    s.setValue("altura_letra_padrao_mm", _PADRAO_ALTURA_LETRA_MM)
+    s.setValue("largura_letra_padrao", _PADRAO_LARGURA_LETRA)

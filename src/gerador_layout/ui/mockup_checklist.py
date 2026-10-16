@@ -42,9 +42,13 @@ class ElementoChecklistCores(ElementoMockup):
         tamanho_pt: float = 12.0,
         negrito: bool = False,
         disposicao: str = EMPILHADO,
+        largura_letra: float = 1.0,
         parent=None,
     ) -> None:
         super().__init__(largura=30.0, altura=6.0, parent=parent)
+        # Largura das letras em relação à normal (0,667 = meio esticada, o
+        # padrão da máquina); a altura vem do tamanho em pontos.
+        self._largura_letra = max(0.05, float(largura_letra))
         self._variantes = list(variantes) if variantes else ["Cor 1", "Cor 2"]
         self._fonte_familia = fonte_familia
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
@@ -100,6 +104,27 @@ class ElementoChecklistCores(ElementoMockup):
         self._ajustar_ao_conteudo()
 
     @property
+    def largura_letra(self) -> float:
+        return self._largura_letra
+
+    def definir_largura_letra(self, largura: float) -> None:
+        self._largura_letra = max(0.05, float(largura))
+        self._ajustar_ao_conteudo(largura_natural=self._disposicao == EMPILHADO)
+        self.update()
+
+    @property
+    def altura_letra_mm(self) -> float:
+        """Altura da maiúscula, em mm."""
+        m = self._medidas()
+        return (m["metrica"].capHeight() or m["metrica"].ascent() * 0.7) * m["escala"]
+
+    def definir_altura_letra_mm(self, altura_mm: float) -> None:
+        """Tamanho em pontos que dá esta altura de maiúscula."""
+        metrica = QFontMetricsF(self._fonte_referencia())
+        cap = metrica.capHeight() or metrica.ascent() * 0.7
+        self.definir_tamanho_pt(max(0.05, altura_mm) * _PIXELS_REFERENCIA / cap / _MM_POR_PONTO)
+
+    @property
     def negrito(self) -> bool:
         return self._negrito
 
@@ -152,7 +177,7 @@ class ElementoChecklistCores(ElementoMockup):
         }
 
     def _largura_item(self, texto: str, m: dict) -> float:
-        return m["lado"] + m["espaco_caixa"] + m["metrica"].horizontalAdvance(texto) * m["escala"]
+        return m["lado"] + m["espaco_caixa"] + m["metrica"].horizontalAdvance(texto) * m["escala"] * self._largura_letra
 
     def itens_layout(self, largura_caixa: float | None = None) -> tuple[list[dict], float, float]:
         """Posição de cada item (em mm, local): `caixa` (o quadradinho),
@@ -323,7 +348,7 @@ class ElementoChecklistCores(ElementoMockup):
         return sum(len(t) + 1 for t in self._variantes[:linha]) + max(0, min(coluna, len(self._variantes[linha])))
 
     def _x_da_coluna(self, item: dict, coluna: int, m: dict) -> float:
-        return item["base"].x() + m["metrica"].horizontalAdvance(item["texto"][:coluna]) * m["escala"]
+        return item["base"].x() + m["metrica"].horizontalAdvance(item["texto"][:coluna]) * m["escala"] * self._largura_letra
 
     def _indice_no_ponto(self, ponto: QPointF) -> int:
         m = self._medidas()
@@ -446,7 +471,7 @@ class ElementoChecklistCores(ElementoMockup):
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QBrush(cor))
                 painter.translate(item["base"])
-                painter.scale(m["escala"], m["escala"])
+                painter.scale(m["escala"] * self._largura_letra, m["escala"])
                 desenhar_texto_escalado(painter, QPointF(0, 0), fonte, texto)
                 painter.restore()
             inicio_linha += len(texto) + 1
@@ -467,6 +492,7 @@ class ElementoChecklistCores(ElementoMockup):
             tamanho_pt=self._tamanho_pt,
             negrito=self._negrito,
             disposicao=self._disposicao,
+            largura_letra=self._largura_letra,
         )
         self._copiar_geometria_para(novo)
         novo.definir_tamanho(self._largura, self._altura)
