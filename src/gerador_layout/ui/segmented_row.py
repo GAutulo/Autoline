@@ -145,6 +145,22 @@ class LinhaTrechos(QWidget):
             for spin, tocado in zip(self._spins, self._tocados)
         ]
 
+    def definir_valores_manuais(self, valores: list[float]) -> None:
+        """Trechos digitados à mão (vindos de um projeto salvo): valor > 0
+        fica manual; 0 continua automático. Não avisa ninguém — quem chama
+        recalcula depois."""
+        for i, valor in enumerate(valores[: len(self._spins)]):
+            spin = self._spins[i]
+            spin.blockSignals(True)
+            if valor and valor > 0:
+                spin.setValue(float(valor))
+                self._tocados[i] = True
+                spin.setStyleSheet(_ESTILO_MANUAL)
+            else:
+                self._tocados[i] = False
+                spin.setStyleSheet(_ESTILO_AUTOMATICO)
+            spin.blockSignals(False)
+
     def definir_visiveis(self, quantidade: int) -> None:
         """Mostra só os primeiros `quantidade` trechos (o resto do tipo
         de caixa atual não usa os campos extras) e reseta o estado."""

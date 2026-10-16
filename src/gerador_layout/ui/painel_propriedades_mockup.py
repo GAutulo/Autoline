@@ -264,7 +264,7 @@ class PainelPropriedadesMockup(QWidget):
         elif isinstance(elemento, ElementoLogoVetorial):
             self._montar_campos_logo(elemento)
         elif isinstance(elemento, ElementoImagem):
-            nome = QLabel(elemento.caminho_arquivo.rsplit("\\", 1)[-1])
+            nome = QLabel(getattr(elemento, "nome_original", None) or elemento.caminho_arquivo.rsplit("\\", 1)[-1])
             nome.setMaximumWidth(160)
             nome.setToolTip(elemento.caminho_arquivo)
             self._layout_campos.addWidget(nome)

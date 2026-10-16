@@ -1045,15 +1045,24 @@ class Visualizacao3D(QWidget):
     angulo_alterado = Signal(int, float)
     face_base_escolhida = Signal(str)
 
+    # Nome do projeto aberto (a janela preenche): vira o nome sugerido da foto.
+    nome_sugerido = "caixa"
+
     def salvar_imagem(self, caminho: str | None = None) -> str | None:
         """Pergunta onde salvar (se não vier o caminho) e grava a vista atual
-        em alta resolução: JPG com fundo branco, PNG com fundo transparente."""
+        em alta resolução: JPG com fundo branco, PNG com fundo transparente.
+        Sugere a pasta das imagens do 3D (Configurações) ou a última usada."""
         if caminho is None:
+            import os
+
+            pasta = configuracoes.pasta_imagens_3d() or configuracoes.pasta_ultima("imagem_3d")
+            sugestao = os.path.join(pasta, f"{self.nome_sugerido} 3D.jpg") if pasta else f"{self.nome_sugerido} 3D.jpg"
             caminho, _filtro = QFileDialog.getSaveFileName(
-                self, "Salvar imagem do 3D", "caixa-3d.jpg", "JPG (*.jpg *.jpeg);;PNG com fundo transparente (*.png)"
+                self, "Salvar imagem do 3D", sugestao, "JPG (*.jpg *.jpeg);;PNG com fundo transparente (*.png)"
             )
             if not caminho:
                 return None
+            configuracoes.definir_pasta_ultima("imagem_3d", os.path.dirname(caminho))
         png = caminho.lower().endswith(".png")
         if not png and not caminho.lower().endswith((".jpg", ".jpeg")):
             caminho += ".jpg"

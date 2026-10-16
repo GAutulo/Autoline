@@ -64,6 +64,9 @@ def main() -> None:
     # altura útil, bem menos do que os ~820-880px que o app assumia),
     # em vez de depender de adivinhar a resolução de antemão.
     janela.showMaximized()
+    projeto = next((a for a in sys.argv[1:] if a.lower().endswith(".autoline")), None)
+    if projeto and Path(projeto).is_file():
+        janela.abrir_projeto(projeto)
     sys.exit(app.exec())
 
 
