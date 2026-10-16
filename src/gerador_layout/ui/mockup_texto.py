@@ -56,6 +56,10 @@ class ElementoTexto(ElementoMockup):
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
         # Alinhamento das linhas entre si: "esquerda", "centro" ou "direita".
         self._alinhamento = "esquerda"
+        # Espaçamento, como no F10 do CorelDRAW: entre letras (fração do
+        # tamanho da letra, 0 = normal da fonte) e entre linhas (1 = normal).
+        self._espaco_letras = 0.0
+        self._espaco_linhas = 1.0
         # Edição direto no desenho.
         self._editando = False
         self._cursor = len(texto)
@@ -139,7 +143,27 @@ class ElementoTexto(ElementoMockup):
         fonte = QFont(self._fonte_familia)
         fonte.setPixelSize(int(_PIXELS_REFERENCIA))
         fonte.setBold(self._negrito)
+        espaco = getattr(self, "_espaco_letras", 0.0)
+        if espaco:
+            fonte.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, espaco * _PIXELS_REFERENCIA)
         return fonte
+
+    @property
+    def espaco_letras(self) -> float:
+        return self._espaco_letras
+
+    def definir_espaco_letras(self, fracao: float) -> None:
+        """Afasta (+) ou aproxima (−) as letras, em fração do tamanho da letra
+        (0,1 = 10%). A letra não muda de tamanho: a caixa cresce/encolhe."""
+        self._mudar(lambda: setattr(self, "_espaco_letras", max(-0.5, min(2.0, float(fracao)))))
+
+    @property
+    def espaco_linhas(self) -> float:
+        return self._espaco_linhas
+
+    def definir_espaco_linhas(self, fator: float) -> None:
+        """Distância entre as linhas (1 = a normal da fonte; 0,8 = 80%)."""
+        self._mudar(lambda: setattr(self, "_espaco_linhas", max(0.3, min(5.0, float(fator)))))
 
     def _linhas(self) -> list[str]:
         return self._texto.split("\n")
@@ -171,7 +195,7 @@ class ElementoTexto(ElementoMockup):
         espaço entre linhas) na unidade de referência."""
         metrica = QFontMetricsF(self._fonte_referencia())
         cap = metrica.capHeight() or metrica.ascent()
-        entre_linhas = metrica.lineSpacing()
+        entre_linhas = metrica.lineSpacing() * getattr(self, "_espaco_linhas", 1.0)
         linhas = self._linhas()
         largura = max((metrica.horizontalAdvance(l) for l in linhas), default=0.0)
         largura = max(largura, cap * 0.05)  # texto vazio ainda tem uma "caixa" mínima
@@ -233,6 +257,7 @@ class ElementoTexto(ElementoMockup):
             texto=self._texto, fonte_familia=self._fonte_familia, negrito=self._negrito, cor_tinta=self._cor_tinta
         )
         novo._alinhamento = self._alinhamento
+        novo._espaco_letras, novo._espaco_linhas = self._espaco_letras, self._espaco_linhas
         self._copiar_geometria_para(novo)
         return novo
 

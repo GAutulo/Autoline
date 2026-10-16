@@ -750,6 +750,31 @@ class PainelPropriedadesMockup(QWidget):
         spin.valueChanged.connect(ao_mudar)
         self._grupo("espessura", spin, "Espessura do traço")
 
+    def _campos_espacamento(self, el) -> None:
+        """Entre letras e entre linhas (o que o F10 do CorelDRAW ajusta no
+        texto), em %: letras 0 = normal (+ afasta, − aproxima); linhas 100 =
+        normal. As setas do campo andam de 1 em 1; Shift+roda, de 10."""
+        letras = QDoubleSpinBox()
+        letras.setRange(-50.0, 200.0)
+        letras.setDecimals(0)
+        letras.setSuffix(" %")
+        letras.setValue(el.espaco_letras * 100)
+        letras.setKeyboardTracking(False)
+        letras.setMinimumWidth(78)
+        letras.setObjectName("espacoLetras")
+        letras.valueChanged.connect(lambda v: el.definir_espaco_letras(v / 100))
+        self._grupo("espaco_letras", letras, "Espaço entre letras (0% = normal; mais afasta, menos aproxima)")
+        linhas = QDoubleSpinBox()
+        linhas.setRange(30.0, 500.0)
+        linhas.setDecimals(0)
+        linhas.setSuffix(" %")
+        linhas.setValue(el.espaco_linhas * 100)
+        linhas.setKeyboardTracking(False)
+        linhas.setMinimumWidth(78)
+        linhas.setObjectName("espacoLinhas")
+        linhas.valueChanged.connect(lambda v: el.definir_espaco_linhas(v / 100))
+        self._grupo("espaco_linhas", linhas, "Espaço entre linhas (100% = normal; menos aproxima, mais afasta)")
+
     def _montar_campos_texto(self, el: ElementoTexto) -> None:
         # Como no CorelDRAW: o texto se edita no desenho (duplo clique ou
         # ferramenta Texto); aqui ficam fonte (todas as instaladas), tamanho
@@ -775,6 +800,7 @@ class PainelPropriedadesMockup(QWidget):
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
         botao_negrito.toggled.connect(el.definir_negrito)
+        self._campos_espacamento(el)
 
         # Alinhamento das linhas do texto (como no CorelDRAW): esquerda,
         # centro, direita.
@@ -1014,6 +1040,7 @@ class PainelPropriedadesMockup(QWidget):
         largura.setObjectName("larguraLetraChecklist")
         largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
         self._grupo("largura", largura, "Largura das letras (100% = normal; 66,7% = meio esticada, o padrão da máquina)")
+        self._campos_espacamento(el)
 
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
