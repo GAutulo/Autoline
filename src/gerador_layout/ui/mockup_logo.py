@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
 from ..models import CorImpressao
+from ..simbologias import enquadrar_no_desenho
 from . import svg_cores
 from .mockup_itens import ElementoMockup
 
@@ -62,9 +63,17 @@ class ElementoLogoVetorial(ElementoMockup):
         renderer = QSvgRenderer()
         if not renderer.load(conteudo_original.encode("utf-8")):
             raise ValueError(f"Não consegui abrir o logotipo vetorial: {caminho_arquivo}")
+        # A caixa do logotipo é a do desenho, não a da página do arquivo
+        # (o que passava da página saía cortado).
+        enquadrado, tamanho_real = enquadrar_no_desenho(conteudo_original)
+        if enquadrado is not conteudo_original:
+            novo = QSvgRenderer()
+            if novo.load(enquadrado.encode("utf-8")):
+                conteudo_original, renderer = enquadrado, novo
 
         largura, altura = _tamanho_inicial_mm(renderer)
         super().__init__(largura=largura, altura=altura, parent=parent)
+        self._tamanho_real_mm = tamanho_real
 
         self._caminho_arquivo = caminho_arquivo
         self._conteudo_original = conteudo_original
@@ -75,6 +84,11 @@ class ElementoLogoVetorial(ElementoMockup):
         self._mapa_cores: dict[str, str] = {}
         self._tinta_unica: CorImpressao | None = None
         self._renderer = renderer
+
+    @property
+    def tamanho_real_mm(self) -> tuple[float, float] | None:
+        """Tamanho do desenho em mm, se o arquivo diz a unidade."""
+        return self._tamanho_real_mm
 
     @property
     def caminho_arquivo(self) -> str:
@@ -146,8 +160,11 @@ def _tamanho_inicial_mm(renderer: QSvgRenderer) -> tuple[float, float]:
     padrão + proporção real do desenho, sem tentar adivinhar tamanho
     físico a partir de unidades do SVG (px/pt/mm variam de arquivo pra
     arquivo e não são um sinal confiável de intenção de tamanho real)."""
-    tamanho = renderer.defaultSize()
-    if tamanho.width() <= 0 or tamanho.height() <= 0:
-        return _LARGURA_PADRAO_MM, _LARGURA_PADRAO_MM
-    proporcao = tamanho.height() / tamanho.width()
+    caixa = renderer.viewBoxF()  # proporção exata (o defaultSize vem arredondado em px)
+    if caixa.width() <= 0 or caixa.height() <= 0:
+        tamanho = renderer.defaultSize()
+        if tamanho.width() <= 0 or tamanho.height() <= 0:
+            return _LARGURA_PADRAO_MM, _LARGURA_PADRAO_MM
+        caixa = QRectF(0, 0, tamanho.width(), tamanho.height())
+    proporcao = caixa.height() / caixa.width()
     return _LARGURA_PADRAO_MM, _LARGURA_PADRAO_MM * proporcao
