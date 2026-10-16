@@ -405,3 +405,34 @@ def test_papelao_padrao_e_onda_b_em_escala_1_10():
     assert j.visualizacao_3d.vista.espessura == pytest.approx(0.3)
     assert j.visualizacao_3d.combo_papelao.currentText() == "Onda B 1:10 (0,3 mm)"
     j.close()
+
+
+def test_salvar_imagem_do_3d_jpg_e_png(tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j.abas_tela.setCurrentIndex(2)
+    QApplication.processEvents()
+    v = j.visualizacao_3d
+    jpg = v.salvar_imagem(str(tmp_path / "caixa"))  # sem extensão: vira .jpg
+    png = v.salvar_imagem(str(tmp_path / "caixa.png"))
+    assert jpg.endswith(".jpg") and png.endswith(".png")
+    foto_jpg, foto_png = QImage(jpg), QImage(png)
+    assert foto_jpg.width() > v.vista.width() * 1.5  # alta resolução
+    assert foto_jpg.pixelColor(1, 1).name() == "#ffffff"  # fundo branco
+    assert foto_png.pixelColor(1, 1).alpha() == 0  # fundo transparente
+    # recortada em volta da caixa: menor que a tela inteira na mesma escala
+    inteira = v.vista.renderizar_imagem(3.0, None, recortar=False)
+    recortada = v.vista.renderizar_imagem(3.0, None)
+    assert recortada.width() * recortada.height() < inteira.width() * inteira.height()
+    # a foto não deixa a vista presa no modo foto
+    assert v.vista._foto is None
+    v.vista.grab()
+    j.close()
