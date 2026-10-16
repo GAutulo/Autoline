@@ -6,8 +6,8 @@ import math
 from contextlib import contextmanager
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -134,6 +134,8 @@ class JanelaPrincipal(QMainWindow):
         self._dialogo_manual: DialogoManual | None = None
         # Projeto (.autoline) aberto: caminho e o estado salvo (pra saber se mudou).
         self._caminho_projeto: str | None = None
+        # Folha de aprovação: cliente, referência, código e as datas (vão no projeto).
+        self._aprovacao: dict = {}
         self._assinatura_salva: str | None = None
 
         self._montar_ui()
@@ -489,6 +491,8 @@ class JanelaPrincipal(QMainWindow):
         barra.addAction("↓ SVG", self._exportar_svg)
         barra.addAction("↓ PDF", self._exportar_pdf)
         barra.addAction("↓ JPG", self._exportar_jpg)
+        acao_folha = barra.addAction("↓ Aprovação", self.gerar_folha_aprovacao)
+        acao_folha.setToolTip("Folha de aprovação em PDF pro cliente (Ctrl+Shift+P)")
         acao_tudo = barra.addAction("↓ Salvar tudo", self.salvar_e_exportar_tudo)
         acao_tudo.setToolTip(
             "Salvar e exportar tudo (Ctrl+Shift+E): o projeto .autoline, a imagem do layout e a do 3D, "
@@ -529,6 +533,8 @@ class JanelaPrincipal(QMainWindow):
         acao.setShortcut(QKeySequence("Ctrl+S"))
         acao = menu_arquivo.addAction("Salvar projeto como...", self.salvar_projeto_como)
         acao.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        acao = menu_arquivo.addAction("Folha de aprovação (PDF)...", self.gerar_folha_aprovacao)
+        acao.setShortcut(QKeySequence("Ctrl+Shift+P"))
         acao = menu_arquivo.addAction("Salvar e exportar tudo", self.salvar_e_exportar_tudo)
         acao.setShortcut(QKeySequence("Ctrl+Shift+E"))
         acao.setToolTip("Salva o projeto, a imagem do layout e a do 3D, cada um na sua pasta, com o nome do projeto")
@@ -1983,6 +1989,68 @@ class JanelaPrincipal(QMainWindow):
         pasta = configuracoes.pasta_imagens_layout() or configuracoes.pasta_ultima("exportar")
         nome = f"{self._nome_projeto()}{extensao}" if self._caminho_projeto else nome_padrao
         return str(Path(pasta) / nome) if pasta else nome
+
+    def gerar_folha_aprovacao(self, caminho: str | None = None, dialogo=None, abrir: bool = True) -> Path | None:
+        """Folha de aprovação em PDF (ver `folha_aprovacao.py`). `dialogo`
+        (testes) recebe a janela já montada e devolve True pra seguir."""
+        import datetime as _dt
+
+        from .dialogo_folha_aprovacao import DialogoFolhaAprovacao
+        from .folha_aprovacao import gerar_pdf, nome_do_arquivo
+
+        if not self._layout_pronto_para_exportar():
+            return None
+        medidas = self._obter_medidas()
+        dados_antes = self._aprovacao
+        criado = dados_antes.get("criado_em")
+        janela = DialogoFolhaAprovacao(
+            self,
+            cliente=dados_antes.get("cliente", ""),
+            referencia=dados_antes.get("referencia", ""),
+            codigo=dados_antes.get("codigo", ""),
+            medidas=f"{medidas.comprimento:g}X{medidas.largura:g}X{medidas.altura:g}",
+            tipo=NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper(),
+            cores=self._cores_impressao_ativas(),
+            criado_em=_dt.date.fromisoformat(criado) if criado else None,
+            desenvolvido_por=configuracoes.desenvolvido_por(),
+            logo=configuracoes.logo_folha_aprovacao(),
+        )
+        aceitou = dialogo(janela) if dialogo is not None else janela.exec() == QDialog.DialogCode.Accepted
+        if not aceitou:
+            return None
+        dados = janela.dados()
+        configuracoes.definir_desenvolvido_por(dados.desenvolvido_por)
+        configuracoes.definir_logo_folha_aprovacao(janela.logo)
+        if caminho is None:
+            pasta = configuracoes.pasta_folhas_aprovacao() or configuracoes.pasta_ultima("aprovacao")
+            sugestao = str(Path(pasta) / nome_do_arquivo(dados)) if pasta else nome_do_arquivo(dados)
+            caminho, _ = QFileDialog.getSaveFileName(self, "Salvar folha de aprovação", sugestao, "PDF (*.pdf)")
+            if not caminho:
+                return None
+        if not caminho.lower().endswith(".pdf"):
+            caminho += ".pdf"
+        try:
+            with self._cursor_espera():
+                destino = gerar_pdf(self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Folha de aprovação", f"Não consegui gerar o PDF:\n{exc}")
+            return None
+        configuracoes.definir_pasta_ultima("aprovacao", str(Path(caminho).parent))
+        self._aprovacao = {
+            "cliente": dados.cliente,
+            "referencia": dados.referencia,
+            "codigo": dados.codigo,
+            "criado_em": dados.criado_em.isoformat() if dados.criado_em else None,
+            "modificado_em": dados.modificado_em.isoformat() if dados.modificado_em else None,
+        }
+        if self._caminho_projeto:
+            self._gravar_projeto(self._caminho_projeto)  # as datas ficam guardadas no projeto
+        else:
+            self._atualizar_titulo()
+        self.statusBar().showMessage(f"Folha de aprovação salva: {destino}", 10000)
+        if abrir:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(destino)))
+        return destino
 
     def _pasta_para(self, chave_config: str, chave_ultima: str, titulo: str, perguntar_pasta) -> str | None:
         """A pasta configurada; sem ela, pergunta (e passa a usar a escolhida)."""
