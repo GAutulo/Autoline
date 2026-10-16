@@ -1615,7 +1615,7 @@ class JanelaPrincipal(QMainWindow):
         except ValueError as exc:
             QMessageBox.critical(self, "Erro ao abrir símbolo", str(exc))
             return None
-        real = tamanho_mm(Path(caminho))
+        real = elemento.tamanho_real_mm or tamanho_mm(Path(caminho))
         if real is None:
             self._adicionar_elemento_mockup_e_selecionar(elemento)
         else:
