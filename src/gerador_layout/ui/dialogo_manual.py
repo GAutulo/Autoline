@@ -208,7 +208,13 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <b>Recuperação:</b> a cada 2 minutos, se tem alteração não salva, o
                 Autoline guarda uma cópia sozinho; se ele fechar sem querer (queda de
                 energia, travou), ao abrir de novo pergunta se quer recuperar o trabalho
-                de onde parou. Em
+                de onde parou.</p>
+                <p><b>Salvar e exportar tudo</b> (Ctrl+Shift+E, ou "↓ Salvar tudo" na barra):
+                depois de uma alteração, um clique salva o projeto, a imagem do layout na
+                pasta das imagens e a imagem do 3D na pasta do 3D, todos com o nome do
+                projeto (ex.: "Gabinete Flora.jpg" e "Gabinete Flora 3D.jpg"). Pasta ainda
+                não configurada é perguntada uma vez e fica guardada; se as imagens já
+                existem, pergunta antes de substituir. Em
                 Configurações &gt; Arquivos: a pasta das imagens do layout (padrão
                 Z:\\Imagens) e a das imagens do 3D, que os botões de exportar já sugerem
                 com o nome do projeto, e o botão que faz os .autoline abrirem com dois
