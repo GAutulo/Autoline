@@ -36,6 +36,10 @@ class ElementoTexto(ElementoMockup):
     # letra de rodapé em embalagem fica bem abaixo do mínimo genérico.
     _altura_minima_mm = 0.2
     _largura_minima_mm = 0.2
+    # Escala da letra (mm por unidade de referência) guardada: não dá pra
+    # tirar sempre do tamanho da caixa, porque com o texto vazio (ou quase)
+    # a caixa bate no tamanho mínimo e a próxima letra saía esticada.
+    _ex = _ey = None
 
     def __init__(
         self,
@@ -161,7 +165,21 @@ class ElementoTexto(ElementoMockup):
 
     def _escalas(self) -> tuple[float, float]:
         altura, largura, _cap, _ent = self._medidas_referencia()
-        return (self._largura / largura if largura else 1.0, self._altura / altura if altura else 1.0)
+        ex = self._ex if self._ex is not None else (self._largura / largura if largura else 1.0)
+        ey = self._ey if self._ey is not None else (self._altura / altura if altura else 1.0)
+        return ex, ey
+
+    def definir_tamanho(self, largura: float, altura: float) -> None:
+        """Esticar a caixa (alças, campos, desfazer) muda a escala da letra
+        — menos no lado que bateu no tamanho mínimo, que não é intenção."""
+        super().definir_tamanho(largura, altura)
+        if not hasattr(self, "_texto"):
+            return  # ainda no construtor da base
+        altura_ref, largura_ref, _cap, _ent = self._medidas_referencia()
+        if largura_ref and largura >= self._largura_minima_mm and (self._texto.strip() or self._ex is None):
+            self._ex = self._largura / largura_ref
+        if altura_ref and altura >= self._altura_minima_mm:
+            self._ey = self._altura / altura_ref
 
     def _aplicar_escalas(self, ex: float, ey: float) -> None:
         """Novo tamanho a partir das escalas, sem tirar o canto superior
@@ -169,6 +187,7 @@ class ElementoTexto(ElementoMockup):
         canto = self.mapToScene(QPointF(0.0, 0.0))
         altura, largura, _cap, _ent = self._medidas_referencia()
         self.definir_tamanho(largura * ex, altura * ey)
+        self._ex, self._ey = ex, ey  # a escala pedida vale, mesmo se a caixa bateu no mínimo
         self.setPos(self.pos() + (canto - self.mapToScene(QPointF(0.0, 0.0))))
         self.update()
 

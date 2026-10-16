@@ -73,7 +73,7 @@ def test_simbolos_que_vem_com_o_app():
     from PySide6.QtSvg import QSvgRenderer
 
     banco = carregar_banco(None)
-    assert len(banco) == 4
+    assert len(banco) == 20
     for simbolo in banco:
         assert QSvgRenderer(str(simbolo.caminho)).isValid(), simbolo.nome
         assert tamanho_mm(simbolo.caminho) is not None
@@ -84,7 +84,7 @@ def test_docker_adiciona_importa_renomeia_e_insere(tmp_path):
     from gerador_layout.ui.docker_simbologias import DockerSimbologias
 
     docker = DockerSimbologias(pasta_usuario=tmp_path / "meus")
-    assert len(docker.simbolos()) == 4
+    assert len(docker.simbolos()) == 20
 
     folha = tmp_path / "folha teste.svg"
     folha.write_text(_FOLHA, encoding="utf-8")
@@ -95,7 +95,7 @@ def test_docker_adiciona_importa_renomeia_e_insere(tmp_path):
     avulso.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm"><rect width="5" height="5"/></svg>', encoding="utf-8")
     docker.adicionar_svgs([str(avulso), str(avulso)])
     nomes = [s.nome for s in docker.simbolos()]
-    assert len(nomes) == 4 + 3 + 2 and "Reciclável" in nomes and "Reciclável 2" in nomes
+    assert len(nomes) == 20 + 3 + 2 and "Reciclável" in nomes and "Reciclável 2" in nomes
 
     meu = next(s for s in docker.simbolos() if s.nome == "folha teste 2")
     docker.renomear(meu, "Seta pra cima")
@@ -147,3 +147,72 @@ def test_cores_de_classe_css_do_corel():
     novo = svg_cores.aplicar_mapa_cores(svg, {"#ed3237": "#000000"})
     assert svg_cores.detectar_cores(novo) == ["#000000", "#201e1e", "#fefefe"]
     assert "stroke-width:35" in novo
+
+
+def _pixels(elemento):
+    from collections import Counter
+
+    from PySide6.QtGui import QImage, QPainter
+
+    img = QImage(200, 200, QImage.Format.Format_ARGB32)
+    img.fill(0xFFFFFFFF)
+    p = QPainter(img)
+    elemento._renderer.render(p)
+    p.end()
+    return Counter(img.pixel(x, y) & 0xFFFFFF for x in range(0, 200, 2) for y in range(0, 200, 2))
+
+
+def test_simbolo_numa_tinta_so_e_volta_ao_original():
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.mockup_logo import ElementoLogoVetorial
+
+    nao_pise = next(s for s in carregar_banco(None) if s.nome.startswith("Não pise"))
+    el = ElementoLogoVetorial(str(nao_pise.caminho))
+    azul = CorImpressao(nome="AZUL", r=0, g=0, b=255)
+    el.pintar_numa_tinta(azul)
+    assert el.tinta_unica == azul
+    assert set(el.mapa_cores) == {"#201e1e"}  # o branco (#fefefe) continua branco
+    cores = _pixels(el)
+    assert cores[0x0000FF] > 100 and cores[0x201E1E] == 0
+    assert "#0000ff" in el.conteudo_svg().lower()
+    copia = el.clonar()
+    assert copia.tinta_unica == azul and copia.mapa_cores == el.mapa_cores
+    el.pintar_numa_tinta(None)
+    assert el.tinta_unica is None and not el.mapa_cores and _pixels(el)[0x0000FF] == 0
+
+
+def test_paleta_e_painel_trocam_a_cor_do_simbolo():
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from PySide6.QtWidgets import QComboBox
+
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    simbolo = next(s for s in carregar_banco(None) if s.nome == "Frágil (taça)")
+    el = j.inserir_simbolo(str(simbolo.caminho), simbolo.nome)
+    QApplication.processEvents()
+    j._aplicar_cor_paleta(("Vermelho", (255, 0, 0)), contorno=False)
+    assert el.tinta_unica is not None and el.tinta_unica.r == 255
+    assert set(el.mapa_cores.values()) == {"#ff0000"}
+    combo = j.painel_propriedades_mockup.findChild(QComboBox, "comboTintaLogo")
+    assert combo is not None and combo.currentData() is not None and combo.currentData().r == 255
+    combo.setCurrentIndex(0)  # "Cores originais"
+    assert el.tinta_unica is None and not el.mapa_cores
+    j._aplicar_cor_paleta(("Azul", (0, 0, 255)), contorno=False)
+    j._aplicar_cor_paleta(None, contorno=False)  # X: volta às cores do arquivo
+    assert not el.mapa_cores
+    j.close()
+
+
+def test_simbolos_de_papelao_validos():
+    from PySide6.QtSvg import QSvgRenderer
+
+    banco = carregar_banco(None)
+    nomes = {s.nome for s in banco}
+    assert {"Frágil (taça)", "Este lado para cima", "Manter seco (proteger da chuva)", "Não empilhar", "Reciclável",
+            "Papelão ondulado — PAP 20", "Empilhamento máximo (kg)"} <= nomes
+    assert len(nomes) == len(banco)
+    for s in banco:
+        assert QSvgRenderer(str(s.caminho)).isValid(), s.nome
+        assert s.categoria

@@ -403,7 +403,8 @@ def test_papelao_padrao_e_onda_b_em_escala_1_10():
     configuracoes._settings().remove("espessura_papelao_mm")  # nunca escolhido
     j = JanelaPrincipal()
     assert j.visualizacao_3d.vista.espessura == pytest.approx(0.3)
-    assert j.visualizacao_3d.combo_papelao.currentText() == "Onda B 1:10 (0,3 mm)"
+    assert j.visualizacao_3d.combo_papelao.currentText() == "Onda B — escala 1:10 (0,3 mm)"
+    assert j.visualizacao_3d.combo_papelao.currentIndex() == 1  # 1:10 vem antes do tamanho real
     j.close()
 
 
@@ -436,3 +437,23 @@ def test_salvar_imagem_do_3d_jpg_e_png(tmp_path):
     assert v.vista._foto is None
     v.vista.grab()
     j.close()
+
+
+def test_papelao_de_tamanho_real_guardado_vira_1_10_uma_vez():
+    from gerador_layout.ui import configuracoes
+
+    s = configuracoes._settings()
+    s.remove("papelao_escala_1_10_revisto")
+    configuracoes.definir_espessura_papelao_mm(3.0)  # "Onda B (3 mm)" da lista antiga
+    assert configuracoes.espessura_papelao_mm() == pytest.approx(0.3)
+    configuracoes.definir_espessura_papelao_mm(3.0)  # escolhido de novo, de propósito: vale
+    assert configuracoes.espessura_papelao_mm() == pytest.approx(3.0)
+    configuracoes.definir_espessura_papelao_mm(0.3)
+
+
+def test_testes_nao_mexem_nas_preferencias_reais():
+    from PySide6.QtCore import QSettings
+
+    from gerador_layout.ui import configuracoes
+
+    assert configuracoes._settings().format() == QSettings.Format.IniFormat  # o .ini temporário do conftest

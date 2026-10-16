@@ -448,7 +448,15 @@ def _desenhar_texto_cdr(app, layer, elemento: ElementoTexto, altura_total: float
 def _desenhar_imagem_cdr(app, layer, elemento, altura_total: float) -> None:
     x, y, angulo = _centro_e_rotacao_cdr(elemento, altura_total)
     antes = layer.Shapes.Count
-    layer.Import(elemento.caminho_arquivo, 0, None)
+    arquivo = elemento.caminho_arquivo
+    if getattr(elemento, "mapa_cores", None):
+        # Cores trocadas no Autoline: o Corel recebe o SVG já com elas.
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as temporario:
+            temporario.write(elemento.conteudo_svg())
+        arquivo = temporario.name
+    layer.Import(arquivo, 0, None)
     if layer.Shapes.Count == antes:
         return  # import falhou — não trava a exportação inteira por causa de 1 imagem
     # Item(1) é o mais recente (topo da pilha), não Item(Count): com

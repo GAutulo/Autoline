@@ -1,6 +1,102 @@
 [
-  {"arquivo": "cuidado-fragil-setas.svg", "nome": "Cuidado frágil (setas)", "categoria": "Manuseio"},
-  {"arquivo": "icones-manuseio-vermelho.svg", "nome": "Ícones de manuseio (vermelho)", "categoria": "Manuseio"},
-  {"arquivo": "icones-manuseio-preto.svg", "nome": "Ícones de manuseio (preto, com legenda)", "categoria": "Manuseio"},
-  {"arquivo": "nao-pise-cuidado-fragil.svg", "nome": "Não pise — cuidado frágil", "categoria": "Manuseio"}
+  {
+    "arquivo": "cuidado-fragil-setas.svg",
+    "nome": "Cuidado frágil (setas)",
+    "categoria": "Manuseio"
+  },
+  {
+    "arquivo": "icones-manuseio-vermelho.svg",
+    "nome": "Ícones de manuseio (vermelho)",
+    "categoria": "Manuseio"
+  },
+  {
+    "arquivo": "icones-manuseio-preto.svg",
+    "nome": "Ícones de manuseio (preto, com legenda)",
+    "categoria": "Manuseio"
+  },
+  {
+    "arquivo": "nao-pise-cuidado-fragil.svg",
+    "nome": "Não pise — cuidado frágil",
+    "categoria": "Manuseio"
+  },
+  {
+    "arquivo": "fragil-taca.svg",
+    "nome": "Frágil (taça)",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "este-lado-para-cima.svg",
+    "nome": "Este lado para cima",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "manter-seco.svg",
+    "nome": "Manter seco (proteger da chuva)",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "proteger-do-sol.svg",
+    "nome": "Proteger do sol e do calor",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "nao-usar-ganchos.svg",
+    "nome": "Não usar ganchos",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "nao-empilhar.svg",
+    "nome": "Não empilhar",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "limite-empilhamento-massa.svg",
+    "nome": "Empilhamento máximo (kg)",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "limite-empilhamento-numero.svg",
+    "nome": "Empilhamento máximo (caixas)",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "centro-de-gravidade.svg",
+    "nome": "Centro de gravidade",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "nao-rolar.svg",
+    "nome": "Não rolar / não tombar",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "limite-temperatura.svg",
+    "nome": "Limite de temperatura",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "usar-empilhadeira-aqui.svg",
+    "nome": "Empilhadeira aqui (garfos)",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "abra-aqui.svg",
+    "nome": "Abra aqui",
+    "categoria": "Embalagem (ISO 780)"
+  },
+  {
+    "arquivo": "reciclavel.svg",
+    "nome": "Reciclável",
+    "categoria": "Reciclagem e descarte"
+  },
+  {
+    "arquivo": "pap-20.svg",
+    "nome": "Papelão ondulado — PAP 20",
+    "categoria": "Reciclagem e descarte"
+  },
+  {
+    "arquivo": "descarte-correto.svg",
+    "nome": "Descarte correto (lixeira)",
+    "categoria": "Reciclagem e descarte"
+  }
 ]

@@ -931,5 +931,27 @@ class PainelPropriedadesMockup(QWidget):
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_logo(self, el: ElementoLogoVetorial) -> None:
-        botao = self._botao_icone("remapear", f"{len(el.cores_detectadas)} cor(es) detectada(s) — remapear")
+        # Uma tinta pro desenho todo (o normal num símbolo de manuseio) — ou
+        # as cores do arquivo. A paleta da direita faz o mesmo.
+        combo = QComboBox()
+        combo.setObjectName("comboTintaLogo")
+        combo.addItem("Cores originais", None)
+        for tinta in self._obter_tintas():
+            combo.addItem(tinta.nome, tinta)
+        atual = el.tinta_unica
+        if atual is not None:
+            indice = combo.findText(atual.nome)
+            if indice < 0:
+                combo.addItem(atual.nome, atual)
+                indice = combo.count() - 1
+            combo.setCurrentIndex(indice)
+        elif el.mapa_cores:
+            combo.addItem("Separada por cor", "separada")
+            combo.setCurrentIndex(combo.count() - 1)
+        combo.setMaximumWidth(130)
+        combo.currentIndexChanged.connect(
+            lambda _i: combo.currentData() != "separada" and el.pintar_numa_tinta(combo.currentData())
+        )
+        self._grupo("tinta", combo, "Cor: o desenho todo numa tinta do trabalho (o branco continua branco), ou as cores do arquivo")
+        botao = self._botao_icone("remapear", f"{len(el.cores_detectadas)} cor(es) no arquivo — separar cor a cor")
         botao.clicked.connect(lambda: self.remapear_logo_solicitado and self.remapear_logo_solicitado(el))
