@@ -61,6 +61,7 @@ from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
 from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
 from .dialogo_tabela import DialogoTabela
+from .estilo import cor_legivel_sobre
 from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
@@ -388,9 +389,13 @@ class JanelaPrincipal(QMainWindow):
                 f"border: 1px solid rgb({r},{g},{b});"
             )
         else:
+            # Desmarcado: borda na cor da tinta e o nome na mesma cor, clareada
+            # ou escurecida o mínimo pra ler sobre o fundo (azul/magenta/preto
+            # sumiam no tema escuro).
+            tr, tg, tb = cor_legivel_sobre(r, g, b)
             chip.setStyleSheet(
-                f"background: transparent; color: rgb({r},{g},{b}); "
-                f"border: 1px solid rgb({r},{g},{b});"
+                f"background: transparent; color: rgb({tr},{tg},{tb}); "
+                f"border: 1px solid rgb({tr},{tg},{tb});"
             )
 
     # ── Lógica ──────────────────────────────────────────────────────

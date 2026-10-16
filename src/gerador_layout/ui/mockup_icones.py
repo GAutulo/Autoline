@@ -255,9 +255,15 @@ def _desenhar_icone(tipo: str) -> QIcon:
         painter.drawArc(QRectF(3, 3, 12, 12), 20 * 16, 220 * 16)
         fim = QPointF(c + 6 * 0.35, c - 6 * 0.93)
         _seta(painter, QPointF(c + 6 * 0.7, c - 6 * 0.6), fim, cabeca=2.0)
-    elif tipo == "trava":
+    elif tipo == "trava":  # cadeado fechado
         painter.drawRoundedRect(QRectF(4, 8, 10, 7), 1.5, 1.5)
         painter.drawArc(QRectF(6, 2, 6, 8), 0, 180 * 16)
+        painter.drawLine(QPointF(6, 6), QPointF(6, 8))
+        painter.drawLine(QPointF(12, 6), QPointF(12, 8))
+    elif tipo == "trava_aberta":  # cadeado aberto: a alça sobe e solta de um lado
+        painter.drawRoundedRect(QRectF(4, 8, 10, 7), 1.5, 1.5)
+        painter.drawArc(QRectF(9, 0.5, 6, 8), 0, 180 * 16)
+        painter.drawLine(QPointF(15, 4.5), QPointF(15, 8))
     elif tipo == "face":
         margem = 2.5
         painter.drawRect(QRectF(margem, margem, lado - 2 * margem, lado - 2 * margem))

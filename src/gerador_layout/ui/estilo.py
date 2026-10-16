@@ -63,6 +63,9 @@ _PALETA_CLARA = {
     "PRIMARIA_ATIVA": "#4F3A1E",
     "PRIMARIA_CLARA": "#F0E2C8",
     "PRIMARIA_PRESSIONADA": "#E6D2AC",
+    # Seleção (texto marcado num campo, item de lista, botão ligado): tem que
+    # destacar do campo E do cartão — PRIMARIA_CLARA não destaca no escuro.
+    "SELECAO": "#D4B37A",
     "TEXTO": "#1E1A16",  # carvão
     "TEXTO_SECUNDARIO": "#8C6A3B",  # kraft escuro
     "TEXTO_TERCIARIO": "#A8916D",
@@ -84,6 +87,7 @@ _PALETA_ESCURA = {
     "PRIMARIA_ATIVA": "#F0DDB0",
     "PRIMARIA_CLARA": "#3A2F20",
     "PRIMARIA_PRESSIONADA": "#2F2519",
+    "SELECAO": "#6E5330",
     "TEXTO": "#EDE6D8",  # osso
     "TEXTO_SECUNDARIO": "#B9AF9C",  # osso dim
     "TEXTO_TERCIARIO": "#8C8270",
@@ -106,6 +110,32 @@ class Cor:
     """Paleta do tema ativo — atributos preenchidos logo abaixo a partir
     de `_PALETAS`. Ver docstring do módulo pra por que trocar de tema
     exige reiniciar o app."""
+
+
+def cor_legivel_sobre(r: int, g: int, b: int, fundo: str | None = None) -> tuple[int, int, int]:
+    """A própria cor (vermelho escrito em vermelho), clareada ou escurecida
+    o mínimo pra ter contraste de leitura (≥ 3:1) sobre o fundo do tema —
+    "Preto" sobre o fundo escuro, "Amarelo" sobre o claro."""
+
+    def luminancia(c):
+        def canal(v):
+            v /= 255.0
+            return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+        return 0.2126 * canal(c[0]) + 0.7152 * canal(c[1]) + 0.0722 * canal(c[2])
+
+    fundo = fundo or Cor.FUNDO_JANELA
+    f = tuple(int(fundo[i : i + 2], 16) for i in (1, 3, 5))
+    lf = luminancia(f)
+    alvo = (255, 255, 255) if lf < 0.4 else (0, 0, 0)
+    cor = (r, g, b)
+    for passo in range(11):
+        t = passo / 10
+        c = tuple(round(cor[i] + (alvo[i] - cor[i]) * t) for i in range(3))
+        lc = luminancia(c)
+        if (max(lc, lf) + 0.05) / (min(lc, lf) + 0.05) >= 3.0:
+            return c
+    return alvo
 
 
 def _aplicar_paleta(paleta: dict) -> None:
@@ -189,7 +219,7 @@ QComboBox, QDoubleSpinBox {{
     border-radius: 6px;
     padding: 4px 8px;
     min-height: 22px;
-    selection-background-color: {Cor.PRIMARIA_CLARA};
+    selection-background-color: {Cor.SELECAO};
     selection-color: {Cor.TEXTO};
 }}
 QComboBox:hover, QDoubleSpinBox:hover {{
@@ -205,7 +235,7 @@ QComboBox::drop-down {{
 QComboBox QAbstractItemView {{
     background: {Cor.CAMPO};
     border: 1px solid {Cor.BORDA};
-    selection-background-color: {Cor.PRIMARIA_CLARA};
+    selection-background-color: {Cor.SELECAO};
     selection-color: {Cor.TEXTO};
     outline: none;
 }}
@@ -453,7 +483,7 @@ QToolButton#botaoIconePropriedade:hover {{
     border-color: {Cor.PRIMARIA};
 }}
 QToolButton#botaoIconePropriedade:checked {{
-    background: {Cor.PRIMARIA_CLARA};
+    background: {Cor.SELECAO};
     border-color: {Cor.PRIMARIA};
 }}
 QLabel#iconeCampoPropriedade {{
@@ -543,6 +573,37 @@ QScrollBar::handle:hover {{
 QScrollBar::add-line, QScrollBar::sub-line {{
     height: 0px;
     width: 0px;
+}}
+/* Sem isso o Qt pinta a área vazia da barra com um pontilhado (o
+   "xadrezinho" em volta do desenho). */
+QScrollBar::add-page, QScrollBar::sub-page {{
+    background: none;
+}}
+QScrollBar:vertical {{
+    width: 10px;
+}}
+QScrollBar:horizontal {{
+    height: 10px;
+}}
+
+/* Texto selecionado em QUALQUER campo de texto (os campos da barra de
+   propriedades, nomes, buscas): marcado com o tom de seleção do tema. */
+QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit {{
+    selection-background-color: {Cor.SELECAO};
+    selection-color: {Cor.TEXTO};
+}}
+QAbstractItemView {{
+    selection-background-color: {Cor.SELECAO};
+    selection-color: {Cor.TEXTO};
+}}
+
+/* Divisória entre o painel da esquerda e o desenho: discreta no tema
+   (o padrão do Qt era uma faixa clara no tema escuro). */
+QSplitter::handle {{
+    background: {Cor.BORDA};
+}}
+QSplitter::handle:hover {{
+    background: {Cor.PRIMARIA};
 }}
 
 /* ── Áreas específicas (ver main_window.py) ─────────────────────── */
