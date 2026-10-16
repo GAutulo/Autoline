@@ -14,3 +14,14 @@ _PASTA = tempfile.mkdtemp(prefix="autoline-testes-")
 QSettings.setDefaultFormat(QSettings.Format.IniFormat)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _PASTA)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+def pytest_configure(config):  # noqa: ARG001
+    # Sem a pergunta "salvar alterações?" ao fechar/abrir: ninguém responde.
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    JanelaPrincipal.perguntar_antes_de_descartar = False
