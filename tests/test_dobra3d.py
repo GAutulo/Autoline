@@ -51,7 +51,15 @@ def test_maleta_fechada_tem_as_medidas_da_caixa(tipo):
     assert produto_escalar(n_frente, n_verso) == pytest.approx(-1.0)
 
 
-@pytest.mark.parametrize("tipo", [t for t in TipoCaixa if t not in (TipoCaixa.MALETA_NORMAL, TipoCaixa.MALETA_TRANSPASSADA)])
+_ENVOLTORIOS_FECHADOS = [
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE,
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE,
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE,
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE,
+]
+
+
+@pytest.mark.parametrize("tipo", _ENVOLTORIOS_FECHADOS)
 def test_envoltorio_fechado_tem_as_medidas_da_caixa(tipo):
     modelo, _ = _modelo(tipo)
     fechada = posicionar(modelo, 1.0)
@@ -63,7 +71,7 @@ def test_caixa_fechada_tem_faces_impressas_para_fora(tipo):
     """Toda parede termina com o lado impresso apontando pra longe do centro."""
     modelo, _ = _modelo(tipo)
     fechada = posicionar(modelo, 1.0)
-    paredes = [p for p in fechada if p.painel.id in {"frente", "verso", "lateral1", "lateral2", "base", "parede_sup", "parede_inf"}]
+    paredes = [p for p in fechada if p.painel.id in {"frente", "verso", "lateral1", "lateral2", "base", "centro", "parede_sup", "parede_inf"}]
     mn, mx = caixa_envolvente(paredes)
     centro = tuple((mn[i] + mx[i]) / 2 for i in range(3))
     for pp in paredes:

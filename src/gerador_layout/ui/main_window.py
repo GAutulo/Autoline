@@ -37,7 +37,17 @@ from PySide6.QtWidgets import (
 from ..dobra3d import montar_modelo
 from ..dobra_generica import montar_modelo_generico
 from ..layout_service import ServicoLayoutCaixa
-from ..models import CorImpressao, MedidasCaixa, NOME_EXIBICAO_TIPO_CAIXA, TipoCaixa, TipoLinha
+from ..models import (
+    DESCRICAO_TIPO_CAIXA,
+    NOME_EXIBICAO_TIPO_CAIXA,
+    ORDEM_TIPOS_CAIXA,
+    TIPOS_MALETA,
+    TIPOS_MEIA_CAIXA,
+    CorImpressao,
+    MedidasCaixa,
+    TipoCaixa,
+    TipoLinha,
+)
 from ..paineis import Painel, calcular_paineis
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
@@ -83,12 +93,15 @@ _CORES_DISPONIVEIS: list[tuple[str, tuple[int, int, int]]] = [
 
 # Rótulos exibidos em cada trecho, por tipo de caixa. A Impressora sempre
 # tem 5 trechos; o Riscador tem 3 na maleta e 5 no envoltório.
-_TIPOS_MALETA = {TipoCaixa.MALETA_NORMAL, TipoCaixa.MALETA_TRANSPASSADA}
+_TIPOS_MALETA = TIPOS_MALETA
 
 _ROTULOS_IMPRESSORA_MALETA = ["Aba", "L", "C", "L", "C"]
 _ROTULOS_IMPRESSORA_ENVOLTORIO = ["Aba", "A", "C", "A", "Aba"]
 _ROTULOS_RISCADOR_MALETA = ["Sup", "Centro", "Inf", "", ""]
 _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
+_ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
+_ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
+_ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
 
 
 class JanelaPrincipal(QMainWindow):
@@ -176,9 +189,12 @@ class JanelaPrincipal(QMainWindow):
         form_tipo = QFormLayout(grupo_tipo)
         form_tipo.setVerticalSpacing(10)
         self.combo_tipo = QComboBox()
-        for tipo in TipoCaixa:
+        for tipo in ORDEM_TIPOS_CAIXA:
             self.combo_tipo.addItem(NOME_EXIBICAO_TIPO_CAIXA[tipo], tipo)
-        self.combo_tipo.setCurrentIndex(list(TipoCaixa).index(TipoCaixa.MALETA_NORMAL))
+            self.combo_tipo.setItemData(self.combo_tipo.count() - 1, DESCRICAO_TIPO_CAIXA[tipo], Qt.ItemDataRole.ToolTipRole)
+        self.combo_tipo.setCurrentIndex(self.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+        # A lista aberta mostra o nome inteiro, mesmo com a caixa estreita.
+        self.combo_tipo.view().setMinimumWidth(self.combo_tipo.view().sizeHintForColumn(0) + 24)
         form_tipo.addRow(self.combo_tipo)
         vbox.addWidget(grupo_tipo)
 
@@ -357,8 +373,19 @@ class JanelaPrincipal(QMainWindow):
     # ── Lógica ──────────────────────────────────────────────────────
     def _ao_trocar_tipo(self) -> None:
         tipo = self.combo_tipo.currentData()
+        self.combo_tipo.setToolTip(DESCRICAO_TIPO_CAIXA.get(tipo, ""))
         self.linha_impressora.definir_visiveis(5)
-        if tipo in _TIPOS_MALETA:
+        if tipo in TIPOS_MEIA_CAIXA:
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_MEIA)
+            self.linha_impressora.definir_visiveis(3)
+            self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_MALETA)
+            self.linha_riscador.definir_visiveis(3)
+        elif tipo == TipoCaixa.ENVOLTORIO_CAPA:
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CAPA)
+            self.linha_impressora.definir_visiveis(3)
+            self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_CAPA)
+            self.linha_riscador.definir_visiveis(3)
+        elif tipo in _TIPOS_MALETA:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_MALETA)
             self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_MALETA)
             self.linha_riscador.definir_visiveis(3)

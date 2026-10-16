@@ -33,16 +33,52 @@ class TipoCaixa(Enum):
     ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE = auto()
     MALETA_NORMAL = auto()
     MALETA_TRANSPASSADA = auto()
+    # Meia caixa: só Aba | L | C na impressora (caixa grande feita em duas
+    # metades coladas depois).
+    MALETA_NORMAL_MEIA = auto()
+    MALETA_TRANSPASSADA_MEIA = auto()
+    # Capa / bandeja: envoltório só com A | C | A na impressora e A | L | A
+    # no riscador (fundo, 4 paredes e cantos, sem tampa).
+    ENVOLTORIO_CAPA = auto()
 
 
+# Nomes curtos (cabem na lista sem cortar) e agrupados por família.
 NOME_EXIBICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
-    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Envoltório c/ fechamento no meio (sem corte)",
-    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Envoltório c/ fechamento no meio (com corte)",
-    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE: "Envoltório fechamento normal (sem corte)",
-    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE: "Envoltório fechamento normal (com corte)",
     TipoCaixa.MALETA_NORMAL: "Maleta normal",
+    TipoCaixa.MALETA_NORMAL_MEIA: "Maleta normal · meia caixa",
     TipoCaixa.MALETA_TRANSPASSADA: "Maleta transpassada",
+    TipoCaixa.MALETA_TRANSPASSADA_MEIA: "Maleta transpassada · meia caixa",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE: "Envoltório normal · sem corte",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE: "Envoltório normal · com corte",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Envoltório fecha no meio · sem corte",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Envoltório fecha no meio · com corte",
+    TipoCaixa.ENVOLTORIO_CAPA: "Envoltório capa (bandeja)",
 }
+
+# Ordem da lista de tipos na tela (a do dicionário acima).
+ORDEM_TIPOS_CAIXA: list[TipoCaixa] = list(NOME_EXIBICAO_TIPO_CAIXA)
+
+# Explicação de cada tipo (dica da lista).
+DESCRICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
+    TipoCaixa.MALETA_NORMAL: "Aba | L | C | L | C — abas de cima e de baixo se encontram no meio (L/2).",
+    TipoCaixa.MALETA_NORMAL_MEIA: "Metade da maleta normal: Aba | L | C. Pra caixa grande, feita em duas metades coladas.",
+    TipoCaixa.MALETA_TRANSPASSADA: "Aba | L | C | L | C — abas de cima e de baixo inteiras (L), uma por cima da outra.",
+    TipoCaixa.MALETA_TRANSPASSADA_MEIA: "Metade da maleta transpassada: Aba | L | C.",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE: "Tampa inteira (L) + aba de fechamento; chapa inteira.",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE: "Tampa inteira (L) + aba de fechamento; cantos externos recortados.",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Duas meias tampas (L/2) que se encontram no meio; chapa inteira.",
+    TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Duas meias tampas (L/2); cantos externos recortados.",
+    TipoCaixa.ENVOLTORIO_CAPA: "Bandeja: A | C | A na impressora e A | L | A no riscador — fundo, 4 paredes e cantos, sem tampa.",
+}
+
+TIPOS_MALETA = {
+    TipoCaixa.MALETA_NORMAL,
+    TipoCaixa.MALETA_TRANSPASSADA,
+    TipoCaixa.MALETA_NORMAL_MEIA,
+    TipoCaixa.MALETA_TRANSPASSADA_MEIA,
+}
+TIPOS_MEIA_CAIXA = {TipoCaixa.MALETA_NORMAL_MEIA, TipoCaixa.MALETA_TRANSPASSADA_MEIA}
+TIPOS_TRANSPASSADA = {TipoCaixa.MALETA_TRANSPASSADA, TipoCaixa.MALETA_TRANSPASSADA_MEIA}
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────

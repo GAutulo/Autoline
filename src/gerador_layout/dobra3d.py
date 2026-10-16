@@ -36,11 +36,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from .models import TIPOS_MALETA as _TIPOS_MALETA
+from .models import TIPOS_MEIA_CAIXA as _TIPOS_MEIA
+from .models import TIPOS_TRANSPASSADA as _TIPOS_TRANSPASSADA
 from .models import TipoCaixa
 
 Vetor = tuple[float, float, float]
 
-_TIPOS_MALETA = {TipoCaixa.MALETA_NORMAL, TipoCaixa.MALETA_TRANSPASSADA}
 _TIPOS_FECHAMENTO_NORMAL = {
     TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE,
     TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE,
@@ -275,6 +277,8 @@ def montar_modelo(
     aplicados) — os mesmos que desenham a faca."""
     if any(s <= 0 for s in segmentos_impressora + segmentos_riscador):
         return ModeloCaixa3D()
+    if tipo == TipoCaixa.ENVOLTORIO_CAPA:
+        return _modelo_capa(segmentos_impressora, segmentos_riscador)
     if tipo in _TIPOS_MALETA:
         return _modelo_maleta(tipo, segmentos_impressora, segmentos_riscador)
     return _modelo_envoltorio(tipo, segmentos_impressora, segmentos_riscador)
@@ -291,21 +295,33 @@ def _horizontal(y: float, x1: float, x2: float) -> tuple[tuple[float, float], tu
 def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> ModeloCaixa3D:
     # Impressora (X): Aba | L | C | L | C    Riscador (Y): Sup | A | Inf
     xs, ys = _bordas(imp), _bordas(ris)
-    if len(xs) < 6 or len(ys) < 4:
+    meia = tipo in _TIPOS_MEIA
+    if len(xs) < (4 if meia else 6) or len(ys) < 4:
         return ModeloCaixa3D()
-    x0, x1, x2, x3, x4, x5 = xs[:6]
+    if meia:
+        x0, x1, x2, x3 = xs[:4]
+        x4 = x5 = x3
+    else:
+        x0, x1, x2, x3, x4, x5 = xs[:6]
     y0, y1, y2, y3 = ys[:4]
-    transpassada = tipo == TipoCaixa.MALETA_TRANSPASSADA
+    transpassada = tipo in _TIPOS_TRANSPASSADA
     folga = _FOLGA_ABA_GRAUS
 
     paineis = [
         PainelDobravel("frente", "Frente", x2, y1, x3, y2),
         PainelDobravel("lateral1", "Lateral 1", x1, y1, x2, y2, "frente", _vertical(x2, y1, y2), 90.0, 0.0, 0.40),
-        PainelDobravel("lateral2", "Lateral 2", x3, y1, x4, y2, "frente", _vertical(x3, y1, y2), 90.0, 0.0, 0.40),
-        PainelDobravel("verso", "Verso", x4, y1, x5, y2, "lateral2", _vertical(x4, y1, y2), 90.0, 0.10, 0.48),
-        # A aba de cola fecha por dentro do verso.
-        PainelDobravel("aba_cola", "Aba de cola", x0, y1, x1, y2, "lateral1", _vertical(x1, y1, y2), 90.0 + folga, 0.20, 0.50, camada=1),
+        # A aba de cola fecha por dentro do verso (na meia caixa, fica pra
+        # colar na outra metade).
+        PainelDobravel(
+            "aba_cola", "Aba de cola", x0, y1, x1, y2, "lateral1", _vertical(x1, y1, y2),
+            0.0 if meia else 90.0 + folga, 0.20, 0.50, camada=1,
+        ),
     ]
+    if not meia:
+        paineis += [
+            PainelDobravel("lateral2", "Lateral 2", x3, y1, x4, y2, "frente", _vertical(x3, y1, y2), 90.0, 0.0, 0.40),
+            PainelDobravel("verso", "Verso", x4, y1, x5, y2, "lateral2", _vertical(x4, y1, y2), 90.0, 0.10, 0.48),
+        ]
 
     # Abas de fundo (riscador inferior) e de tampa (superior): as menores
     # (nas laterais) dobram antes e ficam por baixo das maiores (frente e
@@ -317,6 +333,8 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
         ("lateral2", "Lateral 2", x3, x4, False),
         ("verso", "Verso", x4, x5, True),
     ]
+    if meia:
+        colunas = colunas[:2]
     for lado, y_aba1, y_aba2, y_dobra, base in (
         ("fundo", y2, y3, y2, 0.50),
         ("tampa", y0, y1, y1, 0.75),
@@ -345,7 +363,38 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
         cima=(0.0, -1.0, 0.0),  # o riscador superior vira a tampa
         frente=(0.0, 0.0, -1.0),  # a frente não se mexe: segue virada pro lado impresso
         pitch_planificada=0.0,
-        descricao="Maleta transpassada" if transpassada else "Maleta normal",
+        descricao=("Maleta transpassada" if transpassada else "Maleta normal") + (" — meia caixa" if meia else ""),
+        solido_fechado=not meia,  # meia caixa é aberta: o lado de dentro aparece
+    )
+
+
+def _modelo_capa(imp: list[float], ris: list[float]) -> ModeloCaixa3D:
+    # Impressora (X): A | C | A    Riscador (Y): A | L | A — bandeja sem tampa.
+    xs, ys = _bordas(imp), _bordas(ris)
+    if len(xs) < 4 or len(ys) < 4:
+        return ModeloCaixa3D()
+    x0, x1, x2, x3 = xs[:4]
+    y0, y1, y2, y3 = ys[:4]
+    folga = _FOLGA_ABA_GRAUS
+    paineis = [
+        PainelDobravel("centro", "Centro", x1, y1, x2, y2),
+        PainelDobravel("lateral1", "Lateral 1", x0, y1, x1, y2, "centro", _vertical(x1, y1, y2), 90.0, 0.0, 0.5),
+        PainelDobravel("lateral2", "Lateral 2", x2, y1, x3, y2, "centro", _vertical(x2, y1, y2), 90.0, 0.0, 0.5),
+        PainelDobravel("parede_sup", "Parede superior", x1, y0, x2, y1, "centro", _horizontal(y1, x1, x2), 90.0, 0.3, 1.0),
+        PainelDobravel("parede_inf", "Parede inferior", x1, y2, x2, y3, "centro", _horizontal(y2, x1, x2), 90.0, 0.3, 1.0),
+        # Cantos presos nas laterais, fecham por dentro das paredes.
+        PainelDobravel("canto_1s", "Canto", x0, y0, x1, y1, "lateral1", _horizontal(y1, x0, x1), 90.0 + folga, 0.0, 0.5, camada=1),
+        PainelDobravel("canto_1i", "Canto", x0, y2, x1, y3, "lateral1", _horizontal(y2, x0, x1), 90.0 + folga, 0.0, 0.5, camada=1),
+        PainelDobravel("canto_2s", "Canto", x2, y0, x3, y1, "lateral2", _horizontal(y1, x2, x3), 90.0 + folga, 0.0, 0.5, camada=1),
+        PainelDobravel("canto_2i", "Canto", x2, y2, x3, y3, "lateral2", _horizontal(y2, x2, x3), 90.0 + folga, 0.0, 0.5, camada=1),
+    ]
+    return ModeloCaixa3D(
+        paineis=paineis,
+        cima=(0.0, 0.0, 1.0),
+        frente=(0.0, -1.0, 0.0),
+        pitch_planificada=-90.0,
+        descricao="Envoltório capa (bandeja)",
+        solido_fechado=False,  # aberta: o fundo de dentro aparece
     )
 
 
