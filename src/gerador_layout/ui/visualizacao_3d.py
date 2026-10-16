@@ -242,16 +242,50 @@ class _Superficie:
     (``face``) ou um trecho da borda cortada do papelão (``borda``)."""
 
     __slots__ = ("tipo", "pp", "externo", "normal", "quad_mundo", "quad_local", "contorno_local", "miolo")
+    # contorno_local: [(QLineF na chapa, é_vinco)] — corte e vinco desenhados diferente
 
     def __init__(self, tipo, pp, externo, normal, quad_mundo, quad_local=None, contorno_local=None, miolo=None):
         self.tipo, self.pp, self.externo, self.normal = tipo, pp, externo, normal
         self.quad_mundo, self.quad_local, self.contorno_local, self.miolo = quad_mundo, quad_local, contorno_local, miolo
 
 
-def _contorno_do_painel(painel) -> list[QPolygonF]:
-    """Os anéis da borda do painel (contorno e furos), na chapa."""
-    aneis = [painel.cantos, *painel.furos]
-    return [QPolygonF([QPointF(x, y) for x, y in anel]) for anel in aneis]
+def _contorno_do_painel(painel, dobradicas) -> list[tuple[QLineF, bool]]:
+    """A borda do painel (contorno e furos) na chapa, em trechos marcados
+    como vinco (sobre a dobradiça de algum painel) ou corte (o resto) — no
+    3D, sobretudo planificado, o corte precisa aparecer diferente do vinco."""
+    trechos: list[tuple[QLineF, bool]] = []
+    for anel in (painel.cantos, *painel.furos):
+        n = len(anel)
+        for k in range(n):
+            (ax, ay), (bx, by) = anel[k], anel[(k + 1) % n]
+            dx, dy = bx - ax, by - ay
+            comprimento2 = dx * dx + dy * dy
+            if comprimento2 < 1e-12:
+                continue
+            comprimento = math.sqrt(comprimento2)
+            cobertos = []
+            for (px, py), (qx, qy) in dobradicas:
+                # dobradiça na mesma reta da aresta?
+                if abs((px - ax) * dy - (py - ay) * dx) / comprimento > 1e-3:
+                    continue
+                if abs((qx - ax) * dy - (qy - ay) * dx) / comprimento > 1e-3:
+                    continue
+                t0 = ((px - ax) * dx + (py - ay) * dy) / comprimento2
+                t1 = ((qx - ax) * dx + (qy - ay) * dy) / comprimento2
+                t0, t1 = max(0.0, min(t0, t1)), min(1.0, max(t0, t1))
+                if t1 - t0 > 1e-6:
+                    cobertos.append((t0, t1))
+            cobertos.sort()
+            t = 0.0
+            for t0, t1 in cobertos:
+                if t0 > t + 1e-9:
+                    trechos.append((QLineF(ax + dx * t, ay + dy * t, ax + dx * t0, ay + dy * t0), False))
+                if t1 > t:
+                    trechos.append((QLineF(ax + dx * max(t, t0), ay + dy * max(t, t0), ax + dx * t1, ay + dy * t1), True))
+                    t = t1
+            if t < 1.0 - 1e-9:
+                trechos.append((QLineF(ax + dx * t, ay + dy * t, bx, by), False))
+    return trechos
 
 
 def _superficies(posicionados, espessura: float, caixa_fechada: bool) -> list[Poligono3D]:
@@ -261,6 +295,7 @@ def _superficies(posicionados, espessura: float, caixa_fechada: bool) -> list[Po
     poligonos: list[Poligono3D] = []
     e = espessura
     ondas = miolo_do_papelao(e)
+    dobradicas = [pp.painel.dobradica for pp in posicionados if pp.painel.dobradica is not None]
     for pp in posicionados:
         painel = pp.painel
         if caixa_fechada and painel.camada > 0:
@@ -271,7 +306,7 @@ def _superficies(posicionados, espessura: float, caixa_fechada: bool) -> list[Po
         n_int = (-n_ext[0], -n_ext[1], -n_ext[2])
         x1, y1, x2, y2 = painel.x1, painel.y1, painel.x2, painel.y2
         quad_local = QPolygonF([QPointF(x1, y1), QPointF(x2, y1), QPointF(x2, y2), QPointF(x1, y2)])
-        contorno = _contorno_do_painel(painel)
+        contorno = _contorno_do_painel(painel, dobradicas)
         for externo, z, normal in ((True, 0.0, n_ext), (False, e, n_int)):
             if caixa_fechada and not externo:
                 continue
@@ -528,7 +563,7 @@ class VistaCaixa3D(QWidget):
         u = _suavizar(self._progresso)
         yaw = math.radians(_lerp(0.0, _YAW_MONTADA, u) + self._yaw_usuario + self._giro_auto)
         pitch_graus = _lerp(m.pitch_planificada, _PITCH_MONTADA, u) + self._pitch_usuario
-        pitch = math.radians(max(-90.0, min(90.0, pitch_graus)))
+        pitch = math.radians(pitch_graus)  # sem trava: dá a volta e olha por baixo
 
         cima = normalizar(m.cima)
         frente = normalizar(m.frente)
@@ -642,6 +677,15 @@ class VistaCaixa3D(QWidget):
         razao_pixels = foto["escala"] if foto else self.devicePixelRatioF()
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
+        # Corte: linha cheia e mais escura. Vinco: tracejado enquanto a caixa
+        # está aberta (como na dieline); montada, só um traço leve na dobra.
+        caneta_corte = QPen(QColor(40, 26, 10), 1.6)
+        caneta_corte.setCosmetic(True)
+        if self._progresso < 0.5:
+            caneta_vinco = QPen(QColor(74, 54, 30, 200), 1.1, Qt.PenStyle.DashLine)
+        else:
+            caneta_vinco = QPen(QColor(74, 54, 30, 120), 1.0)
+        caneta_vinco.setCosmetic(True)
         info: dict[int, dict] = {}  # por superfície, neste quadro
         caixa_tela = QRectF()
         ordem = de_tras_pra_frente(arvore, olho, [])
@@ -703,7 +747,7 @@ class VistaCaixa3D(QWidget):
                 if sup.tipo == "face" and quad is not None:
                     transformacao = QTransform()
                     if QTransform.quadToQuad(sup.quad_local, quad, transformacao):
-                        contorno_tela = [transformacao.map(anel) for anel in sup.contorno_local]
+                        contorno_tela = [(transformacao.map(linha), vinco) for linha, vinco in sup.contorno_local]
                     else:
                         transformacao = None
                 dados = {"cor": cor, "caneta": caneta_fill, "quad": quad, "t": transformacao, "contorno": contorno_tela}
@@ -749,10 +793,10 @@ class VistaCaixa3D(QWidget):
                     p.drawImage(QPointF(0.0, 0.0), imagem)
                     p.resetTransform()
                 if dados["contorno"] is not None:
-                    p.setPen(caneta_aresta)
                     p.setBrush(Qt.BrushStyle.NoBrush)
-                    for anel in dados["contorno"]:
-                        p.drawPolygon(anel)
+                    for linha, vinco in dados["contorno"]:
+                        p.setPen(caneta_vinco if vinco else caneta_corte)
+                        p.drawLine(linha)
                 p.restore()
             elif quad is not None:
                 p.save()
@@ -801,6 +845,9 @@ class VistaCaixa3D(QWidget):
         cima = normalizar(self._modelo.cima)
         meia_altura = self._raio_montado * 0.6
         chao = tuple(self._centro_montado[i] - cima[i] * meia_altura for i in range(3))
+        olho = self._camera()[0]
+        if produto_escalar(tuple(olho[i] - chao[i] for i in range(3)), cima) <= 0:
+            return  # olhando por baixo do chão: não tem sombra pra ver
         pc = para_camera(chao)
         if pc[2] <= 1.0:
             return
@@ -965,7 +1012,7 @@ class VistaCaixa3D(QWidget):
         inicio, yaw0, pitch0 = self._arrasto
         delta = evento.position() - inicio
         self._yaw_usuario = yaw0 - delta.x() * 0.4
-        self._pitch_usuario = max(-180.0, min(180.0, pitch0 + delta.y() * 0.4))
+        self._pitch_usuario = pitch0 + delta.y() * 0.4
         self.update()
 
     def mouseReleaseEvent(self, evento) -> None:  # noqa: N802
