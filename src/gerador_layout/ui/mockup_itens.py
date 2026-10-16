@@ -533,7 +533,15 @@ class ElementoMockup(QGraphicsObject):
             # seleção múltipla — os dois brigariam pelo mesmo clique.
             if event.modifiers() & Qt.KeyboardModifier.AltModifier and self._solicitar_duplicata is not None:
                 self._solicitar_duplicata(self)
-            super().mousePressEvent(event)  # só resolve SELEÇÃO (clique simples/Ctrl/Shift) — mover é manual, ver abaixo
+            # Shift+clique acrescenta/tira este da seleção, como no CorelDRAW
+            # (o Qt só faz isso com Ctrl). Feito à mão: o press/release
+            # nativo sem Ctrl desmarcaria os outros.
+            self._clique_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if self._clique_shift:
+                self.setSelected(not self.isSelected())
+                event.accept()
+            else:
+                super().mousePressEvent(event)  # só resolve SELEÇÃO (clique simples/Ctrl) — mover é manual, ver abaixo
             self._arrastando_corpo = True
             self._deixar_copia_ao_soltar = False
             self._arrasto_corpo_ponto_inicial_cena = event.scenePos()
@@ -623,7 +631,9 @@ class ElementoMockup(QGraphicsObject):
             return
         if self._arrastando_corpo:
             self._arrastando_corpo = False
-            super().mouseReleaseEvent(event)
+            if not getattr(self, "_clique_shift", False):
+                super().mouseReleaseEvent(event)
+            self._clique_shift = False
             if self._calculador_snap is not None and not self._encaixou_ao_vivo and self._arrasto_corpo_iniciado:
                 # Encaixe só ao SOLTAR o botão, não durante o arrasto —
                 # aplicado a partir de `self` (o item realmente clicado),
