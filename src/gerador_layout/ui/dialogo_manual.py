@@ -475,7 +475,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 propriedades ficam fonte, tamanho em pontos, negrito, cor e o
                 <b>arranjo</b> — <b>Empilhado</b> (um embaixo do outro) ou <b>Lado a
                 lado</b> (em linha, quebrando pra baixo quando não cabe na largura).
-                <b>Padrão da máquina</b>: texto e checklist novos já nascem em Arial Black,
+                <b>Padrão da máquina</b>: texto, checklist e tabela novos já nascem em Arial Black,
                 letra de <b>2 mm</b> de altura e <b>meio esticada</b> (66,7% da largura
                 normal), em qualquer zoom. No checklist dá pra mudar a altura da letra (mm)
                 e a largura (%) na barra; no texto, a altura (H) com o cadeado fechado
