@@ -117,6 +117,17 @@ class PaletaCores(QWidget):
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(2, 4, 2, 4)
         vbox.setSpacing(2)
+        self._vbox = vbox
+        self.definir_cores(cores)
+
+    def definir_cores(self, cores: list[tuple[str, tuple[int, int, int]]]) -> None:
+        """Refaz as amostras (cor nova criada na legenda entra aqui também)."""
+        vbox = self._vbox
+        while vbox.count():
+            item = vbox.takeAt(0)
+            if item.widget() is not None:
+                item.widget().hide()
+                item.widget().deleteLater()
         nenhuma = _Amostra(None, "Nenhum — esquerdo tira o preenchimento")
         nenhuma.clique_esquerdo.connect(lambda: self.preenchimento_escolhido.emit(None))
         nenhuma.clique_direito.connect(lambda: self.contorno_escolhido.emit(None))

@@ -300,6 +300,23 @@ def definir_desenvolvido_por(nome: str) -> None:
     _settings().setValue("desenvolvido_por", nome)
 
 
+def cores_personalizadas() -> list[tuple[str, tuple[int, int, int]]]:
+    """Tintas criadas pelo usuário ("+ Nova cor" na legenda): nome e RGB."""
+    import json
+
+    try:
+        lista = json.loads(_settings().value("cores_personalizadas", "[]", type=str) or "[]")
+    except ValueError:
+        return []
+    return [(str(nome), (int(r), int(g), int(b))) for nome, r, g, b in lista]
+
+
+def definir_cores_personalizadas(cores: list[tuple[str, tuple[int, int, int]]]) -> None:
+    import json
+
+    _settings().setValue("cores_personalizadas", json.dumps([[n, *rgb] for n, rgb in cores], ensure_ascii=False))
+
+
 def projetos_recentes() -> list[str]:
     valor = _settings().value("projetos_recentes", [])
     if isinstance(valor, str):
