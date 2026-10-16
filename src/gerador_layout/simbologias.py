@@ -186,7 +186,9 @@ def separar_folha_svg(conteudo: str) -> list[str]:
     from PySide6.QtCore import QByteArray, QRectF
     from PySide6.QtSvg import QSvgRenderer
 
-    raiz = ET.fromstring(conteudo)
+    from .svg_corel import corrigir_svg_corel
+
+    raiz = ET.fromstring(corrigir_svg_corel(conteudo))
     contador = 0
     for el in raiz.iter():
         if _local(el.tag) in _FOLHAS | {"g"} and not el.get("id"):

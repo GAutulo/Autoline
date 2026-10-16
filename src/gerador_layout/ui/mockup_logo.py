@@ -17,6 +17,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 from ..models import CorImpressao
 from ..simbologias import enquadrar_no_desenho
+from ..svg_corel import corrigir_svg_corel
 from . import svg_cores
 from .mockup_itens import ElementoMockup
 
@@ -59,6 +60,8 @@ class ElementoLogoVetorial(ElementoMockup):
             conteudo_original = _ler_conteudo_svg(caminho_arquivo)
         except OSError as exc:
             raise ValueError(f"Não consegui ler o arquivo: {caminho_arquivo}") from exc
+        # SVG do CorelDRAW: desfaz o deslocamento que o exportador dele causa.
+        conteudo_original = corrigir_svg_corel(conteudo_original)
 
         renderer = QSvgRenderer()
         if not renderer.load(conteudo_original.encode("utf-8")):
