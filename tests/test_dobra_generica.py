@@ -312,7 +312,9 @@ def test_espessura_do_papelao_no_3d():
     vista = j.visualizacao_3d.vista
     vista.resize(800, 600)
     assert vista.espessura == 0.0  # padrão: folha fina, como antes
-    j.visualizacao_3d.combo_papelao.activated.emit(3)  # escolher "Onda B" na lista
+    j.visualizacao_3d.combo_papelao.activated.emit(
+        j.visualizacao_3d.combo_papelao.findData(3.0)
+    )  # escolher "Onda B" na lista
     assert vista.espessura == 3.0 and j.visualizacao_3d.campo_espessura.value() == 3.0
     vista._progresso = 0.5
     vista.grab()  # aberta: desenha as faixas da borda sem erro
@@ -367,6 +369,8 @@ def test_ondas_do_papelao_na_borda():
 
     QApplication.instance() or QApplication([])
     assert miolo_do_papelao(0.0) == () and miolo_do_papelao(0.5) == ()  # fino e cartão: sem onda
+    assert miolo_do_papelao(0.3) == (0.65,) and miolo_do_papelao(0.7) == (0.65, 0.8)  # B e BC em 1:10
+    assert miolo_do_papelao(0.25) == pytest.approx((0.55,))  # digitado pequeno: onda proporcional
     assert miolo_do_papelao(3.0) == (6.5,)  # onda B: uma ondulação
     assert miolo_do_papelao(7.0) == (6.5, 8.0)  # onda dupla BC: duas
     assert len(miolo_do_papelao(2.2)) == 1 and len(miolo_do_papelao(6.0)) == 2  # digitado
@@ -386,3 +390,18 @@ def test_ondas_do_papelao_na_borda():
     assert len(desenhar(3.0, True)) > len(desenhar(3.0, False))  # a onda só no corte atravessado
     longe = QPolygonF([QPointF(10, 10), QPointF(890, 10), QPointF(890, 12), QPointF(10, 12)])
     assert len(desenhar(7.0, True, longe)) <= 1  # faixa de 2 px: nada de camada
+
+
+def test_papelao_padrao_e_onda_b_em_escala_1_10():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui import configuracoes
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    configuracoes._settings().remove("espessura_papelao_mm")  # nunca escolhido
+    j = JanelaPrincipal()
+    assert j.visualizacao_3d.vista.espessura == pytest.approx(0.3)
+    assert j.visualizacao_3d.combo_papelao.currentText() == "Onda B 1:10 (0,3 mm)"
+    j.close()
