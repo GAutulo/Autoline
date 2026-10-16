@@ -50,6 +50,8 @@ class ElementoTexto(ElementoMockup):
         self._fonte_familia = fonte_familia
         self._negrito = negrito
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
+        # Alinhamento das linhas entre si: "esquerda", "centro" ou "direita".
+        self._alinhamento = "esquerda"
         # Edição direto no desenho.
         self._editando = False
         self._cursor = len(texto)
@@ -119,6 +121,28 @@ class ElementoTexto(ElementoMockup):
     def _linhas(self) -> list[str]:
         return self._texto.split("\n")
 
+    @property
+    def alinhamento(self) -> str:
+        return self._alinhamento
+
+    def definir_alinhamento(self, alinhamento: str) -> None:
+        """Esquerda, centro ou direita — as linhas se alinham entre si dentro
+        do bloco (a caixa do texto não muda de tamanho nem de lugar)."""
+        if alinhamento in ("esquerda", "centro", "direita"):
+            self._alinhamento = alinhamento
+            self.update()
+
+    def _deslocamento_linha(self, linha: int) -> float:
+        """Quanto a linha anda pra direita (unidade de referência) pra ficar
+        alinhada com a mais larga."""
+        if self._alinhamento == "esquerda":
+            return 0.0
+        metrica = QFontMetricsF(self._fonte_referencia())
+        linhas = self._linhas()
+        largura_bloco = max((metrica.horizontalAdvance(l) for l in linhas), default=0.0)
+        sobra = largura_bloco - metrica.horizontalAdvance(linhas[linha])
+        return sobra / 2 if self._alinhamento == "centro" else sobra
+
     def _medidas_referencia(self) -> tuple[float, float, float, float]:
         """(altura do bloco, largura do bloco, altura das maiúsculas,
         espaço entre linhas) na unidade de referência."""
@@ -162,7 +186,7 @@ class ElementoTexto(ElementoMockup):
         caminho = QPainterPath()
         for k, linha in enumerate(self._linhas()):
             if linha:
-                caminho.addText(QPointF(0, cap + k * entre_linhas), fonte, linha)
+                caminho.addText(QPointF(self._deslocamento_linha(k), cap + k * entre_linhas), fonte, linha)
         ex, ey = self._escalas()
         return QTransform.fromScale(ex, ey).map(caminho)
 
@@ -170,6 +194,7 @@ class ElementoTexto(ElementoMockup):
         novo = ElementoTexto(
             texto=self._texto, fonte_familia=self._fonte_familia, negrito=self._negrito, cor_tinta=self._cor_tinta
         )
+        novo._alinhamento = self._alinhamento
         self._copiar_geometria_para(novo)
         return novo
 
@@ -368,11 +393,12 @@ class ElementoTexto(ElementoMockup):
     def _x_da_coluna(self, linha: int, coluna: int) -> float:
         """x (referência) do ponto antes do caractere `coluna` da linha."""
         metrica = QFontMetricsF(self._fonte_referencia())
-        return metrica.horizontalAdvance(self._linhas()[linha][:coluna])
+        return self._deslocamento_linha(linha) + metrica.horizontalAdvance(self._linhas()[linha][:coluna])
 
     def _coluna_do_x(self, linha: int, x_ref: float) -> int:
         texto = self._linhas()[linha]
         metrica = QFontMetricsF(self._fonte_referencia())
+        x_ref -= self._deslocamento_linha(linha)
         melhor, menor = 0, abs(x_ref)
         for k in range(1, len(texto) + 1):
             d = abs(metrica.horizontalAdvance(texto[:k]) - x_ref)
