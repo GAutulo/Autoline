@@ -864,6 +864,39 @@ class PainelPropriedadesMockup(QWidget):
         botao_editar = self._botao_icone("ferramenta_tabela", f"Editar tabela ({el.linhas}×{el.colunas})...")
         botao_editar.clicked.connect(lambda: self._abrir_dialogo_tabela(el, botao_editar))
 
+        combo_fonte = self._combo_de_fonte()
+        if el.fonte_familia:
+            combo_fonte.setCurrentFont(QFont(el.fonte_familia))
+        self._slot_fonte = lambda fonte: el.definir_fonte(fonte.family())
+        combo_fonte.currentFontChanged.connect(self._slot_fonte)
+        self._grupo("fonte_aa", combo_fonte, "Fonte")
+        combo_fonte.show()
+
+        altura = QDoubleSpinBox()
+        altura.setRange(0.0, 500.0)
+        altura.setDecimals(2)
+        altura.setSuffix(" mm")
+        altura.setSpecialValueText("cabe")
+        altura.setValue(el.altura_letra_mm or 0.0)
+        altura.setKeyboardTracking(False)
+        altura.setMaximumWidth(78)
+        altura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        altura.setObjectName("alturaLetraTabela")
+        altura.valueChanged.connect(lambda mm: el.definir_altura_letra_mm(mm or None))
+        self._grupo("altura", altura, "Altura da letra (maiúscula), em mm — 0 = a maior que cabe na célula")
+
+        largura = QDoubleSpinBox()
+        largura.setRange(20.0, 200.0)
+        largura.setDecimals(1)
+        largura.setSuffix(" %")
+        largura.setValue(el.largura_letra * 100)
+        largura.setKeyboardTracking(False)
+        largura.setMaximumWidth(70)
+        largura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        largura.setObjectName("larguraLetraTabela")
+        largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
+        self._grupo("largura", largura, "Largura das letras (100% = normal; 66,7% = meio esticada, o padrão da máquina)")
+
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _abrir_dialogo_tabela(self, el: ElementoTabela, botao: QToolButton) -> None:
