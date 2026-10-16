@@ -31,7 +31,21 @@ import math
 
 from PySide6.QtCore import QElapsedTimer, QEasingCurve, QLineF, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform
-from PySide6.QtWidgets import QButtonGroup, QComboBox, QDoubleSpinBox, QGraphicsScene, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGraphicsScene,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..dobra3d import (
     ModeloCaixa3D,
@@ -447,10 +461,49 @@ class VistaCaixa3D(QWidget):
         self._pintar(evento)
         self._ultimo_quadro_ms = float(relogio.elapsed())
 
-    def _pintar(self, _evento) -> None:
-        p = QPainter(self)
+    # ── Foto da vista (pra mandar pro cliente) ───────────────────────
+    def renderizar_imagem(self, escala: float = 2.0, fundo: QColor | None = None, recortar: bool = True) -> QImage:
+        """A vista atual como imagem, `escala` vezes o tamanho da tela, sem
+        os textos de ajuda nem as marcas de dobra. `fundo` None = transparente
+        (PNG); a arte das faces é gerada na resolução da foto."""
+        escala = max(1.0, float(escala))
+        self._foto = {"escala": escala, "fundo": fundo}
+        try:
+            imagem = self._pintar_em_imagem(escala, fundo)
+            if self._texturas_pendentes:
+                # A arte pediu resolução maior: gera agora e pinta de novo.
+                pendentes, self._texturas_pendentes = self._texturas_pendentes, {}
+                self._gerar_texturas(pendentes)
+                imagem = self._pintar_em_imagem(escala, fundo)
+            caixa = self._foto.get("caixa")
+        finally:
+            self._foto = None
+            self._timer_texturas.start()  # a tela volta pra resolução dela
+        if recortar and caixa is not None and not caixa.isEmpty():
+            # Recorta em volta da caixa: margem de 12% (cabe a sombra embaixo).
+            margem = max(caixa.width(), caixa.height()) * 0.12
+            area = caixa.adjusted(-margem, -margem, margem, margem * 1.6).intersected(QRectF(self.rect()))
+            px = area.toAlignedRect()
+            imagem = imagem.copy(
+                int(px.x() * escala), int(px.y() * escala), int(px.width() * escala), int(px.height() * escala)
+            )
+            imagem.setDevicePixelRatio(1.0)
+        return imagem
+
+    def _pintar_em_imagem(self, escala: float, fundo: QColor | None) -> QImage:
+        imagem = QImage(int(self.width() * escala), int(self.height() * escala), QImage.Format.Format_ARGB32_Premultiplied)
+        imagem.setDevicePixelRatio(escala)
+        imagem.fill(Qt.GlobalColor.transparent if fundo is None else fundo)
+        self._pintar(None, alvo=imagem)
+        return imagem
+
+    def _pintar(self, _evento, alvo=None) -> None:
+        foto = getattr(self, "_foto", None)
+        p = QPainter(self if alvo is None else alvo)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), _COR_FUNDO)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if foto is None:
+            p.fillRect(self.rect(), _COR_FUNDO)
 
         if self._modelo.vazio:
             p.setPen(_COR_TEXTO_FUNDO)
@@ -488,7 +541,7 @@ class VistaCaixa3D(QWidget):
         com_arte = self._fonte_arte is not None
         densidade_necessaria: dict[str, float] = {}
         retangulo_painel: dict[str, QRectF] = {}
-        razao_pixels = self.devicePixelRatioF()
+        razao_pixels = foto["escala"] if foto else self.devicePixelRatioF()
         for pp in posicionar(self._modelo, self._progresso):
             painel = pp.painel
             if caixa_fechada and painel.camada > 0:
@@ -621,6 +674,12 @@ class VistaCaixa3D(QWidget):
         caneta_aresta = QPen(_COR_ARESTA, 1.2)
         caneta_aresta.setCosmetic(True)
         transformacao = QTransform()
+        if foto is not None:
+            # Onde a caixa caiu na imagem (pro recorte da foto).
+            caixa_tela = QRectF()
+            for item in pedacos:
+                caixa_tela = caixa_tela.united(item[1].boundingRect())
+            foto["caixa"] = caixa_tela
         for _prof, poligono, cor, bordas, arte_pedaco, quad_tela, miolo in pedacos:
             # Contorno da mesma cor fecha as frestas de antialiasing entre pedaços.
             caneta_fill = QPen(cor, 1.2)
@@ -649,6 +708,8 @@ class VistaCaixa3D(QWidget):
                 for a, b in bordas:
                     p.drawLine(a, b)
 
+        if foto:
+            return  # foto: só a caixa (e a sombra)
         if self._modo == "dobra":
             self._desenhar_dobradicas(p)
         self._desenhar_legenda(p)
@@ -978,6 +1039,29 @@ class Visualizacao3D(QWidget):
     angulo_alterado = Signal(int, float)
     face_base_escolhida = Signal(str)
 
+    def salvar_imagem(self, caminho: str | None = None) -> str | None:
+        """Pergunta onde salvar (se não vier o caminho) e grava a vista atual
+        em alta resolução: JPG com fundo branco, PNG com fundo transparente."""
+        if caminho is None:
+            caminho, _filtro = QFileDialog.getSaveFileName(
+                self, "Salvar imagem do 3D", "caixa-3d.jpg", "JPG (*.jpg *.jpeg);;PNG com fundo transparente (*.png)"
+            )
+            if not caminho:
+                return None
+        png = caminho.lower().endswith(".png")
+        if not png and not caminho.lower().endswith((".jpg", ".jpeg")):
+            caminho += ".jpg"
+        # ~4000 px de largura na tela inteira (no mínimo o triplo): depois do
+        # recorte em volta da caixa a foto ainda fica grande e nítida.
+        escala = max(3.0, 4000.0 / max(1, self.vista.width()))
+        imagem = self.vista.renderizar_imagem(escala, None if png else QColor(255, 255, 255))
+        if not png:
+            imagem = imagem.convertToFormat(QImage.Format.Format_RGB32)
+        if not imagem.save(caminho, "PNG" if png else "JPG", -1 if png else 95):
+            QMessageBox.critical(self, "Salvar imagem", f"Não consegui salvar em:\n{caminho}")
+            return None
+        return caminho
+
     def definir_espessura(self, mm: float) -> None:
         """Espessura do papelão do 3D: a lista mostra o papelão com essa
         espessura (E = 3 mm vira "Onda B"), ou "Personalizado"."""
@@ -1053,6 +1137,9 @@ class Visualizacao3D(QWidget):
 
         botao_vista = QPushButton("Vista inicial")
         botao_vista.clicked.connect(self.vista.vista_inicial)
+        self.botao_foto = QPushButton("Salvar imagem…")
+        self.botao_foto.setToolTip("Salva a vista 3D como está agora (JPG, ou PNG com fundo transparente) pra mandar pro cliente")
+        self.botao_foto.clicked.connect(lambda _marcado=False: self.salvar_imagem())
         self.botao_girar = QPushButton("Girar sozinho")
         self.botao_girar.setCheckable(True)
         self.botao_girar.setChecked(self.vista.girar_sozinho)
@@ -1074,6 +1161,7 @@ class Visualizacao3D(QWidget):
         barra.addWidget(rotulo_montada)
         barra.addWidget(self.rotulo_dobra)
         barra.addSpacing(8)
+        barra.addWidget(self.botao_foto)
         barra.addWidget(self.botao_girar)
         barra.addWidget(botao_vista)
 
