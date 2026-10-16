@@ -27,7 +27,7 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
@@ -163,6 +163,83 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.FORMA: Qt.CursorShape.ArrowCursor,
     FerramentaMockup.COTA_ANGULAR: Qt.CursorShape.CrossCursor,
 }
+
+# Desenho de cada ferramenta ao lado da cruz (como no CorelDRAW o cursor
+# mostra qual ferramenta está ativa). Ver `_cursor_da_ferramenta`.
+_ICONE_DO_CURSOR = {
+    FerramentaMockup.RETANGULO: "ferramenta_retangulo",
+    FerramentaMockup.LINHA: "ferramenta_linha",
+    FerramentaMockup.ELIPSE: "ferramenta_elipse",
+    FerramentaMockup.POLIGONO: "ferramenta_poligono",
+    FerramentaMockup.ACABAMENTO: "ferramenta_transparencia",
+    FerramentaMockup.TABELA: "ferramenta_tabela",
+    FerramentaMockup.SIMBOLO: "ferramenta_simbolo",
+    FerramentaMockup.LACO_SELECAO: "ferramenta_laco",
+    FerramentaMockup.MOVER_PRECISO: "ferramenta_mover_preciso",
+    FerramentaMockup.COTA_PARALELA: "cota_paralela",
+    FerramentaMockup.COTA_HORIZONTAL: "largura",
+    FerramentaMockup.COTA_VERTICAL: "cota_vertical",
+    FerramentaMockup.COTA_ANGULAR: "cota_angular",
+    FerramentaMockup.BEZIER: "ferramenta_bezier",
+    FerramentaMockup.MAO_LIVRE: "ferramenta_mao_livre",
+    FerramentaMockup.MEDIR: "medida",
+}
+_CURSORES_PRONTOS: dict = {}
+
+
+def _cursor_da_ferramenta(ferramenta: FerramentaMockup):
+    """QCursor da ferramenta: cruz fina com o desenho da ferramenta ao lado
+    (conta-gotas: o próprio conta-gotas, com a ponta no clique). Preto com
+    contorno branco, pra aparecer sobre o papel e sobre a arte."""
+    if ferramenta in _CURSORES_PRONTOS:
+        return _CURSORES_PRONTOS[ferramenta]
+    from PySide6.QtGui import QCursor, QPixmap
+
+    from .mockup_icones import construir_icone
+
+    if ferramenta == FerramentaMockup.CONTA_GOTAS:
+        icone, ponta, cruz = "conta_gotas", None, False
+    elif ferramenta in _ICONE_DO_CURSOR:
+        icone, ponta, cruz = _ICONE_DO_CURSOR[ferramenta], None, True
+    else:
+        cursor = QCursor(_CURSOR_POR_FERRAMENTA[ferramenta])
+        _CURSORES_PRONTOS[ferramenta] = cursor
+        return cursor
+    lado = 32
+    imagem = QImage(lado, lado, QImage.Format.Format_ARGB32_Premultiplied)
+    imagem.fill(Qt.GlobalColor.transparent)
+    p = QPainter(imagem)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    desenho = construir_icone(icone).pixmap(16, 16).toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+    def tingido(cor: QColor) -> QImage:
+        copia = QImage(desenho)
+        q = QPainter(copia)
+        q.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        q.fillRect(copia.rect(), cor)
+        q.end()
+        return copia
+
+    if cruz:
+        meio = 8
+        for cor, largura in ((QColor(255, 255, 255), 3.0), (QColor(0, 0, 0), 1.0)):
+            p.setPen(QPen(cor, largura))
+            p.drawLine(QPointF(meio, 0), QPointF(meio, 16))
+            p.drawLine(QPointF(0, meio), QPointF(16, meio))
+        x0, y0 = 14, 14
+        quente = (meio, meio)
+    else:
+        x0, y0 = 1, 1
+        quente = (2, 16)  # ponta do conta-gotas (canto de baixo à esquerda do desenho)
+    branco, preto = tingido(QColor(255, 255, 255)), tingido(QColor(0, 0, 0))
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        p.drawImage(x0 + dx, y0 + dy, branco)
+    p.drawImage(x0, y0, preto)
+    p.end()
+    cursor = QCursor(QPixmap.fromImage(imagem), *quente)
+    _CURSORES_PRONTOS[ferramenta] = cursor
+    return cursor
+
 
 # Ferramentas de desenho em que as guias dinâmicas já aparecem ao pairar.
 _FERRAMENTAS_DESENHO_COM_GUIAS = {
@@ -573,6 +650,7 @@ class PreviewCanvas(QGraphicsView):
     linha_faca_selecionada = Signal(object)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
+    tinta_amostrada = Signal(object)  # conta-gotas em cima de um objeto: a tinta dele (CorImpressao)
     elipse_desenhada = Signal(QRectF)
     poligono_desenhado = Signal(QRectF)
     acabamento_desenhado = Signal(QRectF)
@@ -1105,6 +1183,10 @@ class PreviewCanvas(QGraphicsView):
     def ferramenta_ativa(self) -> FerramentaMockup:
         return self._ferramenta
 
+    @property
+    def ferramenta_selecionar_ativa(self) -> bool:
+        return self._ferramenta == FerramentaMockup.SELECIONAR
+
     def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
         if self._criando:
             self._cancelar_criacao()
@@ -1139,7 +1221,7 @@ class PreviewCanvas(QGraphicsView):
         # moldura, inexistente aqui — `NoFrame`). Setar no lugar errado é
         # por isso que o cursor nunca trocava visualmente ao mudar de
         # ferramenta, mesmo com o valor certo sendo calculado aqui.
-        self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[ferramenta])
+        self.viewport().setCursor(_cursor_da_ferramenta(ferramenta))
         # Enquanto uma ferramenta de criação está ativa, arrastar no
         # canvas vazio desenha a forma nova, não seleciona por retângulo
         # nem move a visão — `NoDrag` evita que o `QGraphicsView` tente
@@ -1270,7 +1352,7 @@ class PreviewCanvas(QGraphicsView):
             # Restaura o cursor da ferramenta ativa, não `unsetCursor()`
             # (que voltaria pro cursor padrão da seta, ignorando qual
             # ferramenta estava ativa antes do pan).
-            self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[self._ferramenta])
+            self.viewport().setCursor(_cursor_da_ferramenta(self._ferramenta))
             event.accept()
             return
         if self._editando_faca and not self._modo_mockup and event.button() == Qt.MouseButton.LeftButton:
@@ -1296,7 +1378,14 @@ class PreviewCanvas(QGraphicsView):
     def _iniciar_criacao(self, pos_viewport) -> None:
         self._ponto_inicial_criacao = self._ajustar_guias_dinamicas(self.mapToScene(pos_viewport))
         if self._ferramenta == FerramentaMockup.CONTA_GOTAS:
-            # Não precisa de arrasto — amostra na hora do clique.
+            # Não precisa de arrasto — amostra na hora do clique. Em cima de
+            # um objeto com tinta, pega a TINTA dele (como no CorelDRAW);
+            # senão (imagem, fundo), a cor do pixel.
+            alvo = self._elemento_raiz_em(self._ponto_inicial_criacao)
+            tinta = (getattr(alvo, "tinta_unica", None) or getattr(alvo, "cor_tinta", None)) if alvo is not None else None
+            if tinta is not None:
+                self.tinta_amostrada.emit(tinta)
+                return
             cor = self._amostrar_cor(pos_viewport)
             if cor.isValid():
                 self.cor_amostrada.emit(cor)

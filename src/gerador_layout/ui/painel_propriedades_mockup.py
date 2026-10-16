@@ -156,6 +156,22 @@ class PainelPropriedadesMockup(QWidget):
         self._layout_campos.addWidget(container)
         return container
 
+    def _juntar_ultimos(self, quantidade: int) -> None:
+        """Os últimos `quantidade` itens da barra num bloco só — botões que
+        andam juntos (alinhamento, espelhar) não se separam quando a barra
+        quebra de linha."""
+        itens = [self._layout_campos.takeAt(self._layout_campos.count() - 1) for _ in range(quantidade)][::-1]
+        bloco = QWidget()
+        linha = QHBoxLayout(bloco)
+        linha.setContentsMargins(0, 0, 0, 0)
+        linha.setSpacing(3)
+        for item in itens:
+            if item.widget() is not None:
+                linha.addWidget(item.widget())
+            elif item.spacerItem() is not None:
+                linha.addSpacing(item.spacerItem().sizeHint().width())
+        self._layout_campos.addWidget(bloco)
+
     def _botao_icone(self, tipo_icone: str, tooltip: str, checkable: bool = False) -> QToolButton:
         botao = QToolButton()
         botao.setObjectName("botaoIconePropriedade")
@@ -410,7 +426,7 @@ class PainelPropriedadesMockup(QWidget):
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setMaximumWidth(92)
+            spin.setMaximumWidth(86)
             # Campo de texto sem setinhas, como na barra do CorelDRAW — as
             # setas comiam a largura e cortavam o número ("120,0(").
             spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
@@ -465,6 +481,7 @@ class PainelPropriedadesMockup(QWidget):
             botao_v.setChecked(elemento.espelho_v)
             botao_h.toggled.connect(lambda marcado: elemento.definir_espelho(marcado, elemento.espelho_v))
             botao_v.toggled.connect(lambda marcado: elemento.definir_espelho(elemento.espelho_h, marcado))
+            self._juntar_ultimos(3)  # cadeado + espelhar: um bloco só na quebra de linha
 
         self._atualizar_campos_geometria()
 
@@ -521,7 +538,7 @@ class PainelPropriedadesMockup(QWidget):
         paineis = self._obter_paineis()
         combo = QComboBox()
         combo.setObjectName("comboPainel")  # pra achar de forma confiável (ex.: em teste), não por posição
-        combo.setMaximumWidth(110)
+        combo.setMaximumWidth(100)
         combo.addItem(_ROTULO_SEM_PAINEL, None)
         indice_atual = 0
         for i, painel in enumerate(paineis, start=1):
@@ -670,7 +687,7 @@ class PainelPropriedadesMockup(QWidget):
         combo = getattr(self, "_combo_fonte_guardado", None)
         if combo is None:
             combo = QFontComboBox()
-            combo.setMaximumWidth(170)
+            combo.setMaximumWidth(150)
             self._combo_fonte_guardado = combo
         self._desligar_combo_fonte()
         return combo
@@ -719,7 +736,7 @@ class PainelPropriedadesMockup(QWidget):
             if tinta.nome == cor_atual.nome:
                 indice_atual = i
         combo.setObjectName("comboCorTinta")  # pra achar de forma confiável, não por posição
-        combo.setMaximumWidth(100)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)  # "AZUL ROYAL" inteiro
         combo.setCurrentIndex(indice_atual)
         # `currentData()` pode vir None em situações que não deviam
         # acontecer no fluxo normal (ex.: índice inválido) — guarda aqui
@@ -760,7 +777,7 @@ class PainelPropriedadesMockup(QWidget):
         letras.setSuffix(" %")
         letras.setValue(el.espaco_letras * 100)
         letras.setKeyboardTracking(False)
-        letras.setMinimumWidth(78)
+        letras.setFixedWidth(74)
         letras.setObjectName("espacoLetras")
         letras.valueChanged.connect(lambda v: el.definir_espaco_letras(v / 100))
         self._grupo("espaco_letras", letras, "Espaço entre letras (0% = normal; mais afasta, menos aproxima)")
@@ -770,7 +787,7 @@ class PainelPropriedadesMockup(QWidget):
         linhas.setSuffix(" %")
         linhas.setValue(el.espaco_linhas * 100)
         linhas.setKeyboardTracking(False)
-        linhas.setMinimumWidth(78)
+        linhas.setFixedWidth(74)
         linhas.setObjectName("espacoLinhas")
         linhas.valueChanged.connect(lambda v: el.definir_espaco_linhas(v / 100))
         self._grupo("espaco_linhas", linhas, "Espaço entre linhas (100% = normal; menos aproxima, mais afasta)")
@@ -812,9 +829,10 @@ class PainelPropriedadesMockup(QWidget):
             ("direita", "alinhar_direita", "Texto alinhado à direita"),
         ):
             botao = self._botao_icone(icone, dica, checkable=True)
-            botao.setObjectName(f"alinhar_texto_{chave}")
+            botao.setProperty("alinharTexto", chave)  # nome do objeto fica o do estilo dos botões da barra
             botao.setChecked(el.alinhamento == chave)
             botoes_alinhamento.append((chave, botao))
+        self._juntar_ultimos(3)  # os 3 de alinhamento não se separam
 
         def escolher(chave_escolhida: str) -> None:
             el.definir_alinhamento(chave_escolhida)

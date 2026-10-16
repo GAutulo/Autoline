@@ -213,7 +213,8 @@ QGroupBox::indicator:checked {{
    Fundo de campo (`CAMPO`) de propósito, contra o cartão — o contraste
    deixa claro onde o campo começa/termina (borda mais forte que o
    resto do app, mesmo motivo). */
-QComboBox, QDoubleSpinBox {{
+QComboBox, QDoubleSpinBox, QSpinBox, QLineEdit, QTextEdit, QPlainTextEdit {{
+    color: {Cor.TEXTO};
     background: {Cor.CAMPO};
     border: 1.5px solid {Cor.BORDA_FORTE};
     border-radius: 6px;
@@ -222,10 +223,10 @@ QComboBox, QDoubleSpinBox {{
     selection-background-color: {Cor.SELECAO};
     selection-color: {Cor.TEXTO};
 }}
-QComboBox:hover, QDoubleSpinBox:hover {{
+QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover {{
     border-color: {Cor.BORDA_FORTE};
 }}
-QComboBox:focus, QDoubleSpinBox:focus {{
+QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
     border: 1.5px solid {Cor.PRIMARIA};
 }}
 QComboBox::drop-down {{

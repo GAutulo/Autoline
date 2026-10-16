@@ -504,8 +504,14 @@ class ElementoMockup(QGraphicsObject):
 
     # ── Interação de mouse ───────────────────────────────────────────
     def hoverMoveEvent(self, event) -> None:  # noqa: N802
-        alca = self._alca_em(event.pos())
-        self.setCursor(_CURSOR_POR_ALCA.get(alca, Qt.CursorShape.ArrowCursor))
+        vistas = self.scene().views() if self.scene() is not None else []
+        if vistas and not getattr(vistas[0], "ferramenta_selecionar_ativa", True):
+            # Outra ferramenta ativa (retângulo, conta-gotas...): o cursor é o
+            # dela, não a seta/setas de redimensionar do objeto debaixo.
+            self.unsetCursor()
+        else:
+            alca = self._alca_em(event.pos())
+            self.setCursor(_CURSOR_POR_ALCA.get(alca, Qt.CursorShape.ArrowCursor))
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
