@@ -154,6 +154,11 @@ class JanelaPrincipal(QMainWindow):
         self._timer_titulo.timeout.connect(self._atualizar_titulo)
         self.canvas.pilha_desfazer.indexChanged.connect(lambda _i: self._timer_titulo.start())
         self._atualizar_titulo()
+        # Cópia de recuperação: de tempos em tempos, se tem alteração não salva.
+        self._timer_recuperacao = QTimer(self)
+        self._timer_recuperacao.setInterval(projeto_arquivo.INTERVALO_RECUPERACAO_MS)
+        self._timer_recuperacao.timeout.connect(self.salvar_recuperacao)
+        self._timer_recuperacao.start()
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
@@ -1911,9 +1916,54 @@ class JanelaPrincipal(QMainWindow):
 
     def closeEvent(self, evento) -> None:  # noqa: N802
         if self._pode_descartar():
+            projeto_arquivo.apagar_recuperacao()  # fechou direito: nada pra recuperar
             evento.accept()
         else:
             evento.ignore()
+
+    def salvar_recuperacao(self) -> bool:
+        """Guarda a cópia de recuperação se o projeto tem alteração não salva
+        (sem alteração, apaga a que existir). Erro de disco não atrapalha."""
+        try:
+            if self.projeto_modificado():
+                projeto_arquivo.salvar_recuperacao(self, self._caminho_projeto)
+                return True
+            projeto_arquivo.apagar_recuperacao()
+        except OSError:
+            pass
+        return False
+
+    def verificar_recuperacao(self, perguntar=None) -> bool:
+        """Na abertura: se o Autoline fechou sem querer (sobrou a cópia de
+        recuperação), oferece abrir o trabalho de onde parou. `perguntar`
+        (testes) recebe o texto e devolve True/False."""
+        copia = projeto_arquivo.recuperacao_pendente()
+        if copia is None:
+            return False
+        try:
+            dados = projeto_arquivo.ler(copia)
+        except projeto_arquivo.ErroProjeto:
+            projeto_arquivo.apagar_recuperacao()
+            return False
+        original = (dados.get("recuperacao") or {}).get("caminho_original")
+        nome = Path(original).stem if original else "Sem título"
+        texto = (
+            f"O Autoline fechou sem salvar “{nome}”.\n\n"
+            "Quer recuperar o trabalho de onde parou? (a última cópia automática, de até 2 minutos antes)"
+        )
+        if perguntar is None:
+            resposta = QMessageBox.question(self, "Recuperar trabalho", texto) == QMessageBox.StandardButton.Yes
+        else:
+            resposta = perguntar(texto)
+        if not resposta:
+            projeto_arquivo.apagar_recuperacao()
+            return False
+        projeto_arquivo.aplicar_na_janela(self, dados)
+        self._caminho_projeto = original if original and Path(original).exists() else None
+        self._assinatura_salva = None  # recuperado = ainda não salvo
+        self._atualizar_titulo()
+        self.statusBar().showMessage("Trabalho recuperado — salve (Ctrl+S) pra não perder.", 10000)
+        return True
 
     def _sugestao_exportar(self, nome_padrao: str, extensao: str) -> str:
         """Nome do projeto + pasta das imagens do layout (Configurações) ou a última usada."""
