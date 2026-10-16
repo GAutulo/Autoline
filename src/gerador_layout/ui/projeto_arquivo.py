@@ -176,7 +176,10 @@ def elemento_para_dict(el: ElementoMockup, arquivos: _Arquivos) -> dict | None:
     elif isinstance(el, ElementoCallout):
         d.update(texto=el.texto, cor=_cor(el.cor_tinta))
     elif isinstance(el, ElementoTabela):
-        d.update(linhas=el.linhas, colunas=el.colunas, celulas=el.celulas, cor=_cor(el.cor_tinta))
+        d.update(
+            linhas=el.linhas, colunas=el.colunas, celulas=el.celulas, cor=_cor(el.cor_tinta),
+            fonte=el.fonte_familia, altura_letra=el.altura_letra_mm, largura_letra=el.largura_letra,
+        )
     elif isinstance(el, ElementoAcabamento):
         d.update(acabamento=el.tipo.name)
     elif isinstance(el, ElementoSimbolo):
@@ -253,7 +256,11 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
     elif tipo == "ElementoCallout":
         el = ElementoCallout(texto=d["texto"], cor_tinta=cor)
     elif tipo == "ElementoTabela":
-        el = ElementoTabela(linhas=d["linhas"], colunas=d["colunas"], celulas=d["celulas"], cor_tinta=cor)
+        el = ElementoTabela(
+            linhas=d["linhas"], colunas=d["colunas"], celulas=d["celulas"], cor_tinta=cor,
+            fonte_familia=d.get("fonte", ""), altura_letra_mm=d.get("altura_letra"),
+            largura_letra=d.get("largura_letra", 1.0),
+        )
     elif tipo == "ElementoAcabamento":
         el = ElementoAcabamento(tipo=TipoAcabamento[d["acabamento"]])
     elif tipo == "ElementoSimbolo":
