@@ -115,6 +115,25 @@ class ElementoTexto(ElementoMockup):
         fator = nova_ey / ey if ey else 1.0
         self._aplicar_escalas(ex * fator, nova_ey)
 
+    @property
+    def altura_letra_mm(self) -> float:
+        """Altura da maiúscula, em mm."""
+        _altura, _largura, cap, _ent = self._medidas_referencia()
+        return cap * self._escalas()[1]
+
+    @property
+    def largura_letra(self) -> float:
+        """Largura das letras em relação à normal da fonte (1 = normal)."""
+        ex, ey = self._escalas()
+        return ex / ey if ey else 1.0
+
+    def aplicar_letra(self, altura_mm: float, largura: float) -> None:
+        """Letra com `altura_mm` de maiúscula e `largura` × a largura normal
+        (o padrão da máquina: 2 mm, 0,667)."""
+        _altura, _largura, cap, _ent = self._medidas_referencia()
+        ey = max(0.05, altura_mm) / cap if cap else 1.0
+        self._aplicar_escalas(ey * max(0.05, largura), ey)
+
     # ── Medição (fonte de referência grande) ────────────────────────
     def _fonte_referencia(self) -> QFont:
         fonte = QFont(self._fonte_familia)
