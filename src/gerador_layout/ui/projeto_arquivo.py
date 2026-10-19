@@ -292,6 +292,45 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
     return el
 
 
+# ── Desfazer de propriedades (cor, fonte, letra...) ──────────────────
+_ARQUIVOS_DESFAZER = _Arquivos()  # logos/imagens das fotos de desfazer (por conteúdo, sem repetir)
+_NAO_COPIAR: set[str] | None = None
+_ESTADO_DE_EDICAO = {
+    "_editando", "_cursor", "_ancora", "_estado_antes", "_recem_criado", "_cursor_visivel", "_piscar",
+    "ao_terminar_edicao", "_pt_no_inicio_arrasto",
+}
+
+
+def foto_elemento(el: ElementoMockup) -> dict | None:
+    """Tudo o que define o objeto (propriedades + geometria), pra desfazer."""
+    if isinstance(el, GrupoMockup):
+        return None
+    return elemento_para_dict(el, _ARQUIVOS_DESFAZER)
+
+
+def aplicar_foto(el: ElementoMockup, foto: dict) -> None:
+    """Volta o MESMO objeto (não um novo: os outros passos de desfazer apontam
+    pra ele) pro estado da foto: monta um objeto igual à foto e copia dele os
+    dados próprios do tipo; o maquinário comum (alças, arrasto, ligações com o
+    canvas) não é tocado."""
+    global _NAO_COPIAR
+    if _NAO_COPIAR is None:
+        _NAO_COPIAR = set(vars(ElementoRetangulo())) - {"_cor_tinta", "_preenchido", "_largura_traco"}
+    modelo = elemento_de_dict(foto, _ARQUIVOS_DESFAZER)
+    if modelo is None:
+        return
+    el.prepareGeometryChange()
+    for nome, valor in vars(modelo).items():
+        if nome in _NAO_COPIAR or nome in _ESTADO_DE_EDICAO or callable(valor):
+            continue
+        setattr(el, nome, valor)
+    _aplicar_geometria(el, foto["geometria"], tamanho=False)
+    el._largura, el._altura = modelo._largura, modelo._altura
+    el.setTransformOriginPoint(el._largura / 2, el._altura / 2)
+    el.update()
+    el.geometria_alterada.emit()
+
+
 # ── Janela inteira ───────────────────────────────────────────────────
 def _linha(l: LinhaDesenho) -> list:
     return [l.x1, l.y1, l.x2, l.y2, l.tipo.name, l.bojo]

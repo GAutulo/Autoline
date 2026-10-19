@@ -709,8 +709,13 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Ctrl+Z</b> desfaz, <b>Ctrl+Shift+Z</b> refaz —
                 cobre adicionar (por ferramenta, duplicar, colar), remover, mover,
                 redimensionar e girar (inclusive grupos e o nudge pela seta do
-                teclado). Cada ação só entra na pilha quando o gesto termina (soltar o
-                mouse), não a cada frame do arrasto.</p>
+                teclado), agrupar/desagrupar, mexer num objeto dentro do grupo
+                (Ctrl+clique), cor (paleta, conta-gotas) e qualquer campo da barra de
+                propriedades (fonte, letra, espaçamento...). Remover e desfazer devolve
+                o objeto no mesmo lugar da ordem (quem fica por cima). Cada ação só
+                entra na pilha quando o gesto termina (soltar o mouse), não a cada
+                frame do arrasto; clicar várias vezes na setinha de um campo vira um
+                passo só.</p>
                 """,
             ),
             (
