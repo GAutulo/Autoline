@@ -144,3 +144,30 @@ def test_campo_da_barra_de_propriedades_desfaz_num_passo():
     j.canvas.pilha_desfazer.redo()
     assert texto.espaco_letras == pytest.approx(0.15)
     j.close()
+
+
+def test_agrupar_objeto_girado_nao_sai_do_lugar():
+    j, a, b = _janela()
+    texto = ElementoTexto("CAMA JUVENIL")
+    j.canvas.adicionar_elemento_mockup(texto, QPointF(150, 200))
+    texto.setRotation(-90)
+    a.setRotation(30)
+    a.definir_espelho(True, False)
+
+    def caixa(el):
+        r = el.retangulo_conteudo_cena()
+        return (round(r.x(), 4), round(r.y(), 4), round(r.width(), 4), round(r.height(), 4))
+
+    antes = {el: caixa(el) for el in (a, b, texto)}
+    j.canvas.cena.clearSelection()
+    for el in (a, b, texto):
+        el.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    assert {el: caixa(el) for el in (a, b, texto)} == antes
+    grupo.setRotation(20)  # girar o grupo e desagrupar: tudo fica onde está
+    girados = {el: caixa(el) for el in (a, b, texto)}
+    j.canvas.cena.clearSelection()
+    grupo.setSelected(True)
+    j.canvas.desagrupar_selecionados()
+    assert {el: caixa(el) for el in (a, b, texto)} == girados
+    j.close()

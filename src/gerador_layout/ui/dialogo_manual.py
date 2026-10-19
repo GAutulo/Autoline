@@ -49,7 +49,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>A disposição segue o CorelDRAW: a <b>caixa de ferramentas</b> fica
                 na borda esquerda (botões com triângulo no canto agrupam ferramentas
                 irmãs: segure o clique ou clique no triângulo pra escolher), a
-                <b>barra de propriedades</b> logo abaixo do topo, a <b>paleta de
+                <b>barra de propriedades</b> logo abaixo do topo (altura fixa: à
+                esquerda, sempre no mesmo lugar, posição, tamanho, giro, proporção,
+                espelhar e alinhar na face; à direita, abas com o que é do objeto —
+                Letra, Espaçamento, Quadro, Posição...; a aba escolhida fica lembrada
+                por tipo de objeto), a <b>paleta de
                 cores</b> na borda direita (clique = preenchimento, botão direito =
                 contorno, X = sem preenchimento; a tinta usada entra na legenda) e a
                 <b>barra de status</b> embaixo mostra a posição do cursor em mm e o
@@ -257,7 +261,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 direita (“Cor:” — clique na amostra de preenchimento ou contorno). O
                 <b>conta-gotas</b> (ao lado): selecione o objeto que vai receber a cor e
                 clique no objeto que tem a cor — ele pega a tinta desse objeto (num pixel
-                de imagem, a tinta mais parecida da lista) e já marca na legenda.</p>
+                de imagem, a tinta mais parecida da lista) e já marca na legenda.
+                Dentro de um grupo, pega a cor do objeto clicado; num grupo selecionado,
+                pinta todos os de dentro. Sem nada selecionado, como no CorelDRAW: o
+                primeiro clique pega a cor e o segundo pinta o objeto clicado.</p>
                 """,
             ),
             (

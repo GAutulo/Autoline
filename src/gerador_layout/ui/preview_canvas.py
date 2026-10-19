@@ -729,6 +729,8 @@ class PreviewCanvas(QGraphicsView):
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
     tinta_amostrada = Signal(object)  # conta-gotas em cima de um objeto: a tinta dele (CorImpressao)
+    # Conta-gotas sem nada selecionado: a cor fica "na gota" e o próximo clique a aplica.
+    tinta_carregada = None
     elipse_desenhada = Signal(QRectF)
     poligono_desenhado = Signal(QRectF)
     acabamento_desenhado = Signal(QRectF)
@@ -1270,6 +1272,7 @@ class PreviewCanvas(QGraphicsView):
         return self._ferramenta == FerramentaMockup.SELECIONAR
 
     def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
+        self.tinta_carregada = None  # trocar de ferramenta solta a cor que estava na gota
         if self._criando:
             self._cancelar_criacao()
         if self._pontos_laco:
@@ -1463,7 +1466,19 @@ class PreviewCanvas(QGraphicsView):
             # Não precisa de arrasto — amostra na hora do clique. Em cima de
             # um objeto com tinta, pega a TINTA dele (como no CorelDRAW);
             # senão (imagem, fundo), a cor do pixel.
-            alvo = self._elemento_raiz_em(self._ponto_inicial_criacao)
+            if self.tinta_carregada is not None:
+                # Segundo clique (a cor já foi pega sem nada selecionado):
+                # o objeto clicado recebe a cor.
+                alvo = self._elemento_raiz_em(self._ponto_inicial_criacao)
+                if alvo is not None:
+                    tinta, self.tinta_carregada = self.tinta_carregada, None
+                    self._scene.clearSelection()
+                    alvo.setSelected(True)
+                    self.tinta_amostrada.emit(tinta)
+                return
+            # O objeto de verdade sob o cursor — dentro de um grupo, o de
+            # dentro (o grupo não tem cor; antes caía no pixel e errava a tinta).
+            alvo = self._elemento_folha_em(self._ponto_inicial_criacao)
             tinta = (getattr(alvo, "tinta_unica", None) or getattr(alvo, "cor_tinta", None)) if alvo is not None else None
             if tinta is not None:
                 self.tinta_amostrada.emit(tinta)
@@ -1786,8 +1801,12 @@ class PreviewCanvas(QGraphicsView):
         pixel que a pessoa está olhando, então a coordenada do clique bate
         direto sem nenhuma conta de transform."""
         imagem = self.viewport().grab().toImage()
-        if 0 <= pos_viewport.x() < imagem.width() and 0 <= pos_viewport.y() < imagem.height():
-            return imagem.pixelColor(pos_viewport.x(), pos_viewport.y())
+        # Tela com escala (125%, 150%...): a imagem tem mais pixels que a
+        # coordenada do clique — sem isso pegava a cor de outro ponto.
+        escala = imagem.devicePixelRatio() or 1.0
+        x, y = int(pos_viewport.x() * escala), int(pos_viewport.y() * escala)
+        if 0 <= x < imagem.width() and 0 <= y < imagem.height():
+            return imagem.pixelColor(x, y)
         return QColor()
 
     # ── Painel fixo (HUD) ───────────────────────────────────────────
@@ -3057,6 +3076,17 @@ class PreviewCanvas(QGraphicsView):
             for j, no in enumerate(sub):
                 if perto(no.p):
                     return ("no", i, j)
+        return None
+
+    def _elemento_folha_em(self, ponto: QPointF) -> ElementoMockup | None:
+        """O objeto mais de cima sob o ponto, sem subir pro grupo."""
+        for item in self._scene.items(ponto):
+            while item is not None and not isinstance(item, ElementoMockup):
+                item = item.parentItem()
+            if item is not None and not isinstance(item, GrupoMockup):
+                # Só conta se o ponto cai no desenho (não na folga das alças).
+                if item.retangulo_conteudo_cena().contains(ponto) or item.shape().contains(item.mapFromScene(ponto)):
+                    return item
         return None
 
     def _elemento_raiz_em(self, ponto: QPointF) -> ElementoMockup | None:
