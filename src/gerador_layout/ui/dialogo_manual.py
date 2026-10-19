@@ -218,7 +218,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 Configurações &gt; Arquivos: a pasta das imagens do layout (padrão
                 Z:\\Imagens) e a das imagens do 3D, que os botões de exportar já sugerem
                 com o nome do projeto, e o botão que faz os .autoline abrirem com dois
-                cliques.</p>
+                cliques e mostrarem a <b>prévia do projeto no ícone</b> do Explorer (o
+                projeto guarda uma miniatura ao salvar; Arquivo &gt; Abrir recente também
+                mostra a prévia).</p>
                 """,
             ),
             (

@@ -156,10 +156,10 @@ class DialogoConfiguracoes(QDialog):
         form_pastas.addRow("Pasta das imagens do layout:", self.campo_pasta_imagens)
         self.campo_pasta_3d = self._campo_pasta(configuracoes.pasta_imagens_3d())
         form_pastas.addRow("Pasta das imagens do 3D:", self.campo_pasta_3d)
-        botao_associar = QPushButton("Abrir projetos .autoline com dois cliques")
+        botao_associar = QPushButton("Abrir .autoline com dois cliques e mostrar a prévia no Explorer")
         botao_associar.setToolTip(
-            "Faz o Windows abrir os arquivos .autoline no Autoline (só pro seu usuário). "
-            "Funciona no Autoline.exe."
+            "Faz o Windows abrir os arquivos .autoline no Autoline e mostrar a prévia do projeto no ícone "
+            "(só pro seu usuário). Funciona no Autoline.exe. Projeto antigo ganha prévia ao salvar de novo."
         )
         botao_associar.clicked.connect(self._associar_arquivos)
         form_pastas.addRow(botao_associar)
@@ -215,7 +215,9 @@ class DialogoConfiguracoes(QDialog):
             QMessageBox.information(self, "Abrir com dois cliques", str(exc))
         else:
             QMessageBox.information(
-                self, "Abrir com dois cliques", "Pronto: os arquivos .autoline agora abrem no Autoline com dois cliques."
+                self, "Abrir com dois cliques",
+                "Pronto: os .autoline abrem no Autoline com dois cliques e mostram a prévia no Explorer "
+                "(projetos antigos ganham a prévia quando forem salvos de novo).",
             )
 
     @staticmethod

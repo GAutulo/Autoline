@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ('assets/fonts', 'assets/fonts'),
         ('assets/icon.ico', 'assets'),
+        ('assets/AutolineMiniatura.dll', 'assets'),  # prévia no Explorer (miniatura_explorer/)
         ('src/gerador_layout/simbolos', 'gerador_layout/simbolos'),
     ],
     hiddenimports=[],
