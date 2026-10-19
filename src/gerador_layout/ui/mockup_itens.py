@@ -371,13 +371,24 @@ class ElementoMockup(QGraphicsObject):
         altura = self._altura
         if self._proporcao_travada and self._largura:
             altura = self._altura * (largura / self._largura)
-        self.definir_tamanho(largura, altura)
+        self._mudar_tamanho_parado(largura, altura)
 
     def definir_altura(self, altura: float) -> None:
         largura = self._largura
         if self._proporcao_travada and self._altura:
             largura = self._largura * (altura / self._altura)
+        self._mudar_tamanho_parado(largura, altura)
+
+    def _mudar_tamanho_parado(self, largura: float, altura: float) -> None:
+        """Tamanho pelos campos da barra. Girado, o objeto cresce em volta
+        do centro (que fica parado): sem isso, cada toque na setinha do campo
+        fazia o objeto escorregar na tela (o centro de giro mudava)."""
+        if not self.rotation() % 360:
+            self.definir_tamanho(largura, altura)
+            return
+        centro = self.mapToScene(QPointF(self._largura / 2, self._altura / 2))
         self.definir_tamanho(largura, altura)
+        self.setPos(self.pos() + centro - self.mapToScene(QPointF(self._largura / 2, self._altura / 2)))
 
     def definir_tamanho(self, largura: float, altura: float) -> None:
         """Define largura E altura de uma vez, sem nenhuma lógica de
@@ -429,7 +440,15 @@ class ElementoMockup(QGraphicsObject):
     def itemChange(self, change, value):  # noqa: N802
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.geometria_alterada.emit()
+        elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged and not value:
+            if self._grupo_pai() is not None:
+                # Saiu da seleção feita com Ctrl+clique: volta a ser "parte do grupo".
+                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         return super().itemChange(change, value)
+
+    def _grupo_pai(self) -> "GrupoMockup | None":
+        pai = self.parentItem()
+        return pai if isinstance(pai, GrupoMockup) else None
 
     def boundingRect(self) -> QRectF:
         margem = (_DISTANCIA_ALCA_ROTACAO_PX + _TAMANHO_ALCA_ROTACAO_PX + 2.0) * ElementoMockup.mm_por_px
@@ -504,8 +523,14 @@ class ElementoMockup(QGraphicsObject):
 
     # ── Interação de mouse ───────────────────────────────────────────
     def hoverMoveEvent(self, event) -> None:  # noqa: N802
-        alca = self._alca_em(event.pos())
-        self.setCursor(_CURSOR_POR_ALCA.get(alca, Qt.CursorShape.ArrowCursor))
+        vistas = self.scene().views() if self.scene() is not None else []
+        if vistas and not getattr(vistas[0], "ferramenta_selecionar_ativa", True):
+            # Outra ferramenta ativa (retângulo, conta-gotas...): o cursor é o
+            # dela, não a seta/setas de redimensionar do objeto debaixo.
+            self.unsetCursor()
+        else:
+            alca = self._alca_em(event.pos())
+            self.setCursor(_CURSOR_POR_ALCA.get(alca, Qt.CursorShape.ArrowCursor))
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -522,6 +547,20 @@ class ElementoMockup(QGraphicsObject):
             event.ignore()
             return
 
+        grupo = self._grupo_pai()
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if grupo is not None and not self.isSelected():
+            if not ctrl:
+                # Como no CorelDRAW: clicar num objeto agrupado pega o GRUPO
+                # (o clique segue pro grupo, que fica por baixo).
+                event.ignore()
+                return
+            # Ctrl+clique: entra no grupo e pega só este objeto.
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            if self.scene() is not None:
+                self.scene().clearSelection()
+            self.setSelected(True)
+
         if alca == Alca.CORPO:
             # Alt segurado = duplicar e arrastar a cópia (convenção comum
             # de editor vetorial) — ANTES de resolver a seleção nativa,
@@ -537,7 +576,9 @@ class ElementoMockup(QGraphicsObject):
             # (o Qt só faz isso com Ctrl). Feito à mão: o press/release
             # nativo sem Ctrl desmarcaria os outros.
             self._clique_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            if self._clique_shift:
+            if grupo is not None:
+                self._clique_shift = True  # seleção já resolvida acima (não deixa o Ctrl nativo alternar)
+            elif self._clique_shift:
                 self.setSelected(not self.isSelected())
                 event.accept()
             else:
@@ -656,6 +697,9 @@ class ElementoMockup(QGraphicsObject):
                         copia.setSelected(True)
             self._registrar_undo_se_mudou()
             self._arrasto_corpo_posicoes_iniciais = {}
+            grupo = self._grupo_pai()
+            if grupo is not None:
+                grupo.recalcular_limites()  # o grupo acompanha o objeto que andou dentro dele
             self._arrasto_geometria_antes = {}
             return
         if self._arrastando:
@@ -792,6 +836,8 @@ class GrupoMockup(ElementoMockup):
             el.setSelected(False)
             el.setParentItem(self)
             el.setPos(pos_relativa)
+            # Dentro do grupo, o objeto só se seleciona com Ctrl+clique (CorelDRAW).
+            el.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
             self._elementos.append(el)
 
     def desagrupar(self) -> list[ElementoMockup]:
@@ -802,6 +848,7 @@ class GrupoMockup(ElementoMockup):
         for el in elementos:
             pos_absoluta = el.scenePos()
             rotacao_absoluta = el.rotation() + self.rotation()
+            el.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             el.setParentItem(None)
             if cena is not None:
                 cena.addItem(el)
@@ -812,6 +859,28 @@ class GrupoMockup(ElementoMockup):
         if cena is not None:
             cena.removeItem(self)
         return elementos
+
+    def recalcular_limites(self) -> None:
+        """Caixa do grupo de novo em volta dos filhos (depois de um deles ser
+        movido com Ctrl+clique). Grupo girado fica como está (mexer na caixa
+        mudaria o centro de giro e a arte pularia)."""
+        if not self._elementos or self.rotation() % 360:
+            return
+        area = QRectF()
+        for el in self._elementos:
+            area = area.united(el.mapRectToParent(QRectF(0, 0, el.largura, el.altura)))
+        if area.isEmpty() or (abs(area.left()) < 1e-6 and abs(area.top()) < 1e-6
+                              and abs(area.width() - self._largura) < 1e-6 and abs(area.height() - self._altura) < 1e-6):
+            return
+        self.prepareGeometryChange()
+        for el in self._elementos:
+            el.setPos(el.pos() - area.topLeft())
+        self.setPos(self.pos() + area.topLeft())
+        self._largura = max(_LARGURA_MINIMA_MM, area.width())
+        self._altura = max(_ALTURA_MINIMA_MM, area.height())
+        self.setTransformOriginPoint(self._largura / 2, self._altura / 2)
+        self.update()
+        self.geometria_alterada.emit()
 
     def _redimensionar_para(self, ponto_cena: QPointF, modificadores=Qt.KeyboardModifier.NoModifier) -> None:
         largura_antes = self._largura
@@ -840,6 +909,7 @@ class GrupoMockup(ElementoMockup):
         for el in self._elementos:
             clone = el.clonar()
             clone.setParentItem(novo)
+            clone.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
             novo._elementos.append(clone)
         return novo
 

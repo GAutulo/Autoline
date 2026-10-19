@@ -233,8 +233,29 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 medidas, tipo e cores vêm do projeto e dá pra corrigir na hora. A
                 <b>primeira</b> folha leva a data de hoje em "Criado em"; gerar de novo
                 noutro dia preenche "Modificado em" e a de criação continua (dá pra marcar
-                ou desmarcar a modificação). O arquivo sai como "código referência.pdf" na
+                ou desmarcar a modificação). Uma <b>2ª folha</b> traz a caixa montada em 3D
+                (dá pra desligar na janela). O arquivo sai como "código referência.pdf" na
                 pasta das aprovações e abre pra conferir.</p>
+                """,
+            ),
+            (
+                "Grupos, alinhar, copiar e cor",
+                """
+                <p><b>Grupos</b> (como no CorelDRAW): clicar num objeto agrupado pega o
+                <b>grupo inteiro</b>; <b>Ctrl+clique</b> entra no grupo e pega só um
+                objeto (o grupo se ajusta em volta se ele andar). Com o grupo
+                selecionado, a barra tem <b>Desagrupar</b> (Ctrl+U) e <b>Desagrupar
+                tudo</b>; com vários selecionados, <b>Agrupar</b> (Ctrl+G).</p>
+                <p><b>Alinhar vários</b>: a referência é o <b>primeiro</b> que você
+                selecionou — ele fica parado e os outros vão até ele (vale pros botões
+                da barra, pro docker Alinhar e pras teclas L/R/T/B/C/E).</p>
+                <p><b>Ctrl+C / Ctrl+V</b> cola no mesmo lugar e no mesmo giro do original
+                (Ctrl+D é que duplica deslocado).</p>
+                <p><b>Cor</b>: paleta da direita, a barra de propriedades, ou embaixo à
+                direita (“Cor:” — clique na amostra de preenchimento ou contorno). O
+                <b>conta-gotas</b> (ao lado): selecione o objeto que vai receber a cor e
+                clique no objeto que tem a cor — ele pega a tinta desse objeto (num pixel
+                de imagem, a tinta mais parecida da lista) e já marca na legenda.</p>
                 """,
             ),
             (

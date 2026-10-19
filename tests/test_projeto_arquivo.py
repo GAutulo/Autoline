@@ -244,3 +244,26 @@ def test_salvar_e_exportar_tudo(tmp_path):
     assert j.salvar_e_exportar_tudo(perguntar_pasta=perguntar, confirmar_substituir=lambda e: vistos.append(e) or False) == []
     assert len(vistos[0]) == 2 and feitos[1].stat().st_mtime_ns == antes
     j.close()
+
+
+def test_miniatura_no_projeto_e_galeria(tmp_path):
+    from gerador_layout.ui import configuracoes
+
+    j = JanelaPrincipal()
+    j.canvas.adicionar_elemento_mockup(ElementoRetangulo(cor_tinta=_CIANO, preenchido=True), QPointF(100, 100))
+    destino = projeto_arquivo.salvar(j, tmp_path / "com prévia")
+    texto = destino.read_text(encoding="utf-8")
+    assert texto.index('"miniatura"') < 200  # logo no começo (o ícone do Explorer lê só o começo)
+    mini = projeto_arquivo.ler_miniatura(destino)
+    assert mini is not None and max(mini.width(), mini.height()) == projeto_arquivo.LADO_MINIATURA
+    assert projeto_arquivo.ler(destino)["formato"] == "autoline"  # continua abrindo normal
+    # projeto antigo, sem miniatura: None, sem erro
+    velho = tmp_path / "velho.autoline"
+    velho.write_text(json.dumps({"formato": "autoline", "versao": 1}), encoding="utf-8")
+    assert projeto_arquivo.ler_miniatura(velho) is None
+    # galeria de recentes mostra a prévia
+    configuracoes.adicionar_projeto_recente(str(destino))
+    _dialogo, lista = j.abrir_galeria_recentes(executar=False)
+    item = next(lista.item(i) for i in range(lista.count()) if lista.item(i).text() == "com prévia")
+    assert not item.icon().isNull()
+    j.close()

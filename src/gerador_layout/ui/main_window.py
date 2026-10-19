@@ -939,6 +939,9 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
+        self.painel_propriedades_mockup.agrupar_solicitado = lambda: self.canvas.agrupar_selecionados()
+        self.painel_propriedades_mockup.desagrupar_solicitado = lambda: self.canvas.desagrupar_selecionados()
+        self.painel_propriedades_mockup.desagrupar_tudo_solicitado = lambda: self.canvas.desagrupar_tudo()
         self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
         self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
@@ -1118,6 +1121,7 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.mensagem_status.connect(lambda texto: self.statusBar().showMessage(texto, 6000))
         self.canvas.texto_solicitado.connect(self._criar_texto_por_clique)
         self.canvas.cor_amostrada.connect(self._ao_cor_amostrada)
+        self.canvas.tinta_amostrada.connect(self._ao_tinta_amostrada)
         self.canvas.elipse_desenhada.connect(self._criar_elipse_por_arrasto)
         self.canvas.poligono_desenhado.connect(self._criar_poligono_por_arrasto)
         self.canvas.acabamento_desenhado.connect(self._criar_acabamento_por_arrasto)
@@ -1717,37 +1721,48 @@ class JanelaPrincipal(QMainWindow):
     )
 
     def _ao_cor_amostrada(self, cor: QColor) -> None:
-        """Conta-gotas: aplica a cor mais PRÓXIMA entre as tintas
-        marcadas na legenda ao(s) elemento(s) selecionado(s) — a caixa só
-        imprime nas cores de tinta reais (ver docstring de `estilo.py`),
-        então não faz sentido aplicar o RGB exato de um pixel amostrado
-        (isso ia gerar uma "3ª tinta" fora do que a legenda permite)."""
-        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, self._TIPOS_COM_COR_TINTA)]
+        """Conta-gotas num pixel (imagem, fundo): a tinta da lista mais
+        PRÓXIMA da cor — a caixa só imprime em tintas reais, nunca num RGB
+        solto."""
+
+        def distancia(item) -> int:
+            _nome, (r, g, b) = item
+            return (r - cor.red()) ** 2 + (g - cor.green()) ** 2 + (b - cor.blue()) ** 2
+
+        nome, (r, g, b) = min(_cores_disponiveis(), key=distancia)
+        self._ao_tinta_amostrada(CorImpressao(nome=nome.upper(), r=r, g=g, b=b))
+
+    def _ao_tinta_amostrada(self, tinta: CorImpressao) -> None:
+        """Conta-gotas: a tinta pega vai pro(s) objeto(s) selecionado(s) e
+        fica marcada na legenda (se ainda não estava)."""
+        selecionados = [
+            it for it in self.canvas.cena.selectedItems()
+            if isinstance(it, ElementoLogoVetorial) or hasattr(it, "definir_cor_tinta")
+        ]
         if not selecionados:
             self.statusBar().showMessage(
-                "Selecione um elemento com cor de tinta antes de usar o conta-gotas.", 6000
+                "Selecione o objeto que vai receber a cor e depois clique com o conta-gotas no que tem a cor.", 8000
             )
-            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
             return
-
-        cores_ativas = self._cores_impressao_ativas()
-        if not cores_ativas:
-            self.statusBar().showMessage("Marque uma cor na legenda pra poder aplicar aqui.", 6000)
-            self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
-            return
-
-        def distancia(tinta: CorImpressao) -> int:
-            return (tinta.r - cor.red()) ** 2 + (tinta.g - cor.green()) ** 2 + (tinta.b - cor.blue()) ** 2
-
-        cor_mais_proxima = min(cores_ativas, key=distancia)
         for elemento in selecionados:
-            elemento.definir_cor_tinta(cor_mais_proxima)
+            if isinstance(elemento, ElementoLogoVetorial):
+                elemento.pintar_numa_tinta(tinta)
+            else:
+                elemento.definir_cor_tinta(tinta)
+        chip = next((c for n, (c, _rgb) in self._chips_cor.items() if n.upper() == tinta.nome.upper()), None)
+        if chip is None:
+            # Tinta que não está na lista (projeto de outro computador): entra como sua.
+            configuracoes.definir_cores_personalizadas(
+                configuracoes.cores_personalizadas() + [(tinta.nome.title(), (tinta.r, tinta.g, tinta.b))]
+            )
+            self._montar_chips_cores()
+            chip = next((c for n, (c, _rgb) in self._chips_cor.items() if n.upper() == tinta.nome.upper()), None)
+        if chip is not None and not chip.isChecked():
+            chip.setChecked(True)
         if len(selecionados) == 1:
-            # Reconstrói a barra de propriedades pra refletir a nova cor
-            # no combo — `definir_cor_tinta` só repinta o elemento, não
-            # avisa o combo sozinho.
             self.painel_propriedades_mockup.definir_elemento(selecionados[0])
-        self.statusBar().showMessage(f"Cor aplicada: {cor_mais_proxima.nome}", 6000)
+        self._ao_selecao_mockup_mudar()
+        self.statusBar().showMessage(f"Cor aplicada: {tinta.nome}", 6000)
         self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
 
     def _adicionar_checklist(self) -> None:
@@ -2064,8 +2079,54 @@ class JanelaPrincipal(QMainWindow):
         if not recentes:
             self._menu_recentes.addAction("(nenhum)").setEnabled(False)
             return
+        from PySide6.QtGui import QIcon, QPixmap
+
         for caminho in recentes:
-            self._menu_recentes.addAction(f"{Path(caminho).stem}   —   {Path(caminho).parent}", lambda c=caminho: self.abrir_projeto(c))
+            acao = self._menu_recentes.addAction(
+                f"{Path(caminho).stem}   —   {Path(caminho).parent}", lambda c=caminho: self.abrir_projeto(c)
+            )
+            miniatura = projeto_arquivo.ler_miniatura(caminho)
+            if miniatura is not None:
+                acao.setIcon(QIcon(QPixmap.fromImage(miniatura)))
+        self._menu_recentes.setStyleSheet("QMenu { icon-size: 48px; }")
+        self._menu_recentes.addSeparator()
+        self._menu_recentes.addAction("Ver todos com prévia…", self.abrir_galeria_recentes)
+
+    def abrir_galeria_recentes(self, executar: bool = True):
+        """Os projetos recentes em miniatura; dois cliques abre."""
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QIcon, QPixmap
+        from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem
+
+        dialogo = QDialog(self)
+        dialogo.setWindowTitle("Projetos recentes")
+        dialogo.resize(980, 640)
+        lista = QListWidget(dialogo)
+        lista.setViewMode(QListView.ViewMode.IconMode)
+        lista.setIconSize(QSize(260, 180))
+        lista.setGridSize(QSize(290, 230))
+        lista.setResizeMode(QListView.ResizeMode.Adjust)
+        lista.setMovement(QListView.Movement.Static)
+        lista.setWordWrap(True)
+        for caminho in [c for c in configuracoes.projetos_recentes() if Path(c).is_file()]:
+            miniatura = projeto_arquivo.ler_miniatura(caminho)
+            icone = QIcon(QPixmap.fromImage(miniatura)) if miniatura is not None else QIcon()
+            item = QListWidgetItem(icone, Path(caminho).stem)
+            item.setToolTip(caminho)
+            item.setData(Qt.ItemDataRole.UserRole, caminho)
+            lista.addItem(item)
+
+        def abrir_item(item) -> None:
+            dialogo.accept()
+            self.abrir_projeto(item.data(Qt.ItemDataRole.UserRole))
+
+        lista.itemActivated.connect(abrir_item)
+        layout = QVBoxLayout(dialogo)
+        layout.addWidget(QLabel("Dois cliques abre o projeto."))
+        layout.addWidget(lista, 1)
+        if executar:
+            dialogo.exec()
+        return dialogo, lista
 
     def closeEvent(self, evento) -> None:  # noqa: N802
         if self._pode_descartar():
@@ -2165,7 +2226,10 @@ class JanelaPrincipal(QMainWindow):
             caminho += ".pdf"
         try:
             with self._cursor_espera():
-                destino = gerar_pdf(self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None)
+                imagem_3d = self._imagem_3d_montada() if janela.check_3d.isChecked() else None
+                destino = gerar_pdf(
+                    self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None, imagem_3d
+                )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Folha de aprovação", f"Não consegui gerar o PDF:\n{exc}")
             return None
@@ -2185,6 +2249,27 @@ class JanelaPrincipal(QMainWindow):
         if abrir:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(destino)))
         return destino
+
+    def _imagem_3d_montada(self):
+        """A caixa montada, na vista 3/4 de sempre, com a arte, fundo branco
+        e em alta resolução — pra folha de aprovação. A vista do usuário
+        (giro, zoom, montagem) volta como estava."""
+        vista = self.visualizacao_3d.vista
+        self._atualizar_modelo_3d()
+        self._atualizar_arte_3d()
+        guardado = (vista._progresso, vista._yaw_usuario, vista._pitch_usuario, vista._zoom, QPointF(vista._pan), vista._giro_auto)
+        tamanho = vista.size()
+        try:
+            if not vista.isVisible() or vista.width() < 600:
+                vista.resize(1200, 820)
+            vista._progresso = 1.0
+            vista.vista_inicial()
+            return vista.renderizar_imagem(max(2.5, 3000.0 / max(1, vista.width())), QColor(255, 255, 255))
+        finally:
+            (vista._progresso, vista._yaw_usuario, vista._pitch_usuario, vista._zoom, vista._pan, vista._giro_auto) = guardado
+            if vista.size() != tamanho:
+                vista.resize(tamanho)
+            vista.update()
 
     def _pasta_para(self, chave_config: str, chave_ultima: str, titulo: str, perguntar_pasta) -> str | None:
         """A pasta configurada; sem ela, pergunta (e passa a usar a escolhida)."""
