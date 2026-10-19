@@ -76,7 +76,7 @@ from .mockup_curva import curva_de_caminho_cena
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
-from .mockup_itens import ElementoMockup
+from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
 from .mockup_simbolos import ElementoSimbolo
@@ -130,6 +130,17 @@ _ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
 _ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
 _ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
 
+
+
+def _folhas_coloriveis(itens) -> list:
+    """Os objetos que recebem cor: grupos entram com todos os de dentro."""
+    folhas: list = []
+    for it in itens:
+        if isinstance(it, GrupoMockup):
+            folhas += _folhas_coloriveis(it.elementos)
+        elif isinstance(it, ElementoLogoVetorial) or hasattr(it, "definir_cor_tinta"):
+            folhas.append(it)
+    return folhas
 
 class JanelaPrincipal(QMainWindow):
     def __init__(self) -> None:
@@ -1743,20 +1754,19 @@ class JanelaPrincipal(QMainWindow):
         self._ao_tinta_amostrada(CorImpressao(nome=nome.upper(), r=r, g=g, b=b))
 
     def _ao_tinta_amostrada(self, tinta: CorImpressao) -> None:
-        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, ElementoMockup)]
+        selecionados = _folhas_coloriveis(self.canvas.cena.selectedItems())
+        if not selecionados:
+            # Como no CorelDRAW: pega a cor primeiro e clica depois em quem recebe.
+            self.canvas.tinta_carregada = tinta
+            self.statusBar().showMessage(f"Cor pega: {tinta.nome} — agora clique no objeto que vai recebê-la.", 10000)
+            return
         self.canvas.com_undo_propriedades(selecionados, "Conta-gotas", lambda: self._aplicar_tinta_amostrada(tinta))
 
     def _aplicar_tinta_amostrada(self, tinta: CorImpressao) -> None:
         """Conta-gotas: a tinta pega vai pro(s) objeto(s) selecionado(s) e
         fica marcada na legenda (se ainda não estava)."""
-        selecionados = [
-            it for it in self.canvas.cena.selectedItems()
-            if isinstance(it, ElementoLogoVetorial) or hasattr(it, "definir_cor_tinta")
-        ]
+        selecionados = _folhas_coloriveis(self.canvas.cena.selectedItems())  # grupo: todos os de dentro
         if not selecionados:
-            self.statusBar().showMessage(
-                "Selecione o objeto que vai receber a cor e depois clique com o conta-gotas no que tem a cor.", 8000
-            )
             return
         for elemento in selecionados:
             if isinstance(elemento, ElementoLogoVetorial):
@@ -1773,8 +1783,6 @@ class JanelaPrincipal(QMainWindow):
             chip = next((c for n, (c, _rgb) in self._chips_cor.items() if n.upper() == tinta.nome.upper()), None)
         if chip is not None and not chip.isChecked():
             chip.setChecked(True)
-        if len(selecionados) == 1:
-            self.painel_propriedades_mockup.definir_elemento(selecionados[0])
         self._ao_selecao_mockup_mudar()
         self.statusBar().showMessage(f"Cor aplicada: {tinta.nome}", 6000)
         self.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)

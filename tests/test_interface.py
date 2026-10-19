@@ -122,12 +122,23 @@ def test_barra_de_propriedades_nao_alarga_a_janela_e_cor_embaixo():
     el.setSelected(True)
     for _ in range(6):
         QApplication.processEvents()
-    # a barra quebra em linhas em vez de exigir a largura toda (antes ~1730 px)
+    # a barra não exige a largura toda (antes ~1730 px) e tem altura FIXA:
+    # o fixo (posição/tamanho) não sai do lugar; o resto fica em abas
     barra = j.barra_propriedades_mockup
-    assert barra.minimumSizeHint().width() < 700
     assert j.minimumSizeHint().width() < 1366
     painel = j.painel_propriedades_mockup
-    assert painel._layout_campos.heightForWidth(500) > painel._layout_campos.heightForWidth(3000)
+    altura = painel.height()
+    x_largura = painel._spins_geometria["largura"].mapTo(painel, painel._spins_geometria["largura"].rect().topLeft()).x()
+    assert [painel._abas.tabText(i) for i in range(painel._abas.count())] == ["Letra", "Espaçamento", "Quadro", "Posição"]
+    painel.mostrar_aba("Quadro")
+    j.canvas.cena.clearSelection()
+    QApplication.processEvents()
+    assert painel.height() == altura and not painel._spins_geometria["largura"].isEnabled()
+    assert painel._spins_geometria["largura"].mapTo(painel, painel._spins_geometria["largura"].rect().topLeft()).x() == x_largura
+    el.setSelected(True)
+    QApplication.processEvents()
+    assert painel._abas.tabText(painel._abas.currentIndex()) == "Quadro"  # a aba escolhida é lembrada
+    assert barra.height() <= altura + 12
     # cor embaixo: amostras clicáveis com a lista de tintas, e o conta-gotas
     status = j.painel_status
     assert status.amostra_preenchimento.isVisible() and status.botao_conta_gotas.isVisible()
@@ -309,4 +320,52 @@ def test_alinhar_varios_usa_o_primeiro_selecionado():
     a.setRotation(45)
     j.canvas.alinhar_selecionados("esquerda")
     assert a.retangulo_conteudo_cena().left() == pytest.approx(b.retangulo_conteudo_cena().left())
+    j.close()
+
+
+def test_conta_gotas_dentro_de_grupo_e_sem_selecao():
+    """Pega a cor do objeto de dentro do grupo; aplica num grupo inteiro;
+    sem nada selecionado, pega a cor e o próximo clique aplica (CorelDRAW)."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+    from gerador_layout.ui.preview_canvas import FerramentaMockup
+
+    j, a, b = _janela_com_dois_retangulos()
+    verde = CorImpressao(nome="VERDE", r=0, g=150, b=60)
+    a.definir_cor_tinta(verde)
+    a.definir_preenchido(True)
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    b.setSelected(True)
+    j.canvas.agrupar_selecionados()
+    alvo = ElementoRetangulo(largura=40, altura=30, preenchido=True)
+    j.canvas.adicionar_elemento_mockup(alvo, QPointF(100, 250))
+    vp = j.canvas.viewport()
+
+    def clicar(el):
+        QApplication.processEvents()
+        ponto = j.canvas.mapFromScene(el.sceneBoundingRect().center())
+        QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+
+    # alvo selecionado, conta-gotas no objeto verde DENTRO do grupo
+    j.canvas.cena.clearSelection()
+    alvo.setSelected(True)
+    j.canvas.definir_ferramenta(FerramentaMockup.CONTA_GOTAS)
+    clicar(a)
+    assert alvo.cor_tinta.nome == "VERDE"
+    # sem nada selecionado: pega no alvo (verde), depois clica no b (dentro do grupo) -> o grupo todo
+    j.canvas.cena.clearSelection()
+    b.definir_cor_tinta(CorImpressao(nome="PRETO", r=0, g=0, b=0))
+    a.definir_cor_tinta(CorImpressao(nome="PRETO", r=0, g=0, b=0))
+    j.canvas.definir_ferramenta(FerramentaMockup.CONTA_GOTAS)
+    clicar(alvo)
+    assert j.canvas.tinta_carregada is not None
+    clicar(b)
+    assert a.cor_tinta.nome == "VERDE" and b.cor_tinta.nome == "VERDE"
+    assert j.canvas.tinta_carregada is None
+    j.canvas.pilha_desfazer.undo()
+    assert a.cor_tinta.nome == "PRETO" and b.cor_tinta.nome == "PRETO"
     j.close()
