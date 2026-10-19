@@ -177,6 +177,7 @@ class JanelaPrincipal(QMainWindow):
         self._timer_titulo.setInterval(400)
         self._timer_titulo.timeout.connect(self._atualizar_titulo)
         self.canvas.pilha_desfazer.indexChanged.connect(lambda _i: self._timer_titulo.start())
+        self.canvas.pilha_desfazer.indexChanged.connect(lambda _i: self.painel_propriedades_mockup.rebasear_foto())
         self._atualizar_titulo()
         # Cópia de recuperação: de tempos em tempos, se tem alteração não salva.
         self._timer_recuperacao = QTimer(self)
@@ -942,6 +943,9 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.agrupar_solicitado = lambda: self.canvas.agrupar_selecionados()
         self.painel_propriedades_mockup.desagrupar_solicitado = lambda: self.canvas.desagrupar_selecionados()
         self.painel_propriedades_mockup.desagrupar_tudo_solicitado = lambda: self.canvas.desagrupar_tudo()
+        self.painel_propriedades_mockup.propriedades_alteradas = lambda el, antes, depois: (
+            self.canvas.registrar_propriedades({el: antes}, {el: depois}, "Propriedade", juntar=True)
+        )
         self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
         self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
@@ -1442,6 +1446,12 @@ class JanelaPrincipal(QMainWindow):
         barra.hide()
 
     def _aplicar_cor_paleta(self, cor, contorno: bool) -> None:
+        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, ElementoMockup)]
+        self.canvas.com_undo_propriedades(
+            selecionados, "Cor", lambda: self._aplicar_cor_paleta_sem_desfazer(cor, contorno)
+        )
+
+    def _aplicar_cor_paleta_sem_desfazer(self, cor, contorno: bool) -> None:
         """Clique na paleta. O Autoline guarda UMA tinta por forma e uma
         chave "preenchido" — então esquerdo = tinta + preenchida, direito
         = tinta + só contorno, X esquerdo = tira o preenchimento. A tinta
@@ -1733,6 +1743,10 @@ class JanelaPrincipal(QMainWindow):
         self._ao_tinta_amostrada(CorImpressao(nome=nome.upper(), r=r, g=g, b=b))
 
     def _ao_tinta_amostrada(self, tinta: CorImpressao) -> None:
+        selecionados = [it for it in self.canvas.cena.selectedItems() if isinstance(it, ElementoMockup)]
+        self.canvas.com_undo_propriedades(selecionados, "Conta-gotas", lambda: self._aplicar_tinta_amostrada(tinta))
+
+    def _aplicar_tinta_amostrada(self, tinta: CorImpressao) -> None:
         """Conta-gotas: a tinta pega vai pro(s) objeto(s) selecionado(s) e
         fica marcada na legenda (se ainda não estava)."""
         selecionados = [
