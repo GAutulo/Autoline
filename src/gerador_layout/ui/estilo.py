@@ -470,7 +470,7 @@ QTabBar::tab:hover:!selected {{
 QToolBar#barraPropriedadesMockup {{
     background: {Cor.CARTAO};
     border-bottom: 1px solid {Cor.BORDA};
-    padding: 4px 10px;
+    padding: 2px 6px;
     spacing: 3px;
 }}
 QToolButton#botaoIconePropriedade {{
@@ -489,6 +489,32 @@ QToolButton#botaoIconePropriedade:checked {{
 }}
 QLabel#iconeCampoPropriedade {{
     padding: 0 1px;
+}}
+/* Abas da barra de propriedades (Letra / Espaçamento / Posição...):
+   compactas, em pílula — não as abas grandes de tela (Dieline/Layout). */
+QTabBar#abasPropriedades::tab {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 6px;
+    padding: 4px 10px;
+    margin: 0 3px 0 0;
+    font-weight: 600;
+}}
+QTabBar#abasPropriedades::tab:selected {{
+    background: {Cor.SELECAO};
+    color: {Cor.TEXTO};
+    border-color: {Cor.PRIMARIA};
+}}
+QTabBar#abasPropriedades::tab:hover:!selected {{
+    color: {Cor.PRIMARIA};
+    border-color: {Cor.PRIMARIA};
+}}
+QScrollArea#rolagemPropriedades, QScrollArea#rolagemPropriedades > QWidget > QWidget {{
+    background: transparent;
+}}
+QScrollArea#rolagemPropriedades QScrollBar:horizontal {{
+    height: 6px;
 }}
 
 /* Marca no canto da barra de ferramentas (ver `_montar_barra_ferramentas`
