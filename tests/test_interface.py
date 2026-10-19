@@ -210,3 +210,103 @@ def test_cursor_da_ferramenta_e_campo_de_texto_legivel():
     j.close()
     # campos de texto com cor de texto do tema (no escuro sumiam)
     assert "QLineEdit" in estilo.FOLHA_DE_ESTILO.split("selection-background-color")[0]
+
+
+def _janela_com_dois_retangulos():
+    from PySide6.QtCore import QPointF
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    a, b = ElementoRetangulo(largura=40, altura=30), ElementoRetangulo(largura=40, altura=30)
+    j.canvas.adicionar_elemento_mockup(a, QPointF(100, 100))
+    j.canvas.adicionar_elemento_mockup(b, QPointF(200, 100))
+    return j, a, b
+
+
+def test_grupo_como_no_corel_clique_pega_o_grupo_ctrl_pega_um():
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.ui.mockup_itens import GrupoMockup
+
+    j, a, b = _janela_com_dois_retangulos()
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    b.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    j.canvas.cena.clearSelection()
+    QApplication.processEvents()
+    vp = j.canvas.viewport()
+    ponto = j.canvas.mapFromScene(a.sceneBoundingRect().center())
+    # clique simples num objeto do grupo: seleciona o GRUPO
+    QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    assert grupo.isSelected() and not a.isSelected()
+    # arrastar move os dois juntos
+    b_antes = b.scenePos()
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    for k in range(1, 6):
+        QTest.mouseMove(vp, ponto + QPoint(10 * k, 0))
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto + QPoint(50, 0))
+    assert b.scenePos().x() > b_antes.x() + 5
+    # Ctrl+clique: entra no grupo e pega só um
+    j.canvas.cena.clearSelection()
+    ponto = j.canvas.mapFromScene(a.sceneBoundingRect().center())
+    QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, ponto)
+    assert a.isSelected() and not grupo.isSelected() and isinstance(a.parentItem(), GrupoMockup)
+    # seleção por retângulo não pega os de dentro
+    j.canvas.cena.clearSelection()
+    assert not a.flags() & a.GraphicsItemFlag.ItemIsSelectable
+    # barra do grupo: desagrupar
+    grupo.setSelected(True)
+    QApplication.processEvents()
+    j.painel_propriedades_mockup.desagrupar_solicitado()
+    assert a.parentItem() is None and a.flags() & a.GraphicsItemFlag.ItemIsSelectable
+    j.close()
+
+
+def test_colar_no_mesmo_lugar_e_girado_sem_escorregar():
+    import pytest
+    from PySide6.QtCore import QPointF
+
+    j, a, _b = _janela_com_dois_retangulos()
+    a.setRotation(30)
+    centro = a.mapToScene(QPointF(a.largura / 2, a.altura / 2))
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    j.canvas.copiar_selecionados()
+    colado = j.canvas.colar()[0]
+    assert colado.rotation() == pytest.approx(30)
+    centro_colado = colado.mapToScene(QPointF(colado.largura / 2, colado.altura / 2))
+    assert (centro_colado.x(), centro_colado.y()) == pytest.approx((centro.x(), centro.y()))
+    # mudar a largura de um girado pela barra: o centro não anda
+    for largura in (41, 42, 43):
+        a.definir_largura(largura)
+        novo = a.mapToScene(QPointF(a.largura / 2, a.altura / 2))
+        assert (novo.x(), novo.y()) == pytest.approx((centro.x(), centro.y()))
+    j.close()
+
+
+def test_alinhar_varios_usa_o_primeiro_selecionado():
+    import pytest
+
+    j, a, b = _janela_com_dois_retangulos()
+    j.canvas.cena.clearSelection()
+    b.setSelected(True)  # o primeiro selecionado é a referência
+    a.setSelected(True)
+    centro_b = b.retangulo_conteudo_cena().center()
+    j.canvas.alinhar_selecionados("centro_h")
+    j.canvas.alinhar_selecionados("centro_v")
+    assert b.retangulo_conteudo_cena().center() == centro_b  # a referência não sai do lugar
+    assert a.retangulo_conteudo_cena().center().x() == pytest.approx(centro_b.x())
+    assert a.retangulo_conteudo_cena().center().y() == pytest.approx(centro_b.y())
+    # objeto girado: alinha pela caixa que ele ocupa na tela
+    a.setRotation(45)
+    j.canvas.alinhar_selecionados("esquerda")
+    assert a.retangulo_conteudo_cena().left() == pytest.approx(b.retangulo_conteudo_cena().left())
+    j.close()

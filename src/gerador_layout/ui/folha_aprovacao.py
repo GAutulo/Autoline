@@ -154,8 +154,12 @@ def _logo(p: QPainter, caminho: str | None, area: QRectF) -> None:
     desenhar(alvo)
 
 
-def desenhar_folha(p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, logo: str | None) -> None:
-    """A folha inteira, em mm (o painter já está em mm, A4 deitado)."""
+def desenhar_folha(
+    p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, logo: str | None, imagem_3d: QImage | None = None
+) -> None:
+    """A folha inteira, em mm (o painter já está em mm, A4 deitado). Com
+    `imagem_3d`, o meio da folha é a caixa montada em vez do layout (a 2ª
+    folha) — o resto (cabeçalho, atenção, rodapé) é o mesmo."""
     w, h = _PAGINA.width(), _PAGINA.height()
     preto = QColor(0, 0, 0)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -192,7 +196,13 @@ def desenhar_folha(p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, lo
     # O layout, vetorial, centralizado e na maior escala que cabe.
     area = QRectF(_MARGEM_LAYOUT, y_aten + _MARGEM_LAYOUT, w - 2 * _MARGEM_LAYOUT, y_rod - y_aten - 2 * _MARGEM_LAYOUT)
     fonte_rect = QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
-    if fonte_rect.width() > 0 and fonte_rect.height() > 0:
+    if imagem_3d is not None and not imagem_3d.isNull():
+        escala = min(area.width() / imagem_3d.width(), area.height() / imagem_3d.height())
+        alvo = QRectF(0, 0, imagem_3d.width() * escala, imagem_3d.height() * escala)
+        alvo.moveCenter(area.center())
+        p.drawImage(alvo, imagem_3d)
+        _texto(p, area.left(), area.top() + 3.0, "Caixa montada (3D)", 3.6, COR_TITULO)
+    elif fonte_rect.width() > 0 and fonte_rect.height() > 0:
         escala = min(area.width() / fonte_rect.width(), area.height() / fonte_rect.height())
         alvo = QRectF(0, 0, fonte_rect.width() * escala, fonte_rect.height() * escala)
         alvo.moveCenter(area.center())
@@ -250,7 +260,11 @@ def desenhar_folha(p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, lo
         p.drawLine(QPointF(_COL_LOGO, y), QPointF(w, y))
 
 
-def gerar_pdf(cena, layout: LayoutCaixa, dados: DadosFolha, caminho: str | Path, logo: str | None = None) -> Path:
+def gerar_pdf(
+    cena, layout: LayoutCaixa, dados: DadosFolha, caminho: str | Path, logo: str | None = None,
+    imagem_3d: QImage | None = None,
+) -> Path:
+    """1ª folha: o layout. Com `imagem_3d`, 2ª folha: a caixa montada."""
     caminho = Path(caminho)
     escritor = QPdfWriter(str(caminho))
     escritor.setPageLayout(
@@ -266,6 +280,9 @@ def gerar_pdf(cena, layout: LayoutCaixa, dados: DadosFolha, caminho: str | Path,
         px_por_mm = escritor.resolution() / 25.4
         p.scale(px_por_mm, px_por_mm)
         desenhar_folha(p, cena, layout, dados, logo)
+        if imagem_3d is not None and not imagem_3d.isNull():
+            escritor.newPage()
+            desenhar_folha(p, cena, layout, dados, logo, imagem_3d)
     finally:
         p.end()
     return caminho

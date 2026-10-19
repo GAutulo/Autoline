@@ -939,6 +939,9 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
+        self.painel_propriedades_mockup.agrupar_solicitado = lambda: self.canvas.agrupar_selecionados()
+        self.painel_propriedades_mockup.desagrupar_solicitado = lambda: self.canvas.desagrupar_selecionados()
+        self.painel_propriedades_mockup.desagrupar_tudo_solicitado = lambda: self.canvas.desagrupar_tudo()
         self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
         self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
@@ -2223,7 +2226,10 @@ class JanelaPrincipal(QMainWindow):
             caminho += ".pdf"
         try:
             with self._cursor_espera():
-                destino = gerar_pdf(self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None)
+                imagem_3d = self._imagem_3d_montada() if janela.check_3d.isChecked() else None
+                destino = gerar_pdf(
+                    self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None, imagem_3d
+                )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Folha de aprovação", f"Não consegui gerar o PDF:\n{exc}")
             return None
@@ -2243,6 +2249,27 @@ class JanelaPrincipal(QMainWindow):
         if abrir:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(destino)))
         return destino
+
+    def _imagem_3d_montada(self):
+        """A caixa montada, na vista 3/4 de sempre, com a arte, fundo branco
+        e em alta resolução — pra folha de aprovação. A vista do usuário
+        (giro, zoom, montagem) volta como estava."""
+        vista = self.visualizacao_3d.vista
+        self._atualizar_modelo_3d()
+        self._atualizar_arte_3d()
+        guardado = (vista._progresso, vista._yaw_usuario, vista._pitch_usuario, vista._zoom, QPointF(vista._pan), vista._giro_auto)
+        tamanho = vista.size()
+        try:
+            if not vista.isVisible() or vista.width() < 600:
+                vista.resize(1200, 820)
+            vista._progresso = 1.0
+            vista.vista_inicial()
+            return vista.renderizar_imagem(max(2.5, 3000.0 / max(1, vista.width())), QColor(255, 255, 255))
+        finally:
+            (vista._progresso, vista._yaw_usuario, vista._pitch_usuario, vista._zoom, vista._pan, vista._giro_auto) = guardado
+            if vista.size() != tamanho:
+                vista.resize(tamanho)
+            vista.update()
 
     def _pasta_para(self, chave_config: str, chave_ultima: str, titulo: str, perguntar_pasta) -> str | None:
         """A pasta configurada; sem ela, pergunta (e passa a usar a escolhida)."""

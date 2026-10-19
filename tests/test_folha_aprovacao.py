@@ -58,6 +58,7 @@ def test_gerar_folha_pelo_programa(tmp_path):
         janela.campo_referencia.setText("CAIXA 02 - 06 LONG NECK")
         janela.campo_codigo.setText("32792")
         janela.campo_desenvolvido.setText("Guilherme A")
+        assert janela.check_3d.isChecked()
         return True
 
     pdf = j.gerar_folha_aprovacao(str(tmp_path / "folha.pdf"), dialogo=preencher, abrir=False)
@@ -66,7 +67,7 @@ def test_gerar_folha_pelo_programa(tmp_path):
     doc = QPdfDocument()
     doc.load(str(pdf))
     tamanho = doc.pagePointSize(0)
-    assert doc.pageCount() == 1
+    assert doc.pageCount() == 2  # 2ª folha: a caixa montada em 3D
     assert tamanho.width() * 25.4 / 72 == pytest.approx(297, abs=0.5)  # A4 deitado
     assert tamanho.height() * 25.4 / 72 == pytest.approx(210, abs=0.5)
     texto = doc.getAllText(0).text()
@@ -87,11 +88,15 @@ def test_gerar_folha_pelo_programa(tmp_path):
     vistos2 = {}
 
     def conferir(janela):
+        janela.check_3d.setChecked(False)  # sem o 3D: uma folha só
         vistos2["cliente"] = janela.campo_cliente.text()
         vistos2["modificacao"] = janela.check_modificacao.isChecked()
         return True
 
-    j.gerar_folha_aprovacao(str(tmp_path / "folha2.pdf"), dialogo=conferir, abrir=False)
+    pdf2 = j.gerar_folha_aprovacao(str(tmp_path / "folha2.pdf"), dialogo=conferir, abrir=False)
+    doc2 = QPdfDocument()
+    doc2.load(str(pdf2))
+    assert doc2.pageCount() == 1
     assert vistos2 == {"cliente": "LORD LION", "modificacao": True}
     assert j._aprovacao["criado_em"] == "2026-01-02"
     assert j._aprovacao["modificado_em"] == dt.date.today().isoformat()

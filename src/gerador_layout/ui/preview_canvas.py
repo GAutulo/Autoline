@@ -664,6 +664,10 @@ class PreviewCanvas(QGraphicsView):
 
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
+        # Ordem em que os objetos foram selecionados: alinhar vários usa o
+        # PRIMEIRO como referência (ele fica parado, os outros vão até ele).
+        self._ordem_selecao: list = []
+        self._scene.selectionChanged.connect(self._atualizar_ordem_selecao)
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
@@ -785,7 +789,7 @@ class PreviewCanvas(QGraphicsView):
         # Área de transferência interna do app (Ctrl+C/Ctrl+V) — guarda
         # clones desconectados da cena, não referências aos itens de
         # verdade (ver `copiar_selecionados`).
-        self._area_transferencia: list[ElementoMockup] = []
+        self._area_transferencia: list[tuple[ElementoMockup, QPointF, float]] = []  # (cópia, centro na cena, giro)
 
         # Encaixe (snap) — grade, bordas/centro de outros elementos, da
         # face e das guias (ver `_calcular_snap`). Só o estado INICIAL
@@ -2073,42 +2077,42 @@ class PreviewCanvas(QGraphicsView):
         return next((p for p in self._paineis if p.id == elemento.painel_id), None)
 
     # ── Alinhar / agrupar / desagrupar / remover a seleção atual ───────
-    def alinhar_selecionados(self, alinhamento: str) -> None:
-        """Alinha os elementos selecionados ENTRE SI (bordas/centro da
-        própria seleção, não da face — isso já existe em
-        `painel_propriedades_mockup.py::_alinhar_ao_painel`, pra um
-        elemento só). Mesma simplificação de lá: usa `pos()`/`largura`/
-        `altura` direto, ignorando rotação — alinhar caixa rotacionada
-        por rotação de verdade exigiria decidir qual canto/eixo do
-        retângulo girado conta como "borda", sem resposta óbvia."""
+    def _atualizar_ordem_selecao(self) -> None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        ainda = [it for it in self._ordem_selecao if it in selecionados]
+        self._ordem_selecao = ainda + [it for it in selecionados if it not in ainda]
+
+    def selecao_em_ordem(self) -> list[ElementoMockup]:
+        """Os selecionados na ordem em que foram selecionados."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        return [it for it in self._ordem_selecao if it in selecionados] + [
+            it for it in selecionados if it not in self._ordem_selecao
+        ]
+
+    def alinhar_selecionados(self, alinhamento: str) -> None:
+        """Alinha os selecionados ao PRIMEIRO que foi selecionado (ele fica
+        parado; os outros vão até ele). Usa a caixa que o objeto ocupa na
+        tela, então funciona também com objeto girado."""
+        selecionados = self.selecao_em_ordem()
         if len(selecionados) < 2:
             return
-
-        esquerdas = [el.pos().x() for el in selecionados]
-        direitas = [el.pos().x() + el.largura for el in selecionados]
-        topos = [el.pos().y() for el in selecionados]
-        bases = [el.pos().y() + el.altura for el in selecionados]
-        alvo_esquerda, alvo_direita = min(esquerdas), max(direitas)
-        alvo_topo, alvo_base = min(topos), max(bases)
-        centro_h = (alvo_esquerda + alvo_direita) / 2
-        centro_v = (alvo_topo + alvo_base) / 2
-
-        for el in selecionados:
-            x, y = el.pos().x(), el.pos().y()
+        referencia = selecionados[0].retangulo_conteudo_cena()
+        for el in selecionados[1:]:
+            r = el.retangulo_conteudo_cena()
+            dx = dy = 0.0
             if alinhamento == "esquerda":
-                x = alvo_esquerda
+                dx = referencia.left() - r.left()
             elif alinhamento == "direita":
-                x = alvo_direita - el.largura
+                dx = referencia.right() - r.right()
             elif alinhamento == "centro_h":
-                x = centro_h - el.largura / 2
+                dx = referencia.center().x() - r.center().x()
             elif alinhamento == "topo":
-                y = alvo_topo
+                dy = referencia.top() - r.top()
             elif alinhamento == "base":
-                y = alvo_base - el.altura
+                dy = referencia.bottom() - r.bottom()
             elif alinhamento == "centro_v":
-                y = centro_v - el.altura / 2
-            el.setPos(x, y)
+                dy = referencia.center().y() - r.center().y()
+            el.setPos(el.pos() + QPointF(dx, dy))
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -2122,6 +2126,11 @@ class PreviewCanvas(QGraphicsView):
         self._registrar_elemento_mockup(grupo)
         self.elementos_alterados.emit()
         return grupo
+
+    def desagrupar_tudo(self) -> None:
+        """Desagrupar tudo (CorelDRAW): desfaz também os grupos de dentro."""
+        while any(isinstance(it, GrupoMockup) for it in self._scene.selectedItems()):
+            self.desagrupar_selecionados()
 
     def desagrupar_selecionados(self) -> None:
         grupos = [it for it in self._scene.selectedItems() if isinstance(it, GrupoMockup)]
@@ -2186,28 +2195,35 @@ class PreviewCanvas(QGraphicsView):
         refletir edições feitas DEPOIS da cópia)."""
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
         if selecionados:
-            self._area_transferencia = [it.clonar() for it in selecionados]
+            # Guarda onde cada um está NA TELA (centro e giro de verdade) — um
+            # objeto de dentro de um grupo tem posição relativa ao grupo.
+            self._area_transferencia = []
+            for it in selecionados:
+                rotacao = it.rotation()
+                pai = it.parentItem()
+                while pai is not None:
+                    rotacao += pai.rotation()
+                    pai = pai.parentItem()
+                centro = it.mapToScene(QPointF(it.largura / 2, it.altura / 2))
+                self._area_transferencia.append((it.clonar(), centro, rotacao))
 
     def colar(self) -> list[ElementoMockup]:
+        """Ctrl+V cola no MESMO lugar e giro do original, como no CorelDRAW
+        (Ctrl+D é que duplica deslocado)."""
         if not self._area_transferencia:
             return []
         for it in self._scene.selectedItems():
             it.setSelected(False)
-        passo = configuracoes.passo_duplicar_mm()
         clones = []
-        for original in self._area_transferencia:
+        for original, centro, rotacao in self._area_transferencia:
             clone = original.clonar()
-            clone.setPos(clone.pos() + QPointF(passo, passo))
+            clone.setRotation(rotacao)
+            clone.setPos(centro - QPointF(clone.largura / 2, clone.altura / 2))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
             self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Colar elemento"))
             clone.setSelected(True)
             clones.append(clone)
-        # Um Ctrl+V repetido parte do último colado, não sempre do mesmo
-        # ponto — cada colagem em cascata fica um pouco mais deslocada da
-        # anterior, igual Word/Illustrator, em vez de empilhar tudo exatamente
-        # no mesmo lugar toda vez que aperta de novo.
-        self._area_transferencia = clones
         return clones
 
     def trazer_para_frente(self) -> None:
@@ -3634,20 +3650,21 @@ class PreviewCanvas(QGraphicsView):
                 alvo = alvo_de(el)
                 if alvo is None:
                     continue
-                x, y = el.pos().x(), el.pos().y()
+                r = el.retangulo_conteudo_cena()  # a caixa que ele ocupa (girado também)
+                dx = dy = 0.0
                 if alinhamento == "esquerda":
-                    x = alvo.left()
+                    dx = alvo.left() - r.left()
                 elif alinhamento == "direita":
-                    x = alvo.right() - el.largura
+                    dx = alvo.right() - r.right()
                 elif alinhamento == "centro_h":
-                    x = alvo.center().x() - el.largura / 2
+                    dx = alvo.center().x() - r.center().x()
                 elif alinhamento == "topo":
-                    y = alvo.top()
+                    dy = alvo.top() - r.top()
                 elif alinhamento == "base":
-                    y = alvo.bottom() - el.altura
+                    dy = alvo.bottom() - r.bottom()
                 elif alinhamento == "centro_v":
-                    y = alvo.center().y() - el.altura / 2
-                el.setPos(x, y)
+                    dy = alvo.center().y() - r.center().y()
+                el.setPos(el.pos() + QPointF(dx, dy))
 
         self._com_undo_geometria("Alinhar", aplicar)
 

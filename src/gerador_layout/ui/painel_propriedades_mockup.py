@@ -106,6 +106,9 @@ class PainelPropriedadesMockup(QWidget):
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
         self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
+        self.agrupar_solicitado: Callable[[], None] | None = None
+        self.desagrupar_solicitado: Callable[[], None] | None = None
+        self.desagrupar_tudo_solicitado: Callable[[], None] | None = None
         self.modelar_solicitado: Callable[[str], None] | None = None
         # Tamanho da página (chapa da dieline) em mm, pro estado "nada
         # selecionado" da barra — ligado de fora, como os callbacks acima.
@@ -307,10 +310,18 @@ class PainelPropriedadesMockup(QWidget):
             nome.setToolTip(elemento.caminho_arquivo)
             self._layout_campos.addWidget(nome)
         elif isinstance(elemento, GrupoMockup):
-            aviso = QLabel("Sem aparência própria")
-            aviso.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
-            aviso.setToolTip("Grupo não tem aparência própria — edite os elementos individualmente.")
-            self._layout_campos.addWidget(aviso)
+            # Opções de grupo do CorelDRAW. Um objeto de dentro se edita com Ctrl+clique.
+            self._separador()
+            botao = self._botao_icone("desagrupar", "Desagrupar (Ctrl+U)")
+            botao.clicked.connect(lambda: self.desagrupar_solicitado and self.desagrupar_solicitado())
+            botao_tudo = QToolButton()
+            botao_tudo.setText("Desagrupar tudo")
+            botao_tudo.setToolTip("Desfaz este grupo e os grupos que estão dentro dele")
+            botao_tudo.clicked.connect(lambda: self.desagrupar_tudo_solicitado and self.desagrupar_tudo_solicitado())
+            self._layout_campos.addWidget(botao_tudo)
+            dica = QLabel(f"{len(elemento.elementos)} objetos · Ctrl+clique edita um só")
+            dica.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
+            self._layout_campos.addWidget(dica)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
         self._elemento_conectado = elemento
@@ -392,6 +403,10 @@ class PainelPropriedadesMockup(QWidget):
             ("alinhar_centro_v", "centro_v", "Centralizar verticalmente entre si"),
             ("alinhar_base", "base", "Alinhar bases entre si"),
         )
+        botao_agrupar = self._botao_icone("agrupar", "Agrupar (Ctrl+G)")
+        botao_agrupar.setObjectName("botaoAgrupar")
+        botao_agrupar.clicked.connect(lambda: self.agrupar_solicitado and self.agrupar_solicitado())
+        self._separador()
         for tipo_icone, alinhamento, tooltip in disposicao:
             botao = self._botao_icone(tipo_icone, tooltip)
             botao.clicked.connect(

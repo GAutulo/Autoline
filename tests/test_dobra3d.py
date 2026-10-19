@@ -161,3 +161,33 @@ def test_giro_livre_olha_por_baixo():
     assert altura(olho_antes) > 0 and altura(olho) < 0  # foi pra baixo da caixa
     vista.grab()  # pinta sem erro vista de baixo (sem a sombra do chão)
     j.close()
+
+
+def test_foto_do_3d_sai_com_a_arte_mesmo_com_a_aba_fechada():
+    """A arte das faces é gerada depois de pintar: a foto (folha de
+    aprovação, Salvar imagem) pinta de novo quando acabou de gerar."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    for p in j._paineis_disponiveis():
+        if not p.eh_aba:
+            el = ElementoRetangulo(largura=p.largura * 0.6, altura=p.altura * 0.6, preenchido=True,
+                                   cor_tinta=CorImpressao("VERMELHO", 255, 0, 0))
+            j.canvas.adicionar_elemento_mockup(el, QPointF(p.x1 + p.largura * 0.2, p.y1 + p.altura * 0.2))
+    imagem = j._imagem_3d_montada()  # aba 3D nunca aberta
+    vermelhos = sum(
+        1 for x in range(0, imagem.width(), 6) for y in range(0, imagem.height(), 6)
+        if (c := imagem.pixelColor(x, y)).red() > 200 and c.green() < 60 and c.blue() < 60
+    )
+    assert vermelhos > 50
+    j.close()

@@ -88,6 +88,9 @@ class DialogoFolhaAprovacao(QDialog):
             self.check_modificacao = QCheckBox(f"É uma modificação — “Modificado em” {data_br(self._hoje)}")
             self.check_modificacao.setChecked(self._hoje != criado_em)
             form.addRow("", self.check_modificacao)
+        self.check_3d = QCheckBox("2ª folha com a caixa montada em 3D")
+        self.check_3d.setChecked(True)
+        form.addRow("", self.check_3d)
         raiz.addLayout(form)
 
         botoes = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
