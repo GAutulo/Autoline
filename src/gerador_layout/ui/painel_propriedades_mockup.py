@@ -113,6 +113,10 @@ class PainelPropriedadesMockup(QWidget):
         # Tamanho da página (chapa da dieline) em mm, pro estado "nada
         # selecionado" da barra — ligado de fora, como os callbacks acima.
         self.obter_tamanho_pagina: Callable[[], tuple[float, float] | None] | None = None
+        # Desfazer do que se muda por esta barra (fonte, cor, letra...):
+        # (elemento, foto antes, foto depois) — ver projeto_arquivo.foto_elemento.
+        self.propriedades_alteradas: Callable[[ElementoMockup, dict, dict], None] | None = None
+        self._foto_base: dict | None = None
 
         raiz = QHBoxLayout(self)
         raiz.setContentsMargins(2, 0, 2, 0)
@@ -211,6 +215,41 @@ class PainelPropriedadesMockup(QWidget):
         elif self.remover_solicitado is not None:
             self.remover_solicitado()
 
+    # ── Desfazer das mudanças feitas por esta barra ─────────────────
+    def _vigiar_campos(self) -> None:
+        """Toda mudança feita por um campo da barra vira um passo de desfazer:
+        tira a foto do objeto ao mostrá-lo e compara depois de cada edição.
+        Ligado DEPOIS dos campos, então roda depois de o campo aplicar."""
+        self.rebasear_foto()
+        if self._elemento is None:
+            return
+        for w in self._container_campos.findChildren(QWidget):
+            for nome in ("valueChanged", "currentIndexChanged", "toggled", "editingFinished", "clicked", "currentFontChanged"):
+                sinal = getattr(w, nome, None)
+                if sinal is not None and hasattr(sinal, "connect"):
+                    sinal.connect(self._conferir_mudanca)
+
+    def rebasear_foto(self) -> None:
+        """O objeto mudou por fora (desfazer, arrasto no canvas): nova foto-base."""
+        from .projeto_arquivo import foto_elemento
+
+        try:
+            self._foto_base = foto_elemento(self._elemento) if self._elemento is not None else None
+        except RuntimeError:  # objeto já destruído (janela fechando)
+            self._foto_base = None
+
+    def _conferir_mudanca(self, *_args) -> None:
+        from .projeto_arquivo import foto_elemento
+
+        if self._elemento is None or self._foto_base is None:
+            return
+        depois = foto_elemento(self._elemento)
+        if depois is None or depois == self._foto_base:
+            return
+        antes, self._foto_base = self._foto_base, depois
+        if self.propriedades_alteradas is not None:
+            self.propriedades_alteradas(self._elemento, antes, depois)
+
     # ── API pública ─────────────────────────────────────────────────
     def _desconectar_elemento(self) -> None:
         elemento, self._elemento_conectado = self._elemento_conectado, None
@@ -241,6 +280,7 @@ class PainelPropriedadesMockup(QWidget):
 
     def definir_elemento(self, elemento: ElementoMockup | None) -> None:
         self._definir_campos(elemento)
+        self._vigiar_campos()
         # Os campos mudaram: depois de o Qt assentá-los, a barra pode precisar
         # de uma ou duas linhas.
         QTimer.singleShot(0, self._ajustar_altura_campos)

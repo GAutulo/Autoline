@@ -261,6 +261,7 @@ class ElementoMockup(QGraphicsObject):
         # elemento continua funcionando normalmente, só sem desfazer.
         self._registrar_geometria_undo = None
         self._arrasto_geometria_antes: dict[ElementoMockup, tuple] = {}
+        self._grupo_antes_do_arrasto: dict[ElementoMockup, tuple] | None = None
 
         self._alca_ativa = Alca.NENHUMA
         self._arrastando = False
@@ -608,6 +609,7 @@ class ElementoMockup(QGraphicsObject):
             self._encaixou_ao_vivo = False
             for item in self._arrasto_corpo_posicoes_iniciais:
                 self._arrasto_geometria_antes.update(_estado_recursivo(item))
+            self._guardar_grupo_antes_do_arrasto()
             return
 
         # Alça de redimensionar ou rotação — só aparece quando já
@@ -618,6 +620,7 @@ class ElementoMockup(QGraphicsObject):
         self._arrasto_altura_inicial = self._altura
         self._arrasto_angulo_inicial = self.rotation()
         self._arrasto_geometria_antes = _estado_recursivo(self)
+        self._guardar_grupo_antes_do_arrasto()
         self._arrasto_centro_cena = self.mapToScene(QPointF(self._largura / 2, self._altura / 2))
 
         if alca == Alca.ROTACAO:
@@ -697,9 +700,6 @@ class ElementoMockup(QGraphicsObject):
                         copia.setSelected(True)
             self._registrar_undo_se_mudou()
             self._arrasto_corpo_posicoes_iniciais = {}
-            grupo = self._grupo_pai()
-            if grupo is not None:
-                grupo.recalcular_limites()  # o grupo acompanha o objeto que andou dentro dele
             self._arrasto_geometria_antes = {}
             return
         if self._arrastando:
@@ -716,6 +716,14 @@ class ElementoMockup(QGraphicsObject):
         compara com o estado congelado no início e só empurra um comando
         de undo se algo realmente mudou (ex.: um clique sem arrastar de
         verdade não deveria virar uma entrada de undo vazia)."""
+        grupo = self._grupo_pai()
+        if grupo is not None:
+            # Mexeu num objeto DENTRO do grupo (Ctrl+clique): a caixa do grupo
+            # se refaz em volta dele, e o desfazer guarda o grupo todo.
+            grupo.recalcular_limites()
+            if self._grupo_antes_do_arrasto:
+                self._arrasto_geometria_antes = {**self._arrasto_geometria_antes, **self._grupo_antes_do_arrasto}
+            self._grupo_antes_do_arrasto = None
         if self._registrar_geometria_undo is None or not self._arrasto_geometria_antes:
             return
         depois: dict[ElementoMockup, tuple] = {}
@@ -723,6 +731,10 @@ class ElementoMockup(QGraphicsObject):
             depois.update(_estado_recursivo(item))
         if depois != self._arrasto_geometria_antes:
             self._registrar_geometria_undo(dict(self._arrasto_geometria_antes), depois)
+
+    def _guardar_grupo_antes_do_arrasto(self) -> None:
+        grupo = self._grupo_pai()
+        self._grupo_antes_do_arrasto = _estado_recursivo(grupo) if grupo is not None else None
 
     # ── Redimensionar ────────────────────────────────────────────────
     def _redimensionar_para(self, ponto_cena: QPointF, modificadores=Qt.KeyboardModifier.NoModifier) -> None:
@@ -818,9 +830,11 @@ class GrupoMockup(ElementoMockup):
 
     def _agrupar(self, elementos: list[ElementoMockup]) -> None:
         cena = elementos[0].scene()
-        rect_cena = elementos[0].sceneBoundingRect()
+        # Só o desenho (sem a folga das alças de seleção): senão a caixa do
+        # grupo nascia maior e "pulava" no primeiro Ctrl+clique.
+        rect_cena = elementos[0].retangulo_conteudo_cena()
         for el in elementos[1:]:
-            rect_cena = rect_cena.united(el.sceneBoundingRect())
+            rect_cena = rect_cena.united(el.retangulo_conteudo_cena())
 
         self.setRotation(0)
         self.prepareGeometryChange()
