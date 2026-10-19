@@ -283,3 +283,30 @@ def test_miniatura_no_projeto_e_galeria(tmp_path):
     item = next(lista.item(i) for i in range(lista.count()) if lista.item(i).text() == "com prévia")
     assert not item.icon().isNull()
     j.close()
+
+
+def test_foto_de_desfazer_volta_qualquer_objeto(tmp_path):
+    """O desfazer de propriedades usa a foto do objeto: tem que voltar
+    exatamente e o objeto continuar desenhando (logo, imagem, tabela...)."""
+    j = _montar(tmp_path)
+    alterados = 0
+    for el in [e for e in j.canvas._elementos_mockup if not isinstance(e, GrupoMockup)]:
+        foto = projeto_arquivo.foto_elemento(el)
+        el.setPos(el.pos() + QPointF(7, 3))
+        if hasattr(el, "cor_tinta"):
+            try:
+                el.cor_tinta = CorImpressao(nome="X", r=1, g=2, b=3)
+            except AttributeError:
+                pass
+        assert projeto_arquivo.foto_elemento(el) != foto
+        projeto_arquivo.aplicar_foto(el, foto)
+        assert projeto_arquivo.foto_elemento(el) == foto, type(el).__name__
+        alterados += 1
+    assert alterados >= 6
+    imagem = QImage(400, 300, QImage.Format.Format_ARGB32)
+    from PySide6.QtGui import QPainter
+
+    p = QPainter(imagem)
+    j.canvas.cena.render(p)
+    p.end()
+    j.close()

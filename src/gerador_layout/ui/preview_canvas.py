@@ -22,6 +22,8 @@ diferenças pra explicar.
 
 from __future__ import annotations
 
+import time
+
 import dataclasses
 import math
 from enum import Enum, auto
@@ -504,14 +506,90 @@ class _ComandoRemoverElementos(QUndoCommand):
         super().__init__(texto)
         self._canvas = canvas
         self._elementos = list(elementos)
+        self._indices: dict = {}
 
     def redo(self) -> None:  # noqa: N802
+        lista = self._canvas._elementos_mockup
+        self._indices = {el: lista.index(el) for el in self._elementos if el in lista}
         for elemento in self._elementos:
             self._canvas._retirar_elemento(elemento)
 
     def undo(self) -> None:  # noqa: N802
-        for elemento in self._elementos:
-            self._canvas._reinserir_elemento(elemento)
+        # Volta cada um pro lugar dele na ordem (de empilhamento), não por cima de tudo.
+        for elemento in sorted(self._elementos, key=lambda el: self._indices.get(el, 1 << 30)):
+            self._canvas._reinserir_elemento(elemento, self._indices.get(elemento))
+
+
+class _ComandoAgrupar(QUndoCommand):
+    """Agrupar (e, invertido, desagrupar) com o MESMO objeto de grupo — os
+    passos de desfazer seguintes (mover o grupo...) apontam pra ele."""
+
+    def __init__(self, canvas: "PreviewCanvas", grupo, filhos: list, agrupar: bool, ordem_antes: list) -> None:
+        super().__init__("Agrupar" if agrupar else "Desagrupar")
+        self._canvas, self._grupo, self._filhos, self._agrupar = canvas, grupo, list(filhos), agrupar
+        # A ordem dos objetos (quem fica por cima) antes e depois, pra voltar igual.
+        self._ordem_antes, self._ordem_depois = list(ordem_antes), list(canvas._elementos_mockup)
+        self._primeira_vez = True  # já foi feito antes de empurrar
+
+    def redo(self) -> None:  # noqa: N802
+        if self._primeira_vez:
+            self._primeira_vez = False
+            return
+        if self._agrupar:
+            self._canvas._agrupar_de_novo(self._grupo, self._filhos)
+        else:
+            self._canvas._desfazer_grupo(self._grupo)
+        self._canvas._elementos_mockup[:] = self._ordem_depois
+
+    def undo(self) -> None:  # noqa: N802
+        if self._agrupar:
+            self._canvas._desfazer_grupo(self._grupo)
+        else:
+            self._canvas._agrupar_de_novo(self._grupo, self._filhos)
+        self._canvas._elementos_mockup[:] = self._ordem_antes
+
+
+class _ComandoPropriedades(QUndoCommand):
+    """Cor, fonte, tamanho da letra, preenchido... — qualquer propriedade:
+    guarda a foto do objeto antes e depois (ver `projeto_arquivo.foto_elemento`)."""
+
+    _ID = 7301
+    _JANELA_JUNTAR_S = 1.5
+
+    def __init__(self, antes: dict, depois: dict, texto: str = "Alterar propriedade", juntar: bool = False) -> None:
+        super().__init__(texto)
+        self._antes, self._depois = antes, depois
+        self._primeira_vez = True
+        self._juntar = juntar
+        self._quando = time.monotonic()
+
+    def id(self) -> int:  # noqa: A003
+        return self._ID if self._juntar else -1
+
+    def mergeWith(self, outro) -> bool:  # noqa: N802
+        if not (isinstance(outro, _ComandoPropriedades) and outro._juntar and self._juntar):
+            return False
+        if set(outro._antes) != set(self._antes) or outro._quando - self._quando > self._JANELA_JUNTAR_S:
+            return False
+        self._depois = outro._depois
+        self._quando = outro._quando
+        return True
+
+    def redo(self) -> None:  # noqa: N802
+        if self._primeira_vez:
+            self._primeira_vez = False
+            return
+        self._aplicar(self._depois)
+
+    def undo(self) -> None:  # noqa: N802
+        self._aplicar(self._antes)
+
+    @staticmethod
+    def _aplicar(fotos: dict) -> None:
+        from .projeto_arquivo import aplicar_foto
+
+        for elemento, foto in fotos.items():
+            aplicar_foto(elemento, foto)
 
 
 class _ComandoAlterarGeometria(QUndoCommand):
@@ -1859,7 +1937,7 @@ class PreviewCanvas(QGraphicsView):
         # de corpo de verdade, não a cada mudança de posição/tamanho.
         elemento.geometria_alterada.connect(lambda el=elemento: self._atualizar_guia_snap_preview(el))
 
-    def _reinserir_elemento(self, elemento: ElementoMockup) -> None:
+    def _reinserir_elemento(self, elemento: ElementoMockup, indice: int | None = None) -> None:
         """Devolve um elemento já registrado (callbacks/sinal ligados uma
         vez na criação, ver `_registrar_elemento_mockup`) de volta à cena
         e à lista — usado por `_Comando*.redo/undo` acima. Guardado contra
@@ -1869,8 +1947,49 @@ class PreviewCanvas(QGraphicsView):
         if elemento.scene() is None:
             self._scene.addItem(elemento)
         if elemento not in self._elementos_mockup:
-            self._elementos_mockup.append(elemento)
+            if indice is None:
+                self._elementos_mockup.append(elemento)
+            else:
+                self._elementos_mockup.insert(min(indice, len(self._elementos_mockup)), elemento)
         self.elementos_alterados.emit()
+
+    def _desfazer_grupo(self, grupo: GrupoMockup) -> None:
+        if grupo in self._elementos_mockup:
+            self._elementos_mockup.remove(grupo)
+        for filho in grupo.desagrupar():
+            if filho not in self._elementos_mockup:
+                self._elementos_mockup.append(filho)
+        self.elementos_alterados.emit()
+
+    def _agrupar_de_novo(self, grupo: GrupoMockup, filhos: list) -> None:
+        self._scene.clearSelection()
+        for filho in filhos:
+            if filho in self._elementos_mockup:
+                self._elementos_mockup.remove(filho)
+        grupo._agrupar(filhos)
+        if grupo not in self._elementos_mockup:
+            self._elementos_mockup.append(grupo)
+        grupo.setSelected(True)
+        self.elementos_alterados.emit()
+
+    def com_undo_propriedades(self, elementos: list, texto: str, acao) -> None:
+        """Roda `acao()` (mudar cor, fonte...) e empurra UM passo de desfazer."""
+        from .projeto_arquivo import foto_elemento
+
+        antes = {el: f for el in elementos if (f := foto_elemento(el)) is not None}
+        acao()
+        depois = {el: foto_elemento(el) for el in antes}
+        mudou = {el: antes[el] for el in antes if depois[el] != antes[el]}
+        if mudou:
+            self._pilha_desfazer.push(_ComandoPropriedades(mudou, {el: depois[el] for el in mudou}, texto))
+
+    def registrar_propriedades(self, antes: dict, depois: dict, texto: str = "Alterar propriedade", juntar: bool = False) -> None:
+        """Mudança já feita (barra de propriedades): `antes`/`depois` por objeto.
+        `juntar`: edições seguidas no mesmo objeto (girar a setinha do campo,
+        digitar) viram um passo só."""
+        mudou = {el: antes[el] for el in antes if el in depois and depois[el] != antes[el]}
+        if mudou:
+            self._pilha_desfazer.push(_ComandoPropriedades(mudou, {el: depois[el] for el in mudou}, texto, juntar))
 
     def _retirar_elemento(self, elemento: ElementoMockup) -> None:
         if elemento.scene() is not None:
@@ -2118,6 +2237,7 @@ class PreviewCanvas(QGraphicsView):
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
         if len(selecionados) < 2:
             return None
+        ordem_antes = list(self._elementos_mockup)
         for el in selecionados:
             if el in self._elementos_mockup:
                 self._elementos_mockup.remove(el)
@@ -2125,20 +2245,30 @@ class PreviewCanvas(QGraphicsView):
         grupo.setSelected(True)
         self._registrar_elemento_mockup(grupo)
         self.elementos_alterados.emit()
+        self._pilha_desfazer.push(_ComandoAgrupar(self, grupo, selecionados, True, ordem_antes))
         return grupo
 
     def desagrupar_tudo(self) -> None:
         """Desagrupar tudo (CorelDRAW): desfaz também os grupos de dentro."""
+        self._pilha_desfazer.beginMacro("Desagrupar tudo")
         while any(isinstance(it, GrupoMockup) for it in self._scene.selectedItems()):
             self.desagrupar_selecionados()
+        self._pilha_desfazer.endMacro()
 
     def desagrupar_selecionados(self) -> None:
         grupos = [it for it in self._scene.selectedItems() if isinstance(it, GrupoMockup)]
+        if not grupos:
+            return
+        self._pilha_desfazer.beginMacro("Desagrupar")
         for grupo in grupos:
+            filhos = grupo.elementos
+            ordem_antes = list(self._elementos_mockup)
             if grupo in self._elementos_mockup:
                 self._elementos_mockup.remove(grupo)
             for filho in grupo.desagrupar():
                 self._registrar_elemento_mockup(filho)
+            self._pilha_desfazer.push(_ComandoAgrupar(self, grupo, filhos, False, ordem_antes))
+        self._pilha_desfazer.endMacro()
         self.elementos_alterados.emit()
 
     def remover_selecionados(self) -> None:
