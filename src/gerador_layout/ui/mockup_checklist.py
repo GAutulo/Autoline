@@ -25,6 +25,9 @@ from .mockup_itens import Alca, ElementoMockup, desenhar_texto_escalado
 
 _PIXELS_REFERENCIA = 400.0  # fonte de referência (1 em) — medido grande e escalado
 _MM_POR_PONTO = 25.4 / 72.0
+# Traço do quadrinho, proporcional à letra: 1 pt com letra de 2 mm (o que é
+# usado no CorelDRAW) — engrossa/afina junto quando a letra muda.
+_TRACO_POR_ALTURA_LETRA = _MM_POR_PONTO / 2.0
 _PISCAR_MS = 530
 _COR_SELECAO_TEXTO = QColor(0, 120, 215, 70)
 
@@ -52,6 +55,7 @@ class ElementoChecklistCores(ElementoMockup):
         # Espaçamento (F10 do CorelDRAW): entre letras e entre as linhas/itens.
         self._espaco_letras = 0.0
         self._espaco_linhas = 1.0
+        self._traco_relativo = _TRACO_POR_ALTURA_LETRA
         self._variantes = list(variantes) if variantes else ["Cor 1", "Cor 2"]
         self._fonte_familia = fonte_familia
         self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
@@ -166,6 +170,18 @@ class ElementoChecklistCores(ElementoMockup):
         return fonte
 
     @property
+    def espessura_quadro_pt(self) -> float:
+        """Traço do quadrinho em pontos, na letra atual."""
+        return self._medidas()["traco"] / _MM_POR_PONTO
+
+    def definir_espessura_quadro_pt(self, pt: float) -> None:
+        """Muda o traço; ele continua proporcional à letra depois disso."""
+        maiuscula = self.altura_letra_mm
+        if maiuscula > 0:
+            self._traco_relativo = max(0.005, float(pt) * _MM_POR_PONTO / maiuscula)
+            self.update()
+
+    @property
     def espaco_letras(self) -> float:
         return self._espaco_letras
 
@@ -193,11 +209,11 @@ class ElementoChecklistCores(ElementoMockup):
             "em": em,
             "escala": escala,
             "metrica": metrica,
-            "lado": maiuscula * 1.15,  # quadradinho ~ altura da maiúscula
+            "lado": maiuscula,  # quadradinho do tamanho da letra (maiúscula)
             "linha": em * 1.45 * getattr(self, "_espaco_linhas", 1.0),
             "espaco_caixa": em * 0.4,
             "espaco_itens": em * 1.1,
-            "traco": max(0.05, maiuscula * 0.09),
+            "traco": max(0.02, maiuscula * getattr(self, "_traco_relativo", _TRACO_POR_ALTURA_LETRA)),
         }
 
     def _largura_item(self, texto: str, m: dict) -> float:
@@ -519,6 +535,7 @@ class ElementoChecklistCores(ElementoMockup):
             largura_letra=self._largura_letra,
         )
         novo._espaco_letras, novo._espaco_linhas = self._espaco_letras, self._espaco_linhas
+        novo._traco_relativo = self._traco_relativo
         self._copiar_geometria_para(novo)
         novo.definir_tamanho(self._largura, self._altura)
         return novo

@@ -106,6 +106,9 @@ class PainelPropriedadesMockup(QWidget):
         self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
         self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
+        self.agrupar_solicitado: Callable[[], None] | None = None
+        self.desagrupar_solicitado: Callable[[], None] | None = None
+        self.desagrupar_tudo_solicitado: Callable[[], None] | None = None
         self.modelar_solicitado: Callable[[str], None] | None = None
         # Tamanho da página (chapa da dieline) em mm, pro estado "nada
         # selecionado" da barra — ligado de fora, como os callbacks acima.
@@ -155,6 +158,22 @@ class PainelPropriedadesMockup(QWidget):
         layout.addWidget(widget)
         self._layout_campos.addWidget(container)
         return container
+
+    def _juntar_ultimos(self, quantidade: int) -> None:
+        """Os últimos `quantidade` itens da barra num bloco só — botões que
+        andam juntos (alinhamento, espelhar) não se separam quando a barra
+        quebra de linha."""
+        itens = [self._layout_campos.takeAt(self._layout_campos.count() - 1) for _ in range(quantidade)][::-1]
+        bloco = QWidget()
+        linha = QHBoxLayout(bloco)
+        linha.setContentsMargins(0, 0, 0, 0)
+        linha.setSpacing(3)
+        for item in itens:
+            if item.widget() is not None:
+                linha.addWidget(item.widget())
+            elif item.spacerItem() is not None:
+                linha.addSpacing(item.spacerItem().sizeHint().width())
+        self._layout_campos.addWidget(bloco)
 
     def _botao_icone(self, tipo_icone: str, tooltip: str, checkable: bool = False) -> QToolButton:
         botao = QToolButton()
@@ -291,10 +310,18 @@ class PainelPropriedadesMockup(QWidget):
             nome.setToolTip(elemento.caminho_arquivo)
             self._layout_campos.addWidget(nome)
         elif isinstance(elemento, GrupoMockup):
-            aviso = QLabel("Sem aparência própria")
-            aviso.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
-            aviso.setToolTip("Grupo não tem aparência própria — edite os elementos individualmente.")
-            self._layout_campos.addWidget(aviso)
+            # Opções de grupo do CorelDRAW. Um objeto de dentro se edita com Ctrl+clique.
+            self._separador()
+            botao = self._botao_icone("desagrupar", "Desagrupar (Ctrl+U)")
+            botao.clicked.connect(lambda: self.desagrupar_solicitado and self.desagrupar_solicitado())
+            botao_tudo = QToolButton()
+            botao_tudo.setText("Desagrupar tudo")
+            botao_tudo.setToolTip("Desfaz este grupo e os grupos que estão dentro dele")
+            botao_tudo.clicked.connect(lambda: self.desagrupar_tudo_solicitado and self.desagrupar_tudo_solicitado())
+            self._layout_campos.addWidget(botao_tudo)
+            dica = QLabel(f"{len(elemento.elementos)} objetos · Ctrl+clique edita um só")
+            dica.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
+            self._layout_campos.addWidget(dica)
 
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
         self._elemento_conectado = elemento
@@ -376,6 +403,10 @@ class PainelPropriedadesMockup(QWidget):
             ("alinhar_centro_v", "centro_v", "Centralizar verticalmente entre si"),
             ("alinhar_base", "base", "Alinhar bases entre si"),
         )
+        botao_agrupar = self._botao_icone("agrupar", "Agrupar (Ctrl+G)")
+        botao_agrupar.setObjectName("botaoAgrupar")
+        botao_agrupar.clicked.connect(lambda: self.agrupar_solicitado and self.agrupar_solicitado())
+        self._separador()
         for tipo_icone, alinhamento, tooltip in disposicao:
             botao = self._botao_icone(tipo_icone, tooltip)
             botao.clicked.connect(
@@ -410,7 +441,7 @@ class PainelPropriedadesMockup(QWidget):
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setMaximumWidth(92)
+            spin.setMaximumWidth(86)
             # Campo de texto sem setinhas, como na barra do CorelDRAW — as
             # setas comiam a largura e cortavam o número ("120,0(").
             spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
@@ -465,6 +496,7 @@ class PainelPropriedadesMockup(QWidget):
             botao_v.setChecked(elemento.espelho_v)
             botao_h.toggled.connect(lambda marcado: elemento.definir_espelho(marcado, elemento.espelho_v))
             botao_v.toggled.connect(lambda marcado: elemento.definir_espelho(elemento.espelho_h, marcado))
+            self._juntar_ultimos(3)  # cadeado + espelhar: um bloco só na quebra de linha
 
         self._atualizar_campos_geometria()
 
@@ -521,7 +553,7 @@ class PainelPropriedadesMockup(QWidget):
         paineis = self._obter_paineis()
         combo = QComboBox()
         combo.setObjectName("comboPainel")  # pra achar de forma confiável (ex.: em teste), não por posição
-        combo.setMaximumWidth(110)
+        combo.setMaximumWidth(100)
         combo.addItem(_ROTULO_SEM_PAINEL, None)
         indice_atual = 0
         for i, painel in enumerate(paineis, start=1):
@@ -670,7 +702,7 @@ class PainelPropriedadesMockup(QWidget):
         combo = getattr(self, "_combo_fonte_guardado", None)
         if combo is None:
             combo = QFontComboBox()
-            combo.setMaximumWidth(170)
+            combo.setMaximumWidth(150)
             self._combo_fonte_guardado = combo
         self._desligar_combo_fonte()
         return combo
@@ -719,7 +751,7 @@ class PainelPropriedadesMockup(QWidget):
             if tinta.nome == cor_atual.nome:
                 indice_atual = i
         combo.setObjectName("comboCorTinta")  # pra achar de forma confiável, não por posição
-        combo.setMaximumWidth(100)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)  # "AZUL ROYAL" inteiro
         combo.setCurrentIndex(indice_atual)
         # `currentData()` pode vir None em situações que não deviam
         # acontecer no fluxo normal (ex.: índice inválido) — guarda aqui
@@ -760,7 +792,7 @@ class PainelPropriedadesMockup(QWidget):
         letras.setSuffix(" %")
         letras.setValue(el.espaco_letras * 100)
         letras.setKeyboardTracking(False)
-        letras.setMinimumWidth(78)
+        letras.setFixedWidth(74)
         letras.setObjectName("espacoLetras")
         letras.valueChanged.connect(lambda v: el.definir_espaco_letras(v / 100))
         self._grupo("espaco_letras", letras, "Espaço entre letras (0% = normal; mais afasta, menos aproxima)")
@@ -770,7 +802,7 @@ class PainelPropriedadesMockup(QWidget):
         linhas.setSuffix(" %")
         linhas.setValue(el.espaco_linhas * 100)
         linhas.setKeyboardTracking(False)
-        linhas.setMinimumWidth(78)
+        linhas.setFixedWidth(74)
         linhas.setObjectName("espacoLinhas")
         linhas.valueChanged.connect(lambda v: el.definir_espaco_linhas(v / 100))
         self._grupo("espaco_linhas", linhas, "Espaço entre linhas (100% = normal; menos aproxima, mais afasta)")
@@ -812,9 +844,10 @@ class PainelPropriedadesMockup(QWidget):
             ("direita", "alinhar_direita", "Texto alinhado à direita"),
         ):
             botao = self._botao_icone(icone, dica, checkable=True)
-            botao.setObjectName(f"alinhar_texto_{chave}")
+            botao.setProperty("alinharTexto", chave)  # nome do objeto fica o do estilo dos botões da barra
             botao.setChecked(el.alinhamento == chave)
             botoes_alinhamento.append((chave, botao))
+        self._juntar_ultimos(3)  # os 3 de alinhamento não se separam
 
         def escolher(chave_escolhida: str) -> None:
             el.definir_alinhamento(chave_escolhida)
@@ -1041,6 +1074,19 @@ class PainelPropriedadesMockup(QWidget):
         largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
         self._grupo("largura", largura, "Largura das letras (100% = normal; 66,7% = meio esticada, o padrão da máquina)")
         self._campos_espacamento(el)
+
+        quadro = QDoubleSpinBox()
+        quadro.setRange(0.1, 20.0)
+        quadro.setDecimals(2)
+        quadro.setSingleStep(0.25)
+        quadro.setSuffix(" pt")
+        quadro.setValue(el.espessura_quadro_pt)
+        quadro.setKeyboardTracking(False)
+        quadro.setFixedWidth(78)
+        quadro.setObjectName("espessuraQuadro")
+        quadro.valueChanged.connect(el.definir_espessura_quadro_pt)
+        tamanho.valueChanged.connect(lambda _pt: (quadro.blockSignals(True), quadro.setValue(el.espessura_quadro_pt), quadro.blockSignals(False)))
+        self._grupo("espessura", quadro, "Espessura do traço do quadrinho (padrão: 1 pt com letra de 2 mm; acompanha o tamanho da letra)")
 
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)

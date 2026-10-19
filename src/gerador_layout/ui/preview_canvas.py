@@ -27,7 +27,7 @@ import math
 from enum import Enum, auto
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPolygonF, QTransform, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
@@ -163,6 +163,83 @@ _CURSOR_POR_FERRAMENTA = {
     FerramentaMockup.FORMA: Qt.CursorShape.ArrowCursor,
     FerramentaMockup.COTA_ANGULAR: Qt.CursorShape.CrossCursor,
 }
+
+# Desenho de cada ferramenta ao lado da cruz (como no CorelDRAW o cursor
+# mostra qual ferramenta está ativa). Ver `_cursor_da_ferramenta`.
+_ICONE_DO_CURSOR = {
+    FerramentaMockup.RETANGULO: "ferramenta_retangulo",
+    FerramentaMockup.LINHA: "ferramenta_linha",
+    FerramentaMockup.ELIPSE: "ferramenta_elipse",
+    FerramentaMockup.POLIGONO: "ferramenta_poligono",
+    FerramentaMockup.ACABAMENTO: "ferramenta_transparencia",
+    FerramentaMockup.TABELA: "ferramenta_tabela",
+    FerramentaMockup.SIMBOLO: "ferramenta_simbolo",
+    FerramentaMockup.LACO_SELECAO: "ferramenta_laco",
+    FerramentaMockup.MOVER_PRECISO: "ferramenta_mover_preciso",
+    FerramentaMockup.COTA_PARALELA: "cota_paralela",
+    FerramentaMockup.COTA_HORIZONTAL: "largura",
+    FerramentaMockup.COTA_VERTICAL: "cota_vertical",
+    FerramentaMockup.COTA_ANGULAR: "cota_angular",
+    FerramentaMockup.BEZIER: "ferramenta_bezier",
+    FerramentaMockup.MAO_LIVRE: "ferramenta_mao_livre",
+    FerramentaMockup.MEDIR: "medida",
+}
+_CURSORES_PRONTOS: dict = {}
+
+
+def _cursor_da_ferramenta(ferramenta: FerramentaMockup):
+    """QCursor da ferramenta: cruz fina com o desenho da ferramenta ao lado
+    (conta-gotas: o próprio conta-gotas, com a ponta no clique). Preto com
+    contorno branco, pra aparecer sobre o papel e sobre a arte."""
+    if ferramenta in _CURSORES_PRONTOS:
+        return _CURSORES_PRONTOS[ferramenta]
+    from PySide6.QtGui import QCursor, QPixmap
+
+    from .mockup_icones import construir_icone
+
+    if ferramenta == FerramentaMockup.CONTA_GOTAS:
+        icone, ponta, cruz = "conta_gotas", None, False
+    elif ferramenta in _ICONE_DO_CURSOR:
+        icone, ponta, cruz = _ICONE_DO_CURSOR[ferramenta], None, True
+    else:
+        cursor = QCursor(_CURSOR_POR_FERRAMENTA[ferramenta])
+        _CURSORES_PRONTOS[ferramenta] = cursor
+        return cursor
+    lado = 32
+    imagem = QImage(lado, lado, QImage.Format.Format_ARGB32_Premultiplied)
+    imagem.fill(Qt.GlobalColor.transparent)
+    p = QPainter(imagem)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    desenho = construir_icone(icone).pixmap(16, 16).toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+    def tingido(cor: QColor) -> QImage:
+        copia = QImage(desenho)
+        q = QPainter(copia)
+        q.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        q.fillRect(copia.rect(), cor)
+        q.end()
+        return copia
+
+    if cruz:
+        meio = 8
+        for cor, largura in ((QColor(255, 255, 255), 3.0), (QColor(0, 0, 0), 1.0)):
+            p.setPen(QPen(cor, largura))
+            p.drawLine(QPointF(meio, 0), QPointF(meio, 16))
+            p.drawLine(QPointF(0, meio), QPointF(16, meio))
+        x0, y0 = 14, 14
+        quente = (meio, meio)
+    else:
+        x0, y0 = 1, 1
+        quente = (2, 16)  # ponta do conta-gotas (canto de baixo à esquerda do desenho)
+    branco, preto = tingido(QColor(255, 255, 255)), tingido(QColor(0, 0, 0))
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        p.drawImage(x0 + dx, y0 + dy, branco)
+    p.drawImage(x0, y0, preto)
+    p.end()
+    cursor = QCursor(QPixmap.fromImage(imagem), *quente)
+    _CURSORES_PRONTOS[ferramenta] = cursor
+    return cursor
+
 
 # Ferramentas de desenho em que as guias dinâmicas já aparecem ao pairar.
 _FERRAMENTAS_DESENHO_COM_GUIAS = {
@@ -573,6 +650,7 @@ class PreviewCanvas(QGraphicsView):
     linha_faca_selecionada = Signal(object)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
     cor_amostrada = Signal(QColor)  # conta-gotas: cor de verdade sob o cursor no clique
+    tinta_amostrada = Signal(object)  # conta-gotas em cima de um objeto: a tinta dele (CorImpressao)
     elipse_desenhada = Signal(QRectF)
     poligono_desenhado = Signal(QRectF)
     acabamento_desenhado = Signal(QRectF)
@@ -586,6 +664,10 @@ class PreviewCanvas(QGraphicsView):
 
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
+        # Ordem em que os objetos foram selecionados: alinhar vários usa o
+        # PRIMEIRO como referência (ele fica parado, os outros vão até ele).
+        self._ordem_selecao: list = []
+        self._scene.selectionChanged.connect(self._atualizar_ordem_selecao)
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
@@ -707,7 +789,7 @@ class PreviewCanvas(QGraphicsView):
         # Área de transferência interna do app (Ctrl+C/Ctrl+V) — guarda
         # clones desconectados da cena, não referências aos itens de
         # verdade (ver `copiar_selecionados`).
-        self._area_transferencia: list[ElementoMockup] = []
+        self._area_transferencia: list[tuple[ElementoMockup, QPointF, float]] = []  # (cópia, centro na cena, giro)
 
         # Encaixe (snap) — grade, bordas/centro de outros elementos, da
         # face e das guias (ver `_calcular_snap`). Só o estado INICIAL
@@ -1105,6 +1187,10 @@ class PreviewCanvas(QGraphicsView):
     def ferramenta_ativa(self) -> FerramentaMockup:
         return self._ferramenta
 
+    @property
+    def ferramenta_selecionar_ativa(self) -> bool:
+        return self._ferramenta == FerramentaMockup.SELECIONAR
+
     def definir_ferramenta(self, ferramenta: FerramentaMockup) -> None:
         if self._criando:
             self._cancelar_criacao()
@@ -1139,7 +1225,7 @@ class PreviewCanvas(QGraphicsView):
         # moldura, inexistente aqui — `NoFrame`). Setar no lugar errado é
         # por isso que o cursor nunca trocava visualmente ao mudar de
         # ferramenta, mesmo com o valor certo sendo calculado aqui.
-        self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[ferramenta])
+        self.viewport().setCursor(_cursor_da_ferramenta(ferramenta))
         # Enquanto uma ferramenta de criação está ativa, arrastar no
         # canvas vazio desenha a forma nova, não seleciona por retângulo
         # nem move a visão — `NoDrag` evita que o `QGraphicsView` tente
@@ -1270,7 +1356,7 @@ class PreviewCanvas(QGraphicsView):
             # Restaura o cursor da ferramenta ativa, não `unsetCursor()`
             # (que voltaria pro cursor padrão da seta, ignorando qual
             # ferramenta estava ativa antes do pan).
-            self.viewport().setCursor(_CURSOR_POR_FERRAMENTA[self._ferramenta])
+            self.viewport().setCursor(_cursor_da_ferramenta(self._ferramenta))
             event.accept()
             return
         if self._editando_faca and not self._modo_mockup and event.button() == Qt.MouseButton.LeftButton:
@@ -1296,7 +1382,14 @@ class PreviewCanvas(QGraphicsView):
     def _iniciar_criacao(self, pos_viewport) -> None:
         self._ponto_inicial_criacao = self._ajustar_guias_dinamicas(self.mapToScene(pos_viewport))
         if self._ferramenta == FerramentaMockup.CONTA_GOTAS:
-            # Não precisa de arrasto — amostra na hora do clique.
+            # Não precisa de arrasto — amostra na hora do clique. Em cima de
+            # um objeto com tinta, pega a TINTA dele (como no CorelDRAW);
+            # senão (imagem, fundo), a cor do pixel.
+            alvo = self._elemento_raiz_em(self._ponto_inicial_criacao)
+            tinta = (getattr(alvo, "tinta_unica", None) or getattr(alvo, "cor_tinta", None)) if alvo is not None else None
+            if tinta is not None:
+                self.tinta_amostrada.emit(tinta)
+                return
             cor = self._amostrar_cor(pos_viewport)
             if cor.isValid():
                 self.cor_amostrada.emit(cor)
@@ -1984,42 +2077,42 @@ class PreviewCanvas(QGraphicsView):
         return next((p for p in self._paineis if p.id == elemento.painel_id), None)
 
     # ── Alinhar / agrupar / desagrupar / remover a seleção atual ───────
-    def alinhar_selecionados(self, alinhamento: str) -> None:
-        """Alinha os elementos selecionados ENTRE SI (bordas/centro da
-        própria seleção, não da face — isso já existe em
-        `painel_propriedades_mockup.py::_alinhar_ao_painel`, pra um
-        elemento só). Mesma simplificação de lá: usa `pos()`/`largura`/
-        `altura` direto, ignorando rotação — alinhar caixa rotacionada
-        por rotação de verdade exigiria decidir qual canto/eixo do
-        retângulo girado conta como "borda", sem resposta óbvia."""
+    def _atualizar_ordem_selecao(self) -> None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        ainda = [it for it in self._ordem_selecao if it in selecionados]
+        self._ordem_selecao = ainda + [it for it in selecionados if it not in ainda]
+
+    def selecao_em_ordem(self) -> list[ElementoMockup]:
+        """Os selecionados na ordem em que foram selecionados."""
+        selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
+        return [it for it in self._ordem_selecao if it in selecionados] + [
+            it for it in selecionados if it not in self._ordem_selecao
+        ]
+
+    def alinhar_selecionados(self, alinhamento: str) -> None:
+        """Alinha os selecionados ao PRIMEIRO que foi selecionado (ele fica
+        parado; os outros vão até ele). Usa a caixa que o objeto ocupa na
+        tela, então funciona também com objeto girado."""
+        selecionados = self.selecao_em_ordem()
         if len(selecionados) < 2:
             return
-
-        esquerdas = [el.pos().x() for el in selecionados]
-        direitas = [el.pos().x() + el.largura for el in selecionados]
-        topos = [el.pos().y() for el in selecionados]
-        bases = [el.pos().y() + el.altura for el in selecionados]
-        alvo_esquerda, alvo_direita = min(esquerdas), max(direitas)
-        alvo_topo, alvo_base = min(topos), max(bases)
-        centro_h = (alvo_esquerda + alvo_direita) / 2
-        centro_v = (alvo_topo + alvo_base) / 2
-
-        for el in selecionados:
-            x, y = el.pos().x(), el.pos().y()
+        referencia = selecionados[0].retangulo_conteudo_cena()
+        for el in selecionados[1:]:
+            r = el.retangulo_conteudo_cena()
+            dx = dy = 0.0
             if alinhamento == "esquerda":
-                x = alvo_esquerda
+                dx = referencia.left() - r.left()
             elif alinhamento == "direita":
-                x = alvo_direita - el.largura
+                dx = referencia.right() - r.right()
             elif alinhamento == "centro_h":
-                x = centro_h - el.largura / 2
+                dx = referencia.center().x() - r.center().x()
             elif alinhamento == "topo":
-                y = alvo_topo
+                dy = referencia.top() - r.top()
             elif alinhamento == "base":
-                y = alvo_base - el.altura
+                dy = referencia.bottom() - r.bottom()
             elif alinhamento == "centro_v":
-                y = centro_v - el.altura / 2
-            el.setPos(x, y)
+                dy = referencia.center().y() - r.center().y()
+            el.setPos(el.pos() + QPointF(dx, dy))
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -2033,6 +2126,11 @@ class PreviewCanvas(QGraphicsView):
         self._registrar_elemento_mockup(grupo)
         self.elementos_alterados.emit()
         return grupo
+
+    def desagrupar_tudo(self) -> None:
+        """Desagrupar tudo (CorelDRAW): desfaz também os grupos de dentro."""
+        while any(isinstance(it, GrupoMockup) for it in self._scene.selectedItems()):
+            self.desagrupar_selecionados()
 
     def desagrupar_selecionados(self) -> None:
         grupos = [it for it in self._scene.selectedItems() if isinstance(it, GrupoMockup)]
@@ -2097,28 +2195,35 @@ class PreviewCanvas(QGraphicsView):
         refletir edições feitas DEPOIS da cópia)."""
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
         if selecionados:
-            self._area_transferencia = [it.clonar() for it in selecionados]
+            # Guarda onde cada um está NA TELA (centro e giro de verdade) — um
+            # objeto de dentro de um grupo tem posição relativa ao grupo.
+            self._area_transferencia = []
+            for it in selecionados:
+                rotacao = it.rotation()
+                pai = it.parentItem()
+                while pai is not None:
+                    rotacao += pai.rotation()
+                    pai = pai.parentItem()
+                centro = it.mapToScene(QPointF(it.largura / 2, it.altura / 2))
+                self._area_transferencia.append((it.clonar(), centro, rotacao))
 
     def colar(self) -> list[ElementoMockup]:
+        """Ctrl+V cola no MESMO lugar e giro do original, como no CorelDRAW
+        (Ctrl+D é que duplica deslocado)."""
         if not self._area_transferencia:
             return []
         for it in self._scene.selectedItems():
             it.setSelected(False)
-        passo = configuracoes.passo_duplicar_mm()
         clones = []
-        for original in self._area_transferencia:
+        for original, centro, rotacao in self._area_transferencia:
             clone = original.clonar()
-            clone.setPos(clone.pos() + QPointF(passo, passo))
+            clone.setRotation(rotacao)
+            clone.setPos(centro - QPointF(clone.largura / 2, clone.altura / 2))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
             self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Colar elemento"))
             clone.setSelected(True)
             clones.append(clone)
-        # Um Ctrl+V repetido parte do último colado, não sempre do mesmo
-        # ponto — cada colagem em cascata fica um pouco mais deslocada da
-        # anterior, igual Word/Illustrator, em vez de empilhar tudo exatamente
-        # no mesmo lugar toda vez que aperta de novo.
-        self._area_transferencia = clones
         return clones
 
     def trazer_para_frente(self) -> None:
@@ -3545,20 +3650,21 @@ class PreviewCanvas(QGraphicsView):
                 alvo = alvo_de(el)
                 if alvo is None:
                     continue
-                x, y = el.pos().x(), el.pos().y()
+                r = el.retangulo_conteudo_cena()  # a caixa que ele ocupa (girado também)
+                dx = dy = 0.0
                 if alinhamento == "esquerda":
-                    x = alvo.left()
+                    dx = alvo.left() - r.left()
                 elif alinhamento == "direita":
-                    x = alvo.right() - el.largura
+                    dx = alvo.right() - r.right()
                 elif alinhamento == "centro_h":
-                    x = alvo.center().x() - el.largura / 2
+                    dx = alvo.center().x() - r.center().x()
                 elif alinhamento == "topo":
-                    y = alvo.top()
+                    dy = alvo.top() - r.top()
                 elif alinhamento == "base":
-                    y = alvo.bottom() - el.altura
+                    dy = alvo.bottom() - r.bottom()
                 elif alinhamento == "centro_v":
-                    y = alvo.center().y() - el.altura / 2
-                el.setPos(x, y)
+                    dy = alvo.center().y() - r.center().y()
+                el.setPos(el.pos() + QPointF(dx, dy))
 
         self._com_undo_geometria("Alinhar", aplicar)
 

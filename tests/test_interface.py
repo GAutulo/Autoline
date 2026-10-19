@@ -10,6 +10,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 QApplication.instance() or QApplication([])
@@ -138,4 +139,174 @@ def test_barra_de_propriedades_nao_alarga_a_janela_e_cor_embaixo():
     assert j.canvas._ferramenta == FerramentaMockup.CONTA_GOTAS
     j.abas_tela.setCurrentIndex(0)  # fora do Layout, os controles de cor somem
     assert not status.botao_conta_gotas.isVisible()
+    j.close()
+
+
+def test_conta_gotas_pega_a_tinta_do_objeto_clicado():
+    """Como no CorelDRAW: seleciona o que vai receber, clica com o
+    conta-gotas no que tem a cor. Funciona com tinta que nem está marcada."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.models import CorImpressao
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+    from gerador_layout.ui.preview_canvas import FerramentaMockup
+
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    azul = CorImpressao(nome="AZUL ESCURO", r=0, g=40, b=110)
+    fonte = ElementoRetangulo(largura=60, altura=40, cor_tinta=azul, preenchido=True)
+    alvo = ElementoRetangulo(largura=60, altura=40, preenchido=True)
+    j.canvas.adicionar_elemento_mockup(fonte, QPointF(100, 100))
+    j.canvas.adicionar_elemento_mockup(alvo, QPointF(250, 100))
+    assert not j._chips_cor["Azul Escuro"][0].isChecked()
+    j.canvas.cena.clearSelection()
+    alvo.setSelected(True)
+    j.canvas.definir_ferramenta(FerramentaMockup.CONTA_GOTAS)
+    QApplication.processEvents()
+    ponto = j.canvas.mapFromScene(fonte.sceneBoundingRect().center())
+    QTest.mouseClick(j.canvas.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    assert (alvo.cor_tinta.r, alvo.cor_tinta.g, alvo.cor_tinta.b) == (0, 40, 110)
+    assert j._chips_cor["Azul Escuro"][0].isChecked()  # a tinta usada entra na legenda
+    assert j.canvas._ferramenta == FerramentaMockup.SELECIONAR
+    # pixel solto (sem objeto): a tinta da lista mais parecida, mesmo não marcada
+    j._ao_cor_amostrada(QColor(250, 115, 5))
+    assert alvo.cor_tinta.nome == "LARANJA" and j._chips_cor["Laranja"][0].isChecked()
+    j.close()
+
+
+def test_cursor_da_ferramenta_e_campo_de_texto_legivel():
+    from PySide6.QtCore import QPointF, Qt
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+    from gerador_layout.ui.preview_canvas import FerramentaMockup, _cursor_da_ferramenta
+
+    j = JanelaPrincipal()
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    for ferramenta in (FerramentaMockup.RETANGULO, FerramentaMockup.CONTA_GOTAS, FerramentaMockup.COTA_PARALELA):
+        j.canvas.definir_ferramenta(ferramenta)
+        cursor = j.canvas.viewport().cursor()
+        assert cursor.shape() == Qt.CursorShape.BitmapCursor  # cursor próprio, com o desenho da ferramenta
+        assert not cursor.pixmap().isNull()
+    assert _cursor_da_ferramenta(FerramentaMockup.CONTA_GOTAS).hotSpot().x() < 8  # ponta do conta-gotas
+    # passando por cima de um objeto com outra ferramenta: não impõe a seta dele
+    el = ElementoRetangulo()
+    j.canvas.adicionar_elemento_mockup(el, QPointF(50, 50))
+    from PySide6.QtWidgets import QGraphicsSceneHoverEvent
+
+    evento = QGraphicsSceneHoverEvent()
+    evento.setPos(QPointF(5, 5))
+    el.hoverMoveEvent(evento)
+    assert not el.hasCursor()
+    j.canvas.definir_ferramenta(FerramentaMockup.SELECIONAR)
+    el.hoverMoveEvent(evento)
+    assert el.hasCursor()
+    j.close()
+    # campos de texto com cor de texto do tema (no escuro sumiam)
+    assert "QLineEdit" in estilo.FOLHA_DE_ESTILO.split("selection-background-color")[0]
+
+
+def _janela_com_dois_retangulos():
+    from PySide6.QtCore import QPointF
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+
+    j = JanelaPrincipal()
+    j.resize(1200, 800)
+    j.show()
+    j.abas_tela.setCurrentIndex(1)
+    QApplication.processEvents()
+    a, b = ElementoRetangulo(largura=40, altura=30), ElementoRetangulo(largura=40, altura=30)
+    j.canvas.adicionar_elemento_mockup(a, QPointF(100, 100))
+    j.canvas.adicionar_elemento_mockup(b, QPointF(200, 100))
+    return j, a, b
+
+
+def test_grupo_como_no_corel_clique_pega_o_grupo_ctrl_pega_um():
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    from gerador_layout.ui.mockup_itens import GrupoMockup
+
+    j, a, b = _janela_com_dois_retangulos()
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    b.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    j.canvas.cena.clearSelection()
+    QApplication.processEvents()
+    vp = j.canvas.viewport()
+    ponto = j.canvas.mapFromScene(a.sceneBoundingRect().center())
+    # clique simples num objeto do grupo: seleciona o GRUPO
+    QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    assert grupo.isSelected() and not a.isSelected()
+    # arrastar move os dois juntos
+    b_antes = b.scenePos()
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto)
+    for k in range(1, 6):
+        QTest.mouseMove(vp, ponto + QPoint(10 * k, 0))
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ponto + QPoint(50, 0))
+    assert b.scenePos().x() > b_antes.x() + 5
+    # Ctrl+clique: entra no grupo e pega só um
+    j.canvas.cena.clearSelection()
+    ponto = j.canvas.mapFromScene(a.sceneBoundingRect().center())
+    QTest.mouseClick(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, ponto)
+    assert a.isSelected() and not grupo.isSelected() and isinstance(a.parentItem(), GrupoMockup)
+    # seleção por retângulo não pega os de dentro
+    j.canvas.cena.clearSelection()
+    assert not a.flags() & a.GraphicsItemFlag.ItemIsSelectable
+    # barra do grupo: desagrupar
+    grupo.setSelected(True)
+    QApplication.processEvents()
+    j.painel_propriedades_mockup.desagrupar_solicitado()
+    assert a.parentItem() is None and a.flags() & a.GraphicsItemFlag.ItemIsSelectable
+    j.close()
+
+
+def test_colar_no_mesmo_lugar_e_girado_sem_escorregar():
+    import pytest
+    from PySide6.QtCore import QPointF
+
+    j, a, _b = _janela_com_dois_retangulos()
+    a.setRotation(30)
+    centro = a.mapToScene(QPointF(a.largura / 2, a.altura / 2))
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    j.canvas.copiar_selecionados()
+    colado = j.canvas.colar()[0]
+    assert colado.rotation() == pytest.approx(30)
+    centro_colado = colado.mapToScene(QPointF(colado.largura / 2, colado.altura / 2))
+    assert (centro_colado.x(), centro_colado.y()) == pytest.approx((centro.x(), centro.y()))
+    # mudar a largura de um girado pela barra: o centro não anda
+    for largura in (41, 42, 43):
+        a.definir_largura(largura)
+        novo = a.mapToScene(QPointF(a.largura / 2, a.altura / 2))
+        assert (novo.x(), novo.y()) == pytest.approx((centro.x(), centro.y()))
+    j.close()
+
+
+def test_alinhar_varios_usa_o_primeiro_selecionado():
+    import pytest
+
+    j, a, b = _janela_com_dois_retangulos()
+    j.canvas.cena.clearSelection()
+    b.setSelected(True)  # o primeiro selecionado é a referência
+    a.setSelected(True)
+    centro_b = b.retangulo_conteudo_cena().center()
+    j.canvas.alinhar_selecionados("centro_h")
+    j.canvas.alinhar_selecionados("centro_v")
+    assert b.retangulo_conteudo_cena().center() == centro_b  # a referência não sai do lugar
+    assert a.retangulo_conteudo_cena().center().x() == pytest.approx(centro_b.x())
+    assert a.retangulo_conteudo_cena().center().y() == pytest.approx(centro_b.y())
+    # objeto girado: alinha pela caixa que ele ocupa na tela
+    a.setRotation(45)
+    j.canvas.alinhar_selecionados("esquerda")
+    assert a.retangulo_conteudo_cena().left() == pytest.approx(b.retangulo_conteudo_cena().left())
     j.close()
