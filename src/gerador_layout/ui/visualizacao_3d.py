@@ -598,7 +598,12 @@ class VistaCaixa3D(QWidget):
         escala = max(1.0, float(escala))
         self._foto = {"escala": escala, "fundo": fundo}
         try:
+            antes = {k for k, t in self._texturas.items() if t[0] is not None}
             imagem = self._pintar_em_imagem(escala, fundo)
+            if {k for k, t in self._texturas.items() if t[0] is not None} != antes and not self._texturas_pendentes:
+                # A pintura acabou de gerar a arte de alguma face (ela é feita
+                # depois de pintar): a foto sai de novo, já com ela.
+                imagem = self._pintar_em_imagem(escala, fundo)
             if self._texturas_pendentes:
                 # A arte pediu resolução maior: gera agora e pinta de novo.
                 pendentes, self._texturas_pendentes = self._texturas_pendentes, {}
