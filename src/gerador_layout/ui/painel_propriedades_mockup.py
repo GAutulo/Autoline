@@ -7,9 +7,13 @@ elemento selecionado, e cada controle é um ÍCONE (com tooltip), não um
 rótulo de texto — pedido explícito do usuário ("esse painel de
 propriedades deveria ficar em cima separado por ícones igual é em
 outros CAD... texto = ícone de uma letra, alinhamento = ícone de um
-objeto com uma linha no local que será alinhado"). Fica vazia quando
-não há seleção ou há mais de um elemento selecionado — editar
-propriedade de vários de uma vez não é um caso coberto ainda.
+objeto com uma linha no local que será alinhado"). 
+Arrumação (pedido do usuário: "odeio que esse espaço fique toda hora
+alterando"): altura FIXA de uma linha; à esquerda, sempre no mesmo lugar,
+o tipo do objeto e o que vale pra todo objeto (posição, tamanho, giro,
+proporção, espelhar) — desabilitado quando não há o que editar, nunca
+some; à direita, ABAS com o que é do tipo (Letra, Espaçamento, Posição...).
+A aba escolhida fica lembrada por tipo de objeto.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ import warnings
 from typing import Callable
 
 from PySide6.QtGui import QFont
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QSizePolicy,
     QComboBox,
@@ -29,7 +33,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QScrollArea,
     QSpinBox,
+    QTabBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -47,7 +53,6 @@ from .mockup_cota import ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
-from .layout_fluxo import LayoutFluxo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
@@ -78,6 +83,36 @@ NOME_TIPO_ELEMENTO: dict[type, str] = {
     ElementoCurva: "Curva",
     ElementoCotaAngular: "Cota angular",
 }
+
+
+class _Paginas(QWidget):
+    """As páginas das abas, uma à mostra. Não é um QStackedWidget porque ele
+    mede pela MAIOR página (escondida inclusive) e a área rolava à toa."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._lista: list[QWidget] = []
+
+    def addWidget(self, pagina: QWidget) -> None:  # noqa: N802
+        pagina.setVisible(not self._lista)
+        self._lista.append(pagina)
+        self._layout.addWidget(pagina)
+
+    def setCurrentIndex(self, indice: int) -> None:  # noqa: N802
+        for i, pagina in enumerate(self._lista):
+            pagina.setVisible(i == indice)
+
+    def count(self) -> int:
+        return len(self._lista)
+
+    def widget(self, indice: int) -> QWidget:
+        return self._lista[indice]
+
+    def removeWidget(self, pagina: QWidget) -> None:  # noqa: N802
+        self._lista.remove(pagina)
+        self._layout.removeWidget(pagina)
 
 
 class PainelPropriedadesMockup(QWidget):
@@ -118,34 +153,115 @@ class PainelPropriedadesMockup(QWidget):
         self.propriedades_alteradas: Callable[[ElementoMockup, dict, dict], None] | None = None
         self._foto_base: dict | None = None
 
+        self._aba_por_tipo: dict[str, str] = {}
+        self._chave_tipo = ""
+        self._paginas_layout: list[QHBoxLayout] = []
+
         raiz = QHBoxLayout(self)
-        raiz.setContentsMargins(2, 0, 2, 0)
-        raiz.setSpacing(8)
+        raiz.setContentsMargins(4, 2, 4, 2)
+        raiz.setSpacing(6)
 
-        self._rotulo_vazio = QLabel("Nada selecionado")
-        self._rotulo_vazio.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
-        raiz.addWidget(self._rotulo_vazio)
-
-        self._rotulo_tipo = QLabel()
-        self._rotulo_tipo.setStyleSheet("font-weight: 700;")
-        self._rotulo_tipo.setVisible(False)
+        self._rotulo_tipo = QLabel("Nada selecionado")
+        self._rotulo_tipo.setObjectName("rotuloTipoPropriedade")
+        self._rotulo_tipo.setFixedWidth(120)  # largura fixa: o resto não anda ao trocar de objeto
+        self._rotulo_tipo.setWordWrap(True)  # nome comprido ("Acabamento de produção") em 2 linhas
         raiz.addWidget(self._rotulo_tipo)
 
-        # Em fluxo: o que não cabe na largura da janela desce pra uma segunda
-        # linha, em vez de alargar a janela além da tela (ver layout_fluxo.py).
-        self._container_campos = QWidget()
-        self._layout_campos = LayoutFluxo(self._container_campos, espaco=5)
-        self._container_campos.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._container_campos.setVisible(False)
-        raiz.addWidget(self._container_campos, 1)
+        # Fixo: o que vale pra todo objeto.
+        self._fixo = QWidget()
+        self._layout_campos = QHBoxLayout(self._fixo)
+        self._layout_campos.setContentsMargins(0, 0, 0, 0)
+        self._layout_campos.setSpacing(5)
+        self._montar_fixo()
+        raiz.addWidget(self._fixo)
+        raiz.addWidget(self._linha_vertical(forte=True))
+
+        # Abas com o que é do tipo do objeto.
+        self._abas = QTabBar()
+        self._abas.setObjectName("abasPropriedades")
+        self._abas.setDrawBase(False)
+        self._abas.setExpanding(False)
+        self._abas.setUsesScrollButtons(False)
+        self._abas.currentChanged.connect(self._ao_trocar_aba)
+        self._paginas = _Paginas()
+        # Abas + página na mesma área que rola: numa tela estreita rola, em
+        # vez de forçar a janela a ficar mais larga que a tela.
+        area = QWidget()
+        linha_area = QHBoxLayout(area)
+        linha_area.setContentsMargins(0, 0, 0, 0)
+        linha_area.setSpacing(8)
+        linha_area.addWidget(self._abas)
+        linha_area.addWidget(self._paginas, 1)
+        rolagem = QScrollArea()
+        rolagem.setObjectName("rolagemPropriedades")
+        rolagem.setWidget(area)
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QFrame.Shape.NoFrame)
+        rolagem.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        rolagem.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        rolagem.setMinimumWidth(80)
+        raiz.addWidget(rolagem, 1)
 
         self._botao_remover = QToolButton()
         self._botao_remover.setObjectName("botaoIconePropriedade")
         self._botao_remover.setIcon(construir_icone("remover"))
-        self._botao_remover.setToolTip("Remover elemento")
-        self._botao_remover.setVisible(False)
+        self._botao_remover.setToolTip("Remover (Delete)")
         self._botao_remover.clicked.connect(self._ao_clicar_remover)
         raiz.addWidget(self._botao_remover)
+
+        self.setFixedHeight(self._ALTURA)
+        rolagem.setFixedHeight(self._ALTURA)
+        self._definir_campos(None)
+
+    _ALTURA = 44
+
+    def _linha_vertical(self, forte: bool = False) -> QFrame:
+        linha = QFrame()
+        linha.setFrameShape(QFrame.Shape.VLine)
+        linha.setFrameShadow(QFrame.Shadow.Sunken)
+        if forte:
+            linha.setObjectName("separadorForte")
+        return linha
+
+    # ── Abas ─────────────────────────────────────────────────────────
+    def _nova_aba(self, nome: str) -> None:
+        """Os campos montados daqui em diante vão pra uma aba nova."""
+        pagina = QWidget()
+        layout = QHBoxLayout(pagina)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(5)
+        self._paginas.addWidget(pagina)
+        self._paginas_layout.append(layout)
+        self._abas.blockSignals(True)
+        self._abas.addTab(nome)
+        self._abas.blockSignals(False)
+        self._layout_campos = layout
+
+    def _finalizar_abas(self, chave_tipo: str) -> None:
+        for layout in self._paginas_layout:
+            layout.addStretch(1)
+        self._chave_tipo = chave_tipo
+        nomes = [self._abas.tabText(i) for i in range(self._abas.count())]
+        lembrada = self._aba_por_tipo.get(chave_tipo)
+        indice = nomes.index(lembrada) if lembrada in nomes else 0
+        self._abas.blockSignals(True)
+        self._abas.setCurrentIndex(indice)
+        self._abas.blockSignals(False)
+        self._paginas.setCurrentIndex(indice)
+
+    def _ao_trocar_aba(self, indice: int) -> None:
+        if indice < 0:
+            return
+        self._paginas.setCurrentIndex(indice)
+        self._aba_por_tipo[self._chave_tipo] = self._abas.tabText(indice)
+
+    def mostrar_aba(self, nome: str) -> bool:
+        for i in range(self._abas.count()):
+            if self._abas.tabText(i) == nome:
+                self._abas.setCurrentIndex(i)
+                return True
+        return False
 
     # ── Peça básica: ícone + widget lado a lado, sem rótulo de texto ──
     def _grupo(self, tipo_icone: str, widget: QWidget, tooltip: str) -> QWidget:
@@ -223,7 +339,7 @@ class PainelPropriedadesMockup(QWidget):
         self.rebasear_foto()
         if self._elemento is None:
             return
-        for w in self._container_campos.findChildren(QWidget):
+        for w in self._paginas.findChildren(QWidget):
             for nome in ("valueChanged", "currentIndexChanged", "toggled", "editingFinished", "clicked", "currentFontChanged"):
                 sinal = getattr(w, nome, None)
                 if sinal is not None and hasattr(sinal, "connect"):
@@ -264,26 +380,28 @@ class PainelPropriedadesMockup(QWidget):
             except (TypeError, RuntimeError):
                 pass
 
-    def resizeEvent(self, evento) -> None:  # noqa: N802
-        super().resizeEvent(evento)
-        self._ajustar_altura_campos()
-
-    def _ajustar_altura_campos(self) -> None:
-        """Altura da área dos campos = a que o fluxo precisa na largura atual
-        (uma linha ou duas); a barra acompanha."""
-        largura = self._container_campos.width()
-        if largura <= 0 or not self._container_campos.isVisible():
-            return
-        altura = self._layout_campos.heightForWidth(largura)
-        if self._container_campos.minimumHeight() != altura:
-            self._container_campos.setMinimumHeight(altura)
-
     def definir_elemento(self, elemento: ElementoMockup | None) -> None:
         self._definir_campos(elemento)
         self._vigiar_campos()
-        # Os campos mudaram: depois de o Qt assentá-los, a barra pode precisar
-        # de uma ou duas linhas.
-        QTimer.singleShot(0, self._ajustar_altura_campos)
+
+    _ABA_PRINCIPAL: dict[type, str] = {
+        ElementoTexto: "Texto",
+        ElementoChecklistCores: "Letra",
+        ElementoTabela: "Tabela",
+        ElementoRetangulo: "Forma",
+        ElementoElipse: "Forma",
+        ElementoPoligono: "Forma",
+        ElementoCurva: "Forma",
+        ElementoLinha: "Linha",
+        ElementoCota: "Cota",
+        ElementoCotaAngular: "Cota",
+        ElementoCallout: "Callout",
+        ElementoAcabamento: "Acabamento",
+        ElementoSimbolo: "Símbolo",
+        ElementoLogoVetorial: "Cores",
+        ElementoImagem: "Imagem",
+        GrupoMockup: "Grupo",
+    }
 
     def _definir_campos(self, elemento: ElementoMockup | None) -> None:
         self._modo_multiplo = False
@@ -293,28 +411,22 @@ class PainelPropriedadesMockup(QWidget):
         self._desconectar_elemento()
 
         self._elemento = elemento
-        self._spins_geometria = {}
         self._rotulo_posicao_painel = None
         self._limpar_barra()
+        self._atualizar_fixo(elemento)
 
         if elemento is None:
-            self._rotulo_vazio.setVisible(False)
-            self._rotulo_tipo.setVisible(False)
-            self._botao_remover.setVisible(False)
+            self._definir_rotulo_tipo("Nada selecionado", apagado=True)
+            self._botao_remover.setEnabled(False)
+            self._nova_aba("Página")
             self._montar_estado_sem_selecao()
-            self._container_campos.setVisible(True)
+            self._finalizar_abas("nada")
             return
 
-        self._rotulo_vazio.setVisible(False)
-        self._rotulo_tipo.setText(NOME_TIPO_ELEMENTO.get(type(elemento), "Elemento"))
-        self._rotulo_tipo.setVisible(True)
-        self._container_campos.setVisible(True)
-        self._botao_remover.setVisible(True)
-
-        self._montar_campos_geometria(elemento)
-        self._separador()
-        self._montar_campos_painel(elemento)
-        self._separador(forte=True)
+        nome_tipo = NOME_TIPO_ELEMENTO.get(type(elemento), "Elemento")
+        self._definir_rotulo_tipo(nome_tipo)
+        self._botao_remover.setEnabled(True)
+        self._nova_aba(self._ABA_PRINCIPAL.get(type(elemento), "Objeto"))
 
         if isinstance(elemento, ElementoTexto):
             self._montar_campos_texto(elemento)
@@ -346,12 +458,11 @@ class PainelPropriedadesMockup(QWidget):
             self._montar_campos_logo(elemento)
         elif isinstance(elemento, ElementoImagem):
             nome = QLabel(getattr(elemento, "nome_original", None) or elemento.caminho_arquivo.rsplit("\\", 1)[-1])
-            nome.setMaximumWidth(160)
+            nome.setMaximumWidth(260)
             nome.setToolTip(elemento.caminho_arquivo)
             self._layout_campos.addWidget(nome)
         elif isinstance(elemento, GrupoMockup):
             # Opções de grupo do CorelDRAW. Um objeto de dentro se edita com Ctrl+clique.
-            self._separador()
             botao = self._botao_icone("desagrupar", "Desagrupar (Ctrl+U)")
             botao.clicked.connect(lambda: self.desagrupar_solicitado and self.desagrupar_solicitado())
             botao_tudo = QToolButton()
@@ -363,8 +474,17 @@ class PainelPropriedadesMockup(QWidget):
             dica.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
             self._layout_campos.addWidget(dica)
 
+        # Onde fica na caixa: face, alinhar na face, distâncias, escala.
+        self._nova_aba("Posição")
+        self._montar_campos_painel(elemento)
+        self._finalizar_abas(nome_tipo)
+
         elemento.geometria_alterada.connect(self._atualizar_campos_geometria)
         self._elemento_conectado = elemento
+
+    def _definir_rotulo_tipo(self, texto: str, apagado: bool = False) -> None:
+        self._rotulo_tipo.setText(texto)
+        self._rotulo_tipo.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};" if apagado else "font-weight: 700;")
 
     def _montar_estado_sem_selecao(self) -> None:
         """Barra de propriedades sem nada selecionado, como no CorelDRAW:
@@ -378,9 +498,6 @@ class PainelPropriedadesMockup(QWidget):
         rotulo.setStyleSheet("font-weight: 700;")
         rotulo.setToolTip("Tamanho da página — a chapa da dieline")
         self._layout_campos.addWidget(rotulo)
-        unidade = QLabel("Unidade: mm")
-        unidade.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
-        self._layout_campos.addWidget(unidade)
         self._separador()
 
         normal, com_shift = configuracoes.passo_nudge_mm()
@@ -420,20 +537,14 @@ class PainelPropriedadesMockup(QWidget):
         (fonte, cor...) de vários — só alinhar/remover, os dois únicos
         casos que fazem sentido pra um grupo heterogêneo de elementos."""
         self._modo_multiplo = True
-        # Desliga o elemento ANTERIOR antes de trocar — sem isso, quando
-        # ele mudasse de novo (ex.: desfazer), o sinal ia atualizar
-        # spinboxes já destruídos com a barra (ver `_limpar_barra`).
         self._desconectar_elemento()
         self._elemento = None
-        self._spins_geometria = {}
         self._rotulo_posicao_painel = None
         self._limpar_barra()
-
-        self._rotulo_vazio.setVisible(False)
-        self._rotulo_tipo.setText(f"{quantidade} selecionados")
-        self._rotulo_tipo.setVisible(True)
-        self._container_campos.setVisible(True)
-        self._botao_remover.setVisible(True)
+        self._atualizar_fixo(None)
+        self._definir_rotulo_tipo(f"{quantidade} selecionados")
+        self._botao_remover.setEnabled(True)
+        self._nova_aba("Organizar")
 
         disposicao = (
             ("alinhar_esquerda", "esquerda", "Alinhar bordas esquerdas entre si"),
@@ -447,6 +558,9 @@ class PainelPropriedadesMockup(QWidget):
         botao_agrupar.setObjectName("botaoAgrupar")
         botao_agrupar.clicked.connect(lambda: self.agrupar_solicitado and self.agrupar_solicitado())
         self._separador()
+        rotulo = QLabel("Alinhar ao 1º selecionado:")
+        rotulo.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
+        self._layout_campos.addWidget(rotulo)
         for tipo_icone, alinhamento, tooltip in disposicao:
             botao = self._botao_icone(tipo_icone, tooltip)
             botao.clicked.connect(
@@ -455,7 +569,7 @@ class PainelPropriedadesMockup(QWidget):
 
         # Modelar, como na barra de propriedades do CorelDRAW com vários
         # objetos selecionados (ver `modelagem.py`).
-        self._separador(forte=True)
+        self._nova_aba("Modelar")
         for operacao, dica in (
             ("soldar", "Soldar — junta as formas numa só"),
             ("aparar", "Aparar — recorta o objeto de baixo com os de cima (os de cima ficam)"),
@@ -466,9 +580,12 @@ class PainelPropriedadesMockup(QWidget):
             botao = self._botao_icone(f"modelar_{operacao}", dica)
             botao.setObjectName(f"modelar_{operacao}")
             botao.clicked.connect(lambda _c=False, op=operacao: self.modelar_solicitado and self.modelar_solicitado(op))
+        self._finalizar_abas("varios")
 
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
-    def _montar_campos_geometria(self, elemento: ElementoMockup) -> None:
+    def _montar_fixo(self) -> None:
+        """Posição, tamanho, giro, proporção e espelhar — montados UMA vez e
+        sempre no mesmo lugar; só os valores mudam com a seleção."""
         campos = (
             ("x", "x", "Posição X", " mm", -100000.0, 100000.0),
             ("y", "y", "Posição Y", " mm", -100000.0, 100000.0),
@@ -478,25 +595,98 @@ class PainelPropriedadesMockup(QWidget):
         )
         for chave, tipo_icone, tooltip, sufixo, minimo, maximo in campos:
             spin = QDoubleSpinBox()
+            spin.setObjectName(f"geometria_{chave}")
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setMaximumWidth(86)
+            spin.setFixedWidth(96)
             # Campo de texto sem setinhas, como na barra do CorelDRAW — as
             # setas comiam a largura e cortavam o número ("120,0(").
             spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-            # Sem isso, `valueChanged` dispara a CADA TECLA digitada, não
-            # só ao terminar — digitar "20" aplicava primeiro "2" (vira
-            # "4" por causa do mínimo de 4mm), a tela atualizava o campo
-            # PRA ESSE VALOR ERRADO no meio da digitação, e o "0" seguinte
-            # continuava a partir do "4" em vez do "2" que a pessoa
-            # realmente digitou — resultado "40" em vez de "20". Só
-            # aplicar ao confirmar (Enter/Tab/perder o foco) resolve.
+            # Só aplica ao confirmar (Enter/Tab/perder o foco): aplicando a
+            # cada tecla, digitar "20" virava "40" (o "2" batia no mínimo).
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(lambda valor, c=chave: self._ao_editar_geometria(c, valor))
+            spin.valueChanged.connect(self._conferir_mudanca)  # desfazer (depois de aplicar)
             self._spins_geometria[chave] = spin
             self._grupo(tipo_icone, spin, tooltip)
 
+        self._botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
+        self._botao_trava.toggled.connect(self._ao_trocar_trava)
+        self._botao_espelho_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)
+        self._botao_espelho_v = self._botao_icone("espelho_v", "Espelhar na vertical", checkable=True)
+        for botao in (self._botao_espelho_h, self._botao_espelho_v):
+            botao.toggled.connect(self._ao_trocar_espelho)
+            botao.toggled.connect(self._conferir_mudanca)
+
+        # Alinhar na face da caixa: um botão com menu, sempre aqui (é o que
+        # mais se usa depois de posicionar).
+        self._layout_campos.addSpacing(4)
+        botao_alinhar = self._botao_icone("alinhar_centro_h", "Alinhar na face da caixa")
+        botao_alinhar.setObjectName("botaoAlinharFace")
+        botao_alinhar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu_alinhar = QMenu(botao_alinhar)
+        for tipo_icone, alinhamento, tooltip in (
+            ("alinhar_esquerda", "esquerda", "Alinhar à esquerda da face"),
+            ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente na face"),
+            ("alinhar_direita", "direita", "Alinhar à direita da face"),
+            ("alinhar_topo", "topo", "Alinhar ao topo da face"),
+            ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
+            ("alinhar_base", "base", "Alinhar à base da face"),
+        ):
+            acao = menu_alinhar.addAction(construir_icone(tipo_icone), tooltip)
+            acao.triggered.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
+            acao.triggered.connect(self._conferir_mudanca)
+        botao_alinhar.setMenu(menu_alinhar)
+        self._botao_alinhar_face = botao_alinhar
+
+    def _mostrar_trava(self, travada: bool) -> None:
+        # Dois desenhos, como no CorelDRAW: cadeado fechado = proporção travada.
+        self._botao_trava.setIcon(construir_icone("trava" if travada else "trava_aberta"))
+        self._botao_trava.setToolTip(
+            "Proporção travada — clique pra destravar" if travada else "Proporção livre — clique pra travar"
+        )
+
+    def _ao_trocar_trava(self, travada: bool) -> None:
+        self._mostrar_trava(travada)
+        if self._elemento is not None:
+            self._elemento.definir_proporcao_travada(travada)
+
+    def _ao_trocar_espelho(self, _marcado: bool) -> None:
+        if self._elemento is not None and not isinstance(self._elemento, GrupoMockup):
+            self._elemento.definir_espelho(self._botao_espelho_h.isChecked(), self._botao_espelho_v.isChecked())
+
+    def _atualizar_fixo(self, elemento: ElementoMockup | None) -> None:
+        """Valores do objeto nos campos fixos; sem objeto, ficam desabilitados
+        com um traço (não somem: a barra não muda de lugar)."""
+        tem = elemento is not None
+        for spin in self._spins_geometria.values():
+            spin.setEnabled(tem)
+            spin.blockSignals(True)
+            if tem:
+                spin.setSpecialValueText("")
+            else:
+                spin.setSpecialValueText("—")
+                spin.setValue(spin.minimum())
+            spin.blockSignals(False)
+        botoes = (self._botao_trava, self._botao_espelho_h, self._botao_espelho_v)
+        for botao in botoes:
+            botao.blockSignals(True)
+        self._botao_trava.setEnabled(tem)
+        self._botao_trava.setChecked(bool(tem and elemento.proporcao_travada))
+        self._mostrar_trava(self._botao_trava.isChecked())
+        espelhavel = tem and not isinstance(elemento, GrupoMockup)
+        self._botao_espelho_h.setEnabled(espelhavel)
+        self._botao_espelho_v.setEnabled(espelhavel)
+        self._botao_espelho_h.setChecked(bool(espelhavel and elemento.espelho_h))
+        self._botao_espelho_v.setChecked(bool(espelhavel and elemento.espelho_v))
+        for botao in botoes:
+            botao.blockSignals(False)
+        self._botao_alinhar_face.setEnabled(tem and bool(self._obter_paineis()))
+        if tem:
+            self._atualizar_campos_geometria()
+
+    def _montar_campos_escala(self) -> None:
         # Fator de escala em %, como na barra do CorelDRAW: digitar 150 e
         # confirmar escala o objeto em 150% e o campo volta pra 100.
         for chave, tipo_icone, tooltip in (
@@ -513,32 +703,6 @@ class PainelPropriedadesMockup(QWidget):
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(lambda valor, c=chave, s=spin: self._ao_editar_escala(c, valor, s))
             self._grupo(tipo_icone, spin, tooltip)
-
-        botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
-        botao_trava.setObjectName("botaoIconePropriedade")
-
-        def mostrar_trava(travada: bool) -> None:
-            # Dois desenhos, como no CorelDRAW: cadeado fechado = proporção travada.
-            botao_trava.setIcon(construir_icone("trava" if travada else "trava_aberta"))
-            botao_trava.setToolTip(
-                "Proporção travada — clique pra destravar" if travada else "Proporção livre — clique pra travar"
-            )
-
-        botao_trava.setChecked(elemento.proporcao_travada)
-        mostrar_trava(elemento.proporcao_travada)
-        botao_trava.toggled.connect(elemento.definir_proporcao_travada)
-        botao_trava.toggled.connect(mostrar_trava)
-
-        if not isinstance(elemento, GrupoMockup):
-            botao_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)
-            botao_h.setChecked(elemento.espelho_h)
-            botao_v = self._botao_icone("espelho_v", "Espelhar na vertical", checkable=True)
-            botao_v.setChecked(elemento.espelho_v)
-            botao_h.toggled.connect(lambda marcado: elemento.definir_espelho(marcado, elemento.espelho_v))
-            botao_v.toggled.connect(lambda marcado: elemento.definir_espelho(elemento.espelho_h, marcado))
-            self._juntar_ultimos(3)  # cadeado + espelhar: um bloco só na quebra de linha
-
-        self._atualizar_campos_geometria()
 
     def _ao_editar_escala(self, chave: str, valor: float, spin: QDoubleSpinBox) -> None:
         elemento = self._elemento
@@ -603,41 +767,15 @@ class PainelPropriedadesMockup(QWidget):
         combo.setCurrentIndex(indice_atual)
         self._grupo("face", combo, "Face da caixa a que este elemento pertence")
 
-        disposicao = (
-            ("alinhar_esquerda", "esquerda", "Alinhar à esquerda da face"),
-            ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente na face"),
-            ("alinhar_direita", "direita", "Alinhar à direita da face"),
-            ("alinhar_topo", "topo", "Alinhar ao topo da face"),
-            ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
-            ("alinhar_base", "base", "Alinhar à base da face"),
-        )
-        # Um botão só com menu (em vez de 6 botões soltos) — a barra no
-        # padrão CorelDRAW ganhou escala/espelhar e precisa caber.
-        botao_alinhar = self._botao_icone("alinhar_centro_h", "Alinhar na face escolhida")
-        botao_alinhar.setObjectName("botaoAlinharFace")
-        botao_alinhar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu_alinhar = QMenu(botao_alinhar)
-        for tipo_icone, alinhamento, tooltip in disposicao:
-            acao = menu_alinhar.addAction(construir_icone(tipo_icone), tooltip)
-            acao.triggered.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
-        botao_alinhar.setMenu(menu_alinhar)
-        botoes: list[QToolButton] = [botao_alinhar]
-
-        # Sempre ativo: sem face escolhida, alinhar usa a face onde o objeto
-        # está (e ela passa a aparecer escolhida aqui).
+        # Sem face escolhida, "alinhar na face" (na parte fixa) usa a face
+        # onde o objeto está (e ela passa a aparecer escolhida aqui).
         self._combo_painel = combo
-
-        def atualizar_habilitado() -> None:
-            for botao in botoes:
-                botao.setEnabled(bool(paineis))
 
         def ao_mudar(_indice: int) -> None:
             elemento.definir_painel(combo.currentData())
-            atualizar_habilitado()
             self._atualizar_rotulo_posicao_painel()
 
         combo.currentIndexChanged.connect(ao_mudar)
-        atualizar_habilitado()
 
         # Leitura de onde o elemento está DENTRO da face escolhida — a
         # mesma pergunta que se faz olhando o desenho de perto ("está bem
@@ -650,6 +788,8 @@ class PainelPropriedadesMockup(QWidget):
         self._rotulo_posicao_painel.setPixmap(construir_icone("medida").pixmap(TAMANHO_ICONE, TAMANHO_ICONE))
         self._layout_campos.addWidget(self._rotulo_posicao_painel)
         self._atualizar_rotulo_posicao_painel()
+        self._separador()
+        self._montar_campos_escala()
 
     _TOLERANCIA_CENTRALIZADO_MM = 0.5
 
@@ -742,7 +882,7 @@ class PainelPropriedadesMockup(QWidget):
         combo = getattr(self, "_combo_fonte_guardado", None)
         if combo is None:
             combo = QFontComboBox()
-            combo.setMaximumWidth(150)
+            combo.setMaximumWidth(140)
             self._combo_fonte_guardado = combo
         self._desligar_combo_fonte()
         return combo
@@ -756,32 +896,24 @@ class PainelPropriedadesMockup(QWidget):
 
     def _limpar_barra(self) -> None:
         combo = getattr(self, "_combo_fonte_guardado", None)
-        while self._layout_campos.count():
-            item = self._layout_campos.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                if combo is not None and widget.isAncestorOf(combo):
-                    # Tira o seletor de fonte antes de apagar o grupo dele.
-                    self._desligar_combo_fonte()
-                    combo.hide()
-                    combo.setParent(self)
-                # `takeAt` só desliga o item do LAYOUT — o widget continua
-                # filho de `_container_campos` e visível na posição antiga
-                # até o `deleteLater()` ser processado (evento adiado, não
-                # imediato). Sem o `setParent(None)`, sobra widget "morto"
-                # flutuando/sobrepondo o conteúdo novo por um instante toda
-                # vez que troca de elemento — achado testando de verdade,
-                # não só teórico (mostrava várias trava-de-proporção juntas
-                # ao selecionar elementos em sequência rápida).
-                # `hide()` ANTES de tirar o pai: o layout agenda um "mostrar
-                # se não estiver escondido" pra cada widget que entra nele; se
-                # a barra é refeita duas vezes no mesmo clique (seleção muda
-                # 2x), esse aviso chegava com o widget já sem pai e ele
-                # aparecia como janela solta piscando na tela. Escondido de
-                # propósito, o Qt não mostra mais.
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
+        self._abas.blockSignals(True)
+        while self._abas.count():
+            self._abas.removeTab(0)
+        self._abas.blockSignals(False)
+        while self._paginas.count():
+            pagina = self._paginas.widget(0)
+            self._paginas.removeWidget(pagina)
+            if combo is not None and pagina.isAncestorOf(combo):
+                # Tira o seletor de fonte (reaproveitado) antes de apagar a aba dele.
+                self._desligar_combo_fonte()
+                combo.hide()
+                combo.setParent(self)
+            # `hide()` antes de tirar o pai: senão o widget podia aparecer
+            # um instante como janela solta antes do `deleteLater`.
+            pagina.hide()
+            pagina.setParent(None)
+            pagina.deleteLater()
+        self._paginas_layout = []
 
     def _combo_cor(self, cor_atual: CorImpressao, ao_mudar: Callable[[CorImpressao], None]) -> QComboBox:
         combo = QComboBox()
@@ -816,7 +948,7 @@ class PainelPropriedadesMockup(QWidget):
         spin.setRange(0.05, 20.0)
         spin.setDecimals(2)
         spin.setSuffix(" mm")
-        spin.setMaximumWidth(78)
+        spin.setMaximumWidth(88)
         spin.setValue(valor_atual)
         spin.setKeyboardTracking(False)  # mesmo motivo do campo de geometria — ver comentário lá
         spin.valueChanged.connect(ao_mudar)
@@ -872,7 +1004,6 @@ class PainelPropriedadesMockup(QWidget):
         botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
         botao_negrito.setChecked(el.negrito)
         botao_negrito.toggled.connect(el.definir_negrito)
-        self._campos_espacamento(el)
 
         # Alinhamento das linhas do texto (como no CorelDRAW): esquerda,
         # centro, direita.
@@ -899,7 +1030,11 @@ class PainelPropriedadesMockup(QWidget):
         for chave, botao in botoes_alinhamento:
             botao.clicked.connect(lambda _c=False, c=chave: escolher(c))
 
+        self._separador()
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+        self._nova_aba("Espaçamento")
+        self._campos_espacamento(el)
 
     def _montar_campos_retangulo(self, el: ElementoRetangulo) -> None:
         botao_preenchido = self._botao_icone("preenchido", "Preenchido", checkable=True)
@@ -1023,7 +1158,7 @@ class PainelPropriedadesMockup(QWidget):
         largura.setSuffix(" %")
         largura.setValue(el.largura_letra * 100)
         largura.setKeyboardTracking(False)
-        largura.setMaximumWidth(70)
+        largura.setMaximumWidth(80)
         largura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         largura.setObjectName("larguraLetraTabela")
         largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
@@ -1108,13 +1243,28 @@ class PainelPropriedadesMockup(QWidget):
         largura.setSuffix(" %")
         largura.setValue(el.largura_letra * 100)
         largura.setKeyboardTracking(False)
-        largura.setMaximumWidth(70)
+        largura.setMaximumWidth(80)
         largura.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         largura.setObjectName("larguraLetraChecklist")
         largura.valueChanged.connect(lambda v: el.definir_largura_letra(v / 100))
         self._grupo("largura", largura, "Largura das letras (100% = normal; 66,7% = meio esticada, o padrão da máquina)")
-        self._campos_espacamento(el)
 
+        botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
+        botao_negrito.setChecked(el.negrito)
+        botao_negrito.toggled.connect(el.definir_negrito)
+        self._separador()
+        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
+
+        self._nova_aba("Espaçamento")
+        self._campos_espacamento(el)
+        disposicao = QComboBox()
+        for chave, nome in DISPOSICOES.items():
+            disposicao.addItem(nome, chave)
+        disposicao.setCurrentIndex(max(0, disposicao.findData(el.disposicao)))
+        disposicao.currentIndexChanged.connect(lambda _i: el.definir_disposicao(disposicao.currentData()))
+        self._grupo("lista", disposicao, "Arranjo das cores: empilhadas ou lado a lado (quebra na largura da caixa)")
+
+        self._nova_aba("Quadro")
         quadro = QDoubleSpinBox()
         quadro.setRange(0.1, 20.0)
         quadro.setDecimals(2)
@@ -1127,19 +1277,6 @@ class PainelPropriedadesMockup(QWidget):
         quadro.valueChanged.connect(el.definir_espessura_quadro_pt)
         tamanho.valueChanged.connect(lambda _pt: (quadro.blockSignals(True), quadro.setValue(el.espessura_quadro_pt), quadro.blockSignals(False)))
         self._grupo("espessura", quadro, "Espessura do traço do quadrinho (padrão: 1 pt com letra de 2 mm; acompanha o tamanho da letra)")
-
-        botao_negrito = self._botao_icone("negrito", "Negrito", checkable=True)
-        botao_negrito.setChecked(el.negrito)
-        botao_negrito.toggled.connect(el.definir_negrito)
-
-        disposicao = QComboBox()
-        for chave, nome in DISPOSICOES.items():
-            disposicao.addItem(nome, chave)
-        disposicao.setCurrentIndex(max(0, disposicao.findData(el.disposicao)))
-        disposicao.currentIndexChanged.connect(lambda _i: el.definir_disposicao(disposicao.currentData()))
-        self._grupo("lista", disposicao, "Arranjo das cores: empilhadas ou lado a lado (quebra na largura da caixa)")
-
-        self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_logo(self, el: ElementoLogoVetorial) -> None:
         # Uma tinta pro desenho todo (o normal num símbolo de manuseio) — ou

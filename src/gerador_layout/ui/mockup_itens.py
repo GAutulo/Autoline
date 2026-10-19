@@ -846,10 +846,13 @@ class GrupoMockup(ElementoMockup):
         self.setPos(rect_cena.topLeft())
 
         for el in elementos:
-            pos_relativa = el.scenePos() - rect_cena.topLeft()
+            # Pelo centro (o ponto em volta do qual o objeto gira), não pela
+            # origem: num objeto girado a origem fica em outro lugar e ele pulava.
+            centro = el.transformOriginPoint()
+            centro_cena = el.mapToScene(centro)
             el.setSelected(False)
             el.setParentItem(self)
-            el.setPos(pos_relativa)
+            el.setPos(self.mapFromScene(centro_cena) - centro)
             # Dentro do grupo, o objeto só se seleciona com Ctrl+clique (CorelDRAW).
             el.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
             self._elementos.append(el)
@@ -860,14 +863,15 @@ class GrupoMockup(ElementoMockup):
         cena = self.scene()
         elementos = list(self._elementos)
         for el in elementos:
-            pos_absoluta = el.scenePos()
+            centro = el.transformOriginPoint()
+            centro_cena = el.mapToScene(centro)  # pelo centro: ver _agrupar
             rotacao_absoluta = el.rotation() + self.rotation()
             el.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             el.setParentItem(None)
             if cena is not None:
                 cena.addItem(el)
-            el.setPos(pos_absoluta)
             el.setRotation(rotacao_absoluta)
+            el.setPos(centro_cena - centro)
             el.setSelected(True)
         self._elementos.clear()
         if cena is not None:
