@@ -162,6 +162,22 @@ def test_arquivo_que_nao_e_projeto(tmp_path):
         projeto_arquivo.ler(ruim)
 
 
+def test_previa_do_explorer_registrada_so_no_usuario(tmp_path):
+    from gerador_layout.ui import associacao_arquivo as a
+
+    dll = a.dll_miniatura_embutida()
+    assert dll.is_file()  # compilada de miniatura_explorer/ e empacotada no exe
+    instalada = a.instalar_dll_miniatura(dll, tmp_path)
+    assert instalada.read_bytes() == dll.read_bytes()
+    valores = a.valores_miniatura(instalada)
+    assert all(chave.startswith("Software\\Classes\\") for chave, _n, _v in valores)
+    mapa = {(c, n): v for c, n, v in valores}
+    base = rf"Software\Classes\CLSID\{a.CLSID_MINIATURA}\InprocServer32"
+    assert mapa[(base, None)] == "mscoree.dll"
+    assert mapa[(base, "CodeBase")].startswith("file:///") and mapa[(base, "Class")] == "AutolineMiniatura.MiniaturaAutoline"
+    assert mapa[(r"Software\Classes\.autoline\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}", None)] == a.CLSID_MINIATURA
+
+
 def test_associacao_grava_so_no_usuario():
     from gerador_layout.ui import associacao_arquivo
 
