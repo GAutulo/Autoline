@@ -171,3 +171,123 @@ def test_agrupar_objeto_girado_nao_sai_do_lugar():
     j.canvas.desagrupar_selecionados()
     assert {el: caixa(el) for el in (a, b, texto)} == girados
     j.close()
+
+
+def _cantos(el):
+    from PySide6.QtCore import QRectF
+
+    r = QRectF(0, 0, el.largura, el.altura)
+    return [(round(p.x(), 3), round(p.y(), 3)) for p in (el.mapToScene(r.topLeft()), el.mapToScene(r.bottomRight()))]
+
+
+def test_esticar_grupo_estica_o_girado_no_eixo_certo_e_campo_da_barra_escala_os_de_dentro():
+    j, a, b = _janela()
+    texto = ElementoTexto("CAMA JUVENIL")
+    j.canvas.adicionar_elemento_mockup(texto, QPointF(150, 200))
+    texto.setRotation(-90)
+    j.canvas.cena.clearSelection()
+    for el in (a, b, texto):
+        el.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    tela = texto.retangulo_conteudo_cena()
+    antes = {el: _cantos(el) for el in (a, b, texto)}
+    # pela barra (campo largura): os de dentro escalam junto; o texto a -90°
+    # fica mais LARGO na tela, a altura dele na tela não muda
+    j.canvas._com_undo_geometria("largura", lambda: grupo.definir_largura(grupo.largura * 1.5))
+    novo = texto.retangulo_conteudo_cena()
+    assert novo.width() == pytest.approx(tela.width() * 1.5, rel=1e-3)
+    assert novo.height() == pytest.approx(tela.height(), rel=1e-3)
+    assert a.retangulo_conteudo_cena().width() == pytest.approx(60, rel=1e-3)
+    j.canvas.pilha_desfazer.undo()
+    assert {el: _cantos(el) for el in (a, b, texto)} == antes
+    j.close()
+
+
+def test_abrir_projeto_com_grupo_girado_de_caixa_antiga(tmp_path):
+    """Projeto salvo com a caixa do grupo maior que o desenho (versões
+    anteriores): abre com tudo no lugar."""
+    j, a, b = _janela()
+    a.setRotation(30)
+    j.canvas.cena.clearSelection()
+    a.setSelected(True)
+    b.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    grupo.recalcular_limites()
+    # caixa "antiga": 10 mm de folga em volta
+    for el in grupo.elementos:
+        el.setPos(el.pos() + QPointF(10, 10))
+    grupo.setPos(grupo.pos() - QPointF(10, 10))
+    grupo.prepareGeometryChange()
+    grupo._largura += 20
+    grupo._altura += 20
+    grupo.setTransformOriginPoint(grupo._largura / 2, grupo._altura / 2)
+    grupo.setRotation(25)
+    antes = sorted(_cantos(el) for el in (a, b))
+    arquivo = tmp_path / "x.autoline"
+    projeto_arquivo.salvar(j, str(arquivo))
+    k = JanelaPrincipal()
+    projeto_arquivo.aplicar_na_janela(k, projeto_arquivo.ler(str(arquivo)))
+    g2 = next(e for e in k.canvas._elementos_mockup if isinstance(e, GrupoMockup))
+    assert sorted(_cantos(el) for el in g2.elementos) == antes
+    k.close()
+    j.close()
+
+
+def _grupo_de(j, *els):
+    j.canvas.cena.clearSelection()
+    for el in els:
+        el.setSelected(True)
+    grupo = j.canvas.agrupar_selecionados()
+    j.canvas.cena.clearSelection()
+    return grupo
+
+
+def _ctrl_selecionar(el):
+    el.setFlag(el.GraphicsItemFlag.ItemIsSelectable, True)
+    el.setSelected(True)
+
+
+def test_apagar_objeto_de_dentro_do_grupo_sai_do_grupo_e_desfazer_devolve():
+    j, a, b = _janela()
+    c = ElementoRetangulo(largura=20, altura=20)
+    j.canvas.adicionar_elemento_mockup(c, QPointF(300, 100))
+    grupo = _grupo_de(j, a, b, c)
+    grupo.setRotation(20)
+    tela = a.retangulo_conteudo_cena()
+    _ctrl_selecionar(a)
+    j.canvas.remover_selecionados()
+    assert a not in grupo.elementos and a.scene() is None
+    dados = projeto_arquivo.estado_da_janela(j, com_arquivos=False)
+    salvo = next(e for e in dados["elementos"] if e["tipo"] == "GrupoMockup")
+    assert len(salvo["elementos"]) == 2  # não reaparece ao abrir o projeto
+    j.canvas.pilha_desfazer.undo()
+    assert a.parentItem() is grupo and a in grupo.elementos
+    assert a.retangulo_conteudo_cena() == tela
+    j.close()
+
+
+def test_apagar_o_ultimo_de_dentro_some_com_o_grupo():
+    j, a, b = _janela()
+    grupo = _grupo_de(j, a, b)
+    _ctrl_selecionar(a)
+    j.canvas.remover_selecionados()
+    _ctrl_selecionar(b)
+    j.canvas.remover_selecionados()
+    assert grupo.scene() is None and grupo not in j.canvas._elementos_mockup
+    j.canvas.pilha_desfazer.undo()
+    assert grupo.scene() is not None and b.parentItem() is grupo
+    j.close()
+
+
+def test_ctrl_d_num_objeto_de_dentro_do_grupo_nasce_ao_lado_dele():
+    j, a, b = _janela()
+    grupo = _grupo_de(j, a, b)
+    grupo.setRotation(10)
+    _ctrl_selecionar(a)
+    clone = j.canvas.duplicar_selecionados()[0]
+    centro = a.mapToScene(a.transformOriginPoint())
+    centro_clone = clone.mapToScene(clone.transformOriginPoint())
+    passo = centro_clone - centro
+    assert passo.x() == pytest.approx(passo.y()) and 0 < passo.x() < 50
+    assert clone.rotation() == pytest.approx(10)
+    j.close()
