@@ -906,11 +906,33 @@ class GrupoMockup(ElementoMockup):
         super()._redimensionar_para(ponto_cena, modificadores)
         fator_x = self._largura / largura_antes if largura_antes else 1.0
         fator_y = self._altura / altura_antes if altura_antes else 1.0
-        if fator_x == 1.0 and fator_y == 1.0:
+        self._escalar_filhos(fator_x, fator_y)
+
+    def definir_tamanho(self, largura: float, altura: float) -> None:
+        """Tamanho do grupo pela barra (campos, escala %) ou pelo desfazer:
+        os de dentro escalam junto (antes só a caixa do grupo mudava)."""
+        largura_antes, altura_antes = self._largura, self._altura
+        super().definir_tamanho(largura, altura)
+        self._escalar_filhos(
+            self._largura / largura_antes if largura_antes else 1.0,
+            self._altura / altura_antes if altura_antes else 1.0,
+        )
+
+    def _escalar_filhos(self, fator_x: float, fator_y: float) -> None:
+        """Escala cada filho pelo CENTRO dele, no eixo certo mesmo girado: um
+        texto a 90° esticado na horizontal fica mais comprido na tela, não
+        mais alto (antes esticava o eixo errado e o texto sumia)."""
+        if abs(fator_x - 1.0) < 1e-12 and abs(fator_y - 1.0) < 1e-12:
             return
         for el in self._elementos:
-            el.setPos(el.pos().x() * fator_x, el.pos().y() * fator_y)
-            el.definir_tamanho(el.largura * fator_x, el.altura * fator_y)
+            angulo = math.radians(el.rotation())
+            c, s = math.cos(angulo), math.sin(angulo)
+            fator_largura = math.hypot(fator_x * c, fator_y * s)
+            fator_altura = math.hypot(fator_x * s, fator_y * c)
+            centro = el.pos() + QPointF(el.largura / 2, el.altura / 2)
+            novo_centro = QPointF(centro.x() * fator_x, centro.y() * fator_y)
+            el.definir_tamanho(el.largura * fator_largura, el.altura * fator_altura)
+            el.setPos(novo_centro - QPointF(el.largura / 2, el.altura / 2))
 
     def _pintar_conteudo(self, painter: QPainter) -> None:
         pass  # o conteúdo visível são os próprios filhos — o Qt já desenha eles

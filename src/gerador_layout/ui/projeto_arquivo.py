@@ -633,10 +633,15 @@ def _criar_na_cena(canvas, d: dict, arquivos: _Arquivos, avisos: list[str], orig
         if not pares:
             return None
         grupo = GrupoMockup([f for f, _x in pares])
-        # Reposiciona exatamente como estava (o agrupar acha a caixa pelos filhos).
+        # Reposiciona exatamente como estava (o agrupar acha a caixa pelos
+        # filhos) — inclusive o tamanho: é dele que sai o centro de giro, e um
+        # grupo girado com outra caixa abria com tudo deslocado.
         grupo.setPos(pos_grupo)
         for f, x in pares:
             f.setPos(_ponto_de(x["geometria"]["pos"]))
+        grupo.prepareGeometryChange()
+        grupo._largura, grupo._altura = float(g["largura"]), float(g["altura"])
+        grupo.setTransformOriginPoint(grupo._largura / 2, grupo._altura / 2)
         grupo.setRotation(float(g.get("rotacao", 0.0)))
         grupo.definir_painel(g.get("painel"))
         grupo.setZValue(float(g.get("z", 0.0)))
