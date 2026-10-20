@@ -520,6 +520,15 @@ class _ComandoRemoverElementos(QUndoCommand):
             self._canvas._reinserir_elemento(elemento, self._indices.get(elemento))
 
 
+def _rotacao_na_cena(item) -> float:
+    """Giro de verdade na tela: o do item mais o de cada grupo em volta."""
+    total = 0.0
+    while item is not None:
+        total += item.rotation()
+        item = item.parentItem()
+    return total
+
+
 class _ComandoAgrupar(QUndoCommand):
     """Agrupar (e, invertido, desagrupar) com o MESMO objeto de grupo — os
     passos de desfazer seguintes (mover o grupo...) apontam pra ele."""
@@ -611,7 +620,17 @@ class _ComandoAlterarGeometria(QUndoCommand):
 
     @staticmethod
     def _aplicar(estados: dict) -> None:
-        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v, *extra) in estados.items():
+        def profundidade(item) -> int:
+            n, pai = 0, item.parentItem()
+            while pai is not None:
+                n, pai = n + 1, pai.parentItem()
+            return n
+
+        # De fora pra dentro: o tamanho de um grupo escala os de dentro, e o
+        # estado gravado de cada um deles vem depois e fica valendo.
+        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v, *extra) in sorted(
+            estados.items(), key=lambda par: profundidade(par[0])
+        ):
             if extra and hasattr(item, "_aplicar_estado_extra"):
                 item._aplicar_estado_extra(*extra)  # ex.: tamanho da letra do checklist
             item.definir_tamanho(largura, altura)
@@ -1963,6 +1982,23 @@ class PreviewCanvas(QGraphicsView):
         chamada redundante: `QUndoStack.push()` já chama `redo()` na hora,
         e a maioria dos chamadores também já adicionou o elemento antes de
         empurrar o comando (ver `adicionar_elemento_mockup` etc.)."""
+        volta = getattr(elemento, "_volta_ao_grupo", None)
+        if volta is not None:
+            # Era de dentro de um grupo: volta pra ele, no mesmo lugar da tela.
+            grupo, posicao, centro, rotacao = volta
+            elemento._volta_ao_grupo = None
+            if grupo.scene() is None:
+                self._reinserir_elemento(grupo)
+            if elemento.scene() is not None:
+                self._scene.removeItem(elemento)
+            elemento.setParentItem(grupo)
+            elemento.setRotation(rotacao - _rotacao_na_cena(grupo))
+            elemento.setPos(grupo.mapFromScene(centro) - elemento.transformOriginPoint())
+            elemento.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            grupo._elementos.insert(min(posicao, len(grupo.elementos)), elemento)
+            grupo.recalcular_limites()
+            self.elementos_alterados.emit()
+            return
         if elemento.scene() is None:
             self._scene.addItem(elemento)
         if elemento not in self._elementos_mockup:
@@ -2011,6 +2047,25 @@ class PreviewCanvas(QGraphicsView):
             self._pilha_desfazer.push(_ComandoPropriedades(mudou, {el: depois[el] for el in mudou}, texto, juntar))
 
     def _retirar_elemento(self, elemento: ElementoMockup) -> None:
+        grupo = elemento.parentItem()
+        if isinstance(grupo, GrupoMockup) and elemento in grupo.elementos:
+            # Objeto de dentro de um grupo (Ctrl+clique + Delete): sai da
+            # lista do grupo também — senão era salvo junto e voltava ao abrir.
+            # Guarda onde estava NA TELA, pro desfazer devolver ao grupo.
+            elemento._volta_ao_grupo = (
+                grupo, grupo.elementos.index(elemento),
+                elemento.mapToScene(elemento.transformOriginPoint()), _rotacao_na_cena(elemento),
+            )
+            grupo._elementos.remove(elemento)
+            if elemento.scene() is not None:
+                self._scene.removeItem(elemento)
+            elemento.setParentItem(None)
+            if grupo.elementos:
+                grupo.recalcular_limites()
+            else:
+                self._retirar_elemento(grupo)  # grupo vazio não fica na tela
+            self.elementos_alterados.emit()
+            return
         if elemento.scene() is not None:
             self._scene.removeItem(elemento)
         if elemento in self._elementos_mockup:
@@ -2308,10 +2363,21 @@ class PreviewCanvas(QGraphicsView):
         EXATAMENTE na posição atual de `elemento` (sem deslocamento, ao
         contrário de `duplicar_selecionados`/Ctrl+D), sem selecioná-lo.
         `elemento` continua sendo o item que se move dali pra frente."""
-        clone = elemento.clonar()
+        clone = self._clone_na_tela(elemento, QPointF(0, 0))
         self._scene.addItem(clone)
         self._registrar_elemento_mockup(clone)
         self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
+        return clone
+
+    @staticmethod
+    def _clone_na_tela(elemento: ElementoMockup, deslocamento: QPointF) -> ElementoMockup:
+        """Cópia solta (fora de grupo) no mesmo lugar e giro da TELA, mais o
+        deslocamento — um objeto de dentro de um grupo tem posição relativa
+        ao grupo, e a cópia ia parar no canto da página."""
+        clone = elemento.clonar()
+        clone.setRotation(_rotacao_na_cena(elemento))
+        centro = elemento.mapToScene(elemento.transformOriginPoint())
+        clone.setPos(centro - clone.transformOriginPoint() + deslocamento)
         return clone
 
     def duplicar_selecionados(self) -> list[ElementoMockup]:
@@ -2327,8 +2393,7 @@ class PreviewCanvas(QGraphicsView):
         clones = []
         for it in selecionados:
             it.setSelected(False)
-            clone = it.clonar()
-            clone.setPos(clone.pos() + QPointF(passo, passo))
+            clone = self._clone_na_tela(it, QPointF(passo, passo))
             self._scene.addItem(clone)
             self._registrar_elemento_mockup(clone)
             self._pilha_desfazer.push(_ComandoAdicionarElemento(self, clone, "Duplicar elemento"))
