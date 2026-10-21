@@ -419,6 +419,15 @@ def _modelo_envoltorio(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> M
         PainelDobravel("canto_1i", "Canto", x1, y3, x2, y4, "lateral1", _horizontal(y3, x1, x2), 90.0 + folga, 0.0, 0.35, camada=1),
         PainelDobravel("canto_2s", "Canto", x3, y1, x4, y2, "lateral2", _horizontal(y2, x3, x4), 90.0 + folga, 0.0, 0.35, camada=1),
         PainelDobravel("canto_2i", "Canto", x3, y3, x4, y4, "lateral2", _horizontal(y3, x3, x4), 90.0 + folga, 0.0, 0.35, camada=1),
+        # Prolongamento dos cantos nas linhas da tampa e da aba de fechamento:
+        # na faca é a mesma coluna do canto (vinco na altura da parede, corte-
+        # serra separando da tampa). Preso na borda de dentro do canto, vira uma
+        # divisória que atravessa a caixa; 90° − folga deixa em esquadro (o
+        # canto já entra com a folga). Sem isso o 3D mostrava um "degrau".
+        PainelDobravel("canto_1s_tampa", "Prolongamento do canto", x1, y0, x2, y1, "canto_1s", _horizontal(y1, x1, x2), 90.0 - folga, 0.40, 0.55, camada=2),
+        PainelDobravel("canto_1i_tampa", "Prolongamento do canto", x1, y4, x2, y5, "canto_1i", _horizontal(y4, x1, x2), 90.0 - folga, 0.40, 0.55, camada=2),
+        PainelDobravel("canto_2s_tampa", "Prolongamento do canto", x3, y0, x4, y1, "canto_2s", _horizontal(y1, x3, x4), 90.0 - folga, 0.40, 0.55, camada=2),
+        PainelDobravel("canto_2i_tampa", "Prolongamento do canto", x3, y4, x4, y5, "canto_2i", _horizontal(y4, x3, x4), 90.0 - folga, 0.40, 0.55, camada=2),
         # Abas da Impressora nas pontas das laterais: dobram pra dentro, por baixo da tampa.
         PainelDobravel("aba_lat1", "Aba lateral", x0, y2, x1, y3, "lateral1", _vertical(x1, y2, y3), 90.0 + folga, 0.45, 0.58, camada=1),
         PainelDobravel("aba_lat2", "Aba lateral", x4, y2, x5, y3, "lateral2", _vertical(x4, y2, y3), 90.0 + folga, 0.45, 0.58, camada=1),
