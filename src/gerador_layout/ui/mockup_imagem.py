@@ -10,7 +10,7 @@ proporção fica pra quando existir um painel de propriedades de verdade).
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QImage, QPainter, QPixmap
 
 from .mockup_itens import ElementoMockup
 
@@ -27,6 +27,13 @@ class ElementoImagem(ElementoMockup):
         super().__init__(largura=largura, altura=altura, parent=parent)
         self._caminho_arquivo = caminho_arquivo
         self._pixmap = pixmap
+        self._tamanho_real_mm = tamanho_real_mm_imagem(caminho_arquivo)
+
+    @property
+    def tamanho_real_mm(self) -> tuple[float, float] | None:
+        """Tamanho de impressão pela resolução gravada no arquivo (ex.: JPG
+        exportado do CorelDRAW a 300 dpi); None se o arquivo não diz."""
+        return self._tamanho_real_mm
 
     @property
     def caminho_arquivo(self) -> str:
@@ -44,6 +51,20 @@ class ElementoImagem(ElementoMockup):
         novo = ElementoImagem(self._caminho_arquivo)
         self._copiar_geometria_para(novo)
         return novo
+
+
+_DPM_PADRAO_DO_QT = 3780  # 96 dpi: o que o Qt relata quando o arquivo não tem resolução
+
+
+def tamanho_real_mm_imagem(caminho: str) -> tuple[float, float] | None:
+    """Tamanho pela resolução gravada (dpi). Só vale quando o arquivo traz
+    uma resolução de verdade: sem ela o Qt diz 96 dpi (ver abaixo) e o
+    tamanho seria inventado."""
+    imagem = QImage(caminho)
+    dpm_x, dpm_y = imagem.dotsPerMeterX(), imagem.dotsPerMeterY()
+    if imagem.isNull() or dpm_x <= 0 or dpm_y <= 0 or (dpm_x == dpm_y == _DPM_PADRAO_DO_QT):
+        return None
+    return imagem.width() / dpm_x * 1000.0, imagem.height() / dpm_y * 1000.0
 
 
 def _tamanho_inicial_mm(pixmap: QPixmap) -> tuple[float, float]:
