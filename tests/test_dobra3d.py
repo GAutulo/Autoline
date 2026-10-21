@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import sys
 from pathlib import Path
 
@@ -129,6 +131,19 @@ def test_aba_3d_leva_a_arte_do_layout():
     vista._gerar_texturas_pendentes()
     _imagem, k_perto, _r = vista.textura_do_painel("frente")
     assert k_perto > k * 2
+
+    # Bem de perto a face inteira não cabe na resolução pedida (lado máximo
+    # em pixels): ganha uma textura de DETALHE só do pedaço visível, mais
+    # nítida que a da face — era o borrão nos símbolos com zoom.
+    vista._zoom = 40.0
+    for _ in range(2):
+        vista.grab()
+        vista._gerar_texturas_pendentes()
+    base = vista.textura_do_painel("frente")
+    detalhe = vista._detalhes.get("frente")
+    assert detalhe is not None and detalhe[0] is not None
+    assert detalhe[1] > base[1] * 1.5
+    assert detalhe[2].width() < base[2].width() / 3  # só o pedaço na tela
     j.close()
 
 
@@ -191,3 +206,28 @@ def test_foto_do_3d_sai_com_a_arte_mesmo_com_a_aba_fechada():
     )
     assert vermelhos > 50
     j.close()
+
+
+@pytest.mark.parametrize("tipo", _ENVOLTORIOS_FECHADOS)
+def test_envoltorio_tem_o_prolongamento_dos_cantos_e_ele_fica_dentro_da_caixa(tipo):
+    """Na faca, a coluna do canto vai da tampa até a aba de fechamento (vinco
+    na altura da parede, corte-serra separando da tampa). O 3D mostrava um
+    degrau no lugar desses pedaços."""
+    modelo, layout = _modelo(tipo)
+    xs = [sum(layout.segmentos_impressora[:i]) for i in range(6)]
+    ys = [sum(layout.segmentos_riscador[:i]) for i in range(6)]
+    for xa, xb in ((xs[1], xs[2]), (xs[3], xs[4])):
+        for ya, yb in ((ys[0], ys[1]), (ys[4], ys[5])):
+            cx, cy = (xa + xb) / 2, (ya + yb) / 2
+            assert any(p.x1 < cx < p.x2 and p.y1 < cy < p.y2 for p in modelo.paineis), (cx, cy)
+    fechada = posicionar(modelo, 1.0)
+    paredes = [p for p in fechada if p.painel.id in {"base", "lateral1", "lateral2", "parede_sup", "parede_inf"}]
+    mn, mx = caixa_envolvente(paredes)
+    for pp in fechada:
+        if pp.painel.id.endswith("_tampa") and pp.painel.id.startswith("canto"):
+            for x, y in pp.painel.cantos:
+                ponto = pp.ponto(x, y)
+                for i in range(3):
+                    # dobra pra dentro; só a folga de 3° do canto (que entra inclinado) sobra
+                    sobra = A * math.sin(math.radians(3.0)) + 1.0
+                    assert mn[i] - sobra <= ponto[i] <= mx[i] + sobra
