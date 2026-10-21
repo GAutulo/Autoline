@@ -34,6 +34,12 @@ class Simbolo:
     caminho: Path
     categoria: str = ""
     do_usuario: bool = False
+    substitui_de_fabrica: bool = False  # arquivo do usuário no lugar de um que vem com o app
+
+
+def nome_de_arquivo(nome: str) -> str:
+    """Nome de símbolo como nome de arquivo (sem os caracteres proibidos no Windows)."""
+    return re.sub(r'[\\/:*?"<>|]', "-", nome).strip()
 
 
 def pasta_embutida() -> Path:
@@ -42,17 +48,25 @@ def pasta_embutida() -> Path:
 
 def carregar_banco(pasta_usuario: Path | None = None) -> list[Simbolo]:
     """Os símbolos que vêm com o app (na ordem do catálogo) e os da pasta
-    do usuário (um .svg por símbolo, nome = nome do arquivo)."""
+    do usuário (um .svg por símbolo, nome = nome do arquivo). Um arquivo do
+    usuário com o MESMO nome de um de fábrica fica no lugar dele (substituir
+    um símbolo que veio ruim sem esperar versão nova do app)."""
+    do_usuario: dict[str, Path] = {}
+    if pasta_usuario is not None and pasta_usuario.is_dir():
+        for caminho in sorted(pasta_usuario.glob("*.svg"), key=lambda p: p.name.lower()):
+            do_usuario[caminho.stem.lower()] = caminho
     simbolos: list[Simbolo] = []
     catalogo = pasta_embutida() / "catalogo.json"
     if catalogo.is_file():
         for item in json.loads(catalogo.read_text(encoding="utf-8")):
             caminho = pasta_embutida() / item["arquivo"]
-            if caminho.is_file():
+            proprio = do_usuario.pop(nome_de_arquivo(item["nome"]).lower(), None)
+            if proprio is not None:
+                simbolos.append(Simbolo(item["nome"], proprio, item.get("categoria", ""), True, True))
+            elif caminho.is_file():
                 simbolos.append(Simbolo(item["nome"], caminho, item.get("categoria", "")))
-    if pasta_usuario is not None and pasta_usuario.is_dir():
-        for caminho in sorted(pasta_usuario.glob("*.svg"), key=lambda p: p.name.lower()):
-            simbolos.append(Simbolo(caminho.stem, caminho, "Meus símbolos", do_usuario=True))
+    for caminho in do_usuario.values():
+        simbolos.append(Simbolo(caminho.stem, caminho, "Meus símbolos", do_usuario=True))
     return simbolos
 
 
