@@ -682,6 +682,7 @@ class JanelaPrincipal(QMainWindow):
         menu_objeto.addAction("Converter em curvas\tCtrl+Q", self._no_layout(lambda: self.canvas.converter_selecionados_em_curvas()))
         menu_objeto.addAction("Combinar\tCtrl+L", self._no_layout(lambda: self.canvas.combinar_selecionados()))
         menu_objeto.addAction("Separar\tCtrl+K", self._no_layout(lambda: self.canvas.separar_selecionados()))
+        menu_objeto.addAction("Salvar no banco de simbologias…", self._no_layout(self.salvar_no_banco_de_simbologias))
         menu_modelar = menu_objeto.addMenu("Modelar")
         for operacao, nome in OPERACOES.items():
             menu_modelar.addAction(
@@ -1814,15 +1815,16 @@ class JanelaPrincipal(QMainWindow):
             return
         self._adicionar_elemento_mockup_e_selecionar(elemento)
 
-    def _adicionar_logo(self) -> None:
+    def _adicionar_logo(self, caminho: str | None = None) -> None:
         # Aceita PNG/JPG além de SVG — pra quem só tem o logotipo em
         # imagem (o caso mais comum na prática, a maioria das empresas
         # não tem versão vetorial à mão), não faz sentido travar no
         # formato: quem pediu "logotipo" quer usar o arquivo que tem, a
         # separação de cor automática só se aplica quando é SVG mesmo.
-        caminho, _ = QFileDialog.getOpenFileName(
-            self, "Adicionar logotipo", "", "Logotipos (*.svg *.png *.jpg *.jpeg);;SVG (*.svg);;Imagem (*.png *.jpg *.jpeg)"
-        )
+        if not isinstance(caminho, str):  # ligado a clique: chega um bool
+            caminho, _ = QFileDialog.getOpenFileName(
+                self, "Adicionar logotipo", "", "Logotipos (*.svg *.png *.jpg *.jpeg);;SVG (*.svg);;Imagem (*.png *.jpg *.jpeg)"
+            )
         if not caminho:
             return
         try:
@@ -1833,7 +1835,16 @@ class JanelaPrincipal(QMainWindow):
         except ValueError as exc:
             QMessageBox.critical(self, "Erro ao abrir logotipo", str(exc))
             return
-        self._adicionar_elemento_mockup_e_selecionar(elemento)
+        # No tamanho em que foi desenhado (SVG: unidade do arquivo; PNG/JPG:
+        # resolução gravada), como os símbolos do banco.
+        real = elemento.tamanho_real_mm
+        if real is None and isinstance(elemento, ElementoLogoVetorial):
+            real = tamanho_mm(Path(caminho))
+        self._inserir_no_tamanho_real(elemento, real)
+        if real is not None:
+            self.statusBar().showMessage(
+                f"Logotipo no tamanho do arquivo: {real[0]:.1f} × {real[1]:.1f} mm".replace(".", ","), 6000
+            )
         if isinstance(elemento, ElementoLogoVetorial) and elemento.cores_detectadas:
             self._remapear_cores_logo(elemento)
 
@@ -1845,21 +1856,54 @@ class JanelaPrincipal(QMainWindow):
         except ValueError as exc:
             QMessageBox.critical(self, "Erro ao abrir símbolo", str(exc))
             return None
-        real = elemento.tamanho_real_mm or tamanho_mm(Path(caminho))
-        if real is None:
-            self._adicionar_elemento_mockup_e_selecionar(elemento)
-        else:
-            elemento.definir_tamanho(*real)
-            passo = 8.0 * self._fator_zoom() * (len(self.canvas.elementos_mockup) % 6)  # cascata, como os outros
-            pos = self._posicao_central_canvas() + QPointF(passo, passo)
-            self.canvas.adicionar_elemento_mockup(
-                elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2)
-            )
-            for item in self.canvas.cena.selectedItems():
-                item.setSelected(False)
-            elemento.setSelected(True)
+        self._inserir_no_tamanho_real(elemento, elemento.tamanho_real_mm or tamanho_mm(Path(caminho)))
         self.statusBar().showMessage(f"Símbolo “{nome or Path(caminho).stem}” inserido", 4000)
         return elemento
+
+    def _inserir_no_tamanho_real(self, elemento: ElementoMockup, real: tuple[float, float] | None) -> None:
+        """No centro da tela, no tamanho real (mm) do arquivo; sem tamanho
+        conhecido, no tamanho padrão de tela como os outros elementos."""
+        if real is None:
+            self._adicionar_elemento_mockup_e_selecionar(elemento)
+            return
+        elemento.definir_tamanho(*real)
+        passo = 8.0 * self._fator_zoom() * (len(self.canvas.elementos_mockup) % 6)  # cascata, como os outros
+        pos = self._posicao_central_canvas() + QPointF(passo, passo)
+        self.canvas.adicionar_elemento_mockup(
+            elemento, QPointF(pos.x() - elemento.largura / 2, pos.y() - elemento.altura / 2)
+        )
+        for item in self.canvas.cena.selectedItems():
+            item.setSelected(False)
+        elemento.setSelected(True)
+
+    def salvar_no_banco_de_simbologias(self, nome: str | None = None) -> Path | None:
+        """O logotipo selecionado no layout vira um símbolo do banco (em
+        "Meus símbolos"), pra usar nos próximos trabalhos."""
+        logos = [it for it in self.canvas.cena.selectedItems() if isinstance(it, ElementoLogoVetorial)]
+        if len(logos) != 1:
+            QMessageBox.information(
+                self, "Salvar no banco de simbologias",
+                "Selecione um logotipo/símbolo vetorial (SVG) do layout pra guardar no banco.",
+            )
+            return None
+        logo = logos[0]
+        if not isinstance(nome, str):
+            nome, ok = QInputDialog.getText(
+                self, "Salvar no banco de simbologias", "Nome do símbolo:",
+                text=getattr(logo, "nome_original", None) and Path(logo.nome_original).stem or Path(logo.caminho_arquivo).stem,
+            )
+            if not ok or not nome.strip():
+                return None
+        # O arquivo como veio (com o tamanho de verdade); sem ele, o desenho carregado.
+        arquivo = Path(logo.caminho_arquivo)
+        try:
+            conteudo = arquivo.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            conteudo = logo._conteudo_original
+        destino = self.docker_simbologias.adicionar_conteudo(conteudo, nome)
+        self.abrir_docker("simbologias")
+        self.statusBar().showMessage(f"“{destino.stem}” guardado no banco de simbologias", 6000)
+        return destino
 
     def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
         dialogo = DialogoSepararCoresLogo(elemento.cores_detectadas, self._cores_impressao_ativas(), self)

@@ -254,3 +254,99 @@ def test_logo_que_passa_da_pagina_nao_corta_e_caixa_fica_justa(tmp_path):
     # SVG sem nada fora e já justo: não mexe
     justo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
     assert enquadrar_no_desenho(justo)[0].count("viewBox") == 1
+
+
+def test_substituir_simbolo_de_fabrica_e_voltar_ao_original(tmp_path):
+    from gerador_layout.ui.docker_simbologias import DockerSimbologias
+
+    novo = tmp_path / "simbologia.svg"
+    novo.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" viewBox="0 0 20 10">'
+        '<rect width="20" height="10"/></svg>', encoding="utf-8",
+    )
+    docker = DockerSimbologias(pasta_usuario=tmp_path / "banco")
+    original = next(s for s in docker.simbolos() if s.nome == "Ícones de manuseio (preto, com legenda)")
+    total = len(docker.simbolos())
+    docker.substituir(original, novo)
+    trocado = next(s for s in docker.simbolos() if s.nome == original.nome)
+    assert trocado.substitui_de_fabrica and trocado.caminho.parent == tmp_path / "banco"
+    assert len(docker.simbolos()) == total  # no lugar dele, não um a mais
+    assert tamanho_mm(trocado.caminho) == pytest.approx((20, 10))
+    docker.voltar_ao_original(trocado)
+    volta = next(s for s in docker.simbolos() if s.nome == original.nome)
+    assert volta.caminho == original.caminho and not volta.do_usuario
+
+
+def test_adicionar_svg_com_nome_e_icones_de_manuseio_novos(tmp_path):
+    from gerador_layout.simbologias import pasta_embutida
+    from gerador_layout.ui.docker_simbologias import DockerSimbologias
+
+    docker = DockerSimbologias(pasta_usuario=tmp_path / "banco")
+    caminho = docker.adicionar_conteudo((pasta_embutida() / "icones-manuseio-preto.svg").read_text(encoding="utf-8"), "Manuseio/Brooklyn")
+    assert caminho.name == "Manuseio-Brooklyn.svg"
+    assert any(s.nome == "Manuseio-Brooklyn" and s.categoria == "Meus símbolos" for s in docker.simbolos())
+    # o arquivo novo da faixa de 5 símbolos (165 × 35 mm) abre inteiro
+    from gerador_layout.ui.mockup_logo import ElementoLogoVetorial
+
+    logo = ElementoLogoVetorial(str(pasta_embutida() / "icones-manuseio-preto.svg"))
+    largura, altura = logo.tamanho_real_mm
+    assert 150 < largura <= 170 and 25 < altura <= 38
+
+
+def test_logotipo_entra_no_tamanho_do_arquivo(tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = JanelaPrincipal()
+    j._remapear_cores_logo = lambda _el: None  # a janela de separar cores é modal
+    j.abas_tela.setCurrentIndex(1)
+    svg = tmp_path / "logo.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80mm" height="30mm" viewBox="0 0 80 30">'
+        '<rect width="80" height="30" fill="#000"/></svg>', encoding="utf-8",
+    )
+    j._adicionar_logo(str(svg))
+    el = j.canvas.cena.selectedItems()[0]
+    assert (el.largura, el.altura) == pytest.approx((80, 30), rel=0.06)  # + a folga de 1% do enquadramento
+    # PNG a 300 dpi: 600 px = 50,8 mm
+    png = tmp_path / "logo300.png"
+    img = QImage(600, 300, QImage.Format.Format_ARGB32)
+    img.fill(QColor("red"))
+    img.setDotsPerMeterX(round(300 / 0.0254))
+    img.setDotsPerMeterY(round(300 / 0.0254))
+    img.save(str(png))
+    j._adicionar_logo(str(png))
+    el = j.canvas.cena.selectedItems()[0]
+    assert (el.largura, el.altura) == pytest.approx((50.8, 25.4), rel=1e-2)
+    # sem resolução gravada: tamanho padrão de tela, como antes
+    from gerador_layout.ui.mockup_imagem import tamanho_real_mm_imagem
+
+    sem = tmp_path / "sem.png"
+    img2 = QImage(600, 300, QImage.Format.Format_ARGB32)
+    img2.fill(QColor("red"))
+    img2.save(str(sem))
+    assert tamanho_real_mm_imagem(str(sem)) is None
+    j.close()
+
+
+def test_logotipo_do_layout_vai_pro_banco(tmp_path):
+    from PySide6.QtCore import QPointF
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+    from gerador_layout.ui.mockup_logo import ElementoLogoVetorial
+
+    j = JanelaPrincipal()
+    j.docker_simbologias.pasta_usuario = tmp_path / "banco"
+    svg = tmp_path / "selo.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="15mm" height="15mm" viewBox="0 0 15 15">'
+        '<circle cx="7.5" cy="7.5" r="7"/></svg>', encoding="utf-8",
+    )
+    logo = ElementoLogoVetorial(str(svg))
+    j.canvas.adicionar_elemento_mockup(logo, QPointF(10, 10))
+    logo.setSelected(True)
+    destino = j.salvar_no_banco_de_simbologias("Selo Brooklyn")
+    assert destino is not None and destino.read_text(encoding="utf-8") == svg.read_text(encoding="utf-8")
+    assert any(s.nome == "Selo Brooklyn" for s in j.docker_simbologias.simbolos())
+    j.close()
