@@ -109,3 +109,42 @@ def test_medida_da_ficha_e_a_real_da_escala_1_10():
     assert texto_medidas(54, 54, 38) == "540X540X380"
     assert texto_medidas(13.6, 1.6, 0.9) == "136X16X9"
     assert texto_medidas(54.25, 30, 20.5) == "542,5X300X205"
+
+
+def _travar(caminho):
+    """Abre o arquivo sem deixar ninguém mais gravar (como o Foxit faz)."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    alca = kernel.CreateFileW(str(caminho), 0x80000000, 0x00000001, None, 3, 0x80, None)  # leitura, divide só leitura
+    assert alca != wintypes.HANDLE(-1).value
+    return lambda: kernel.CloseHandle(wintypes.HANDLE(alca))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="trava de arquivo do Windows")
+def test_pdf_aberto_no_leitor_avisa_e_salva_com_outro_nome(tmp_path):
+    from gerador_layout.ui.arquivo_destino import esta_preso, proximo_nome_livre
+
+    alvo = tmp_path / "32842 LUMINARIA VANILLA VOL 1-1.pdf"
+    alvo.write_bytes(b"%PDF-1.4 antigo")
+    soltar = _travar(alvo)
+    try:
+        assert esta_preso(alvo) and not esta_preso(tmp_path / "nao_existe.pdf")
+        assert proximo_nome_livre(alvo).name == "32842 LUMINARIA VANILLA VOL 1-1 (2).pdf"
+        j = JanelaPrincipal()
+        j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+        j._gravar_projeto(str(tmp_path / "vanilla"))
+        perguntas = []
+        j._perguntar_arquivo_preso = lambda c: (perguntas.append(c), "outro")[1]
+        pdf = j.gerar_folha_aprovacao(str(alvo), dialogo=lambda janela: True, abrir=False)
+        assert perguntas == [str(alvo)]  # avisou que estava aberto, em vez de "não consegui gerar"
+        assert pdf is not None and Path(pdf).name.endswith("(2).pdf") and Path(pdf).is_file()
+        # cancelar: não grava nada
+        j._perguntar_arquivo_preso = lambda c: "cancelar"
+        assert j._destino_livre(str(alvo)) is None
+        j.close()
+    finally:
+        soltar()
+    assert not esta_preso(alvo)
