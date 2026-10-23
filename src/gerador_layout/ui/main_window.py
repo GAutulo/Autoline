@@ -76,6 +76,7 @@ from .mockup_curva import curva_de_caminho_cena
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
+from .arquivo_destino import esta_preso, proximo_nome_livre
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
@@ -1975,6 +1976,37 @@ class JanelaPrincipal(QMainWindow):
             return False
         return True
 
+    def _perguntar_arquivo_preso(self, caminho: str) -> str:
+        """"tentar" | "outro" | "cancelar" — separado pra os testes responderem."""
+        caixa = QMessageBox(self)
+        caixa.setIcon(QMessageBox.Icon.Warning)
+        caixa.setWindowTitle("Arquivo aberto em outro programa")
+        caixa.setText(
+            "O arquivo está aberto em outro programa (ex.: o leitor de PDF), que não deixa gravar por cima:"
+            f"\n\n{caminho}\n\nFeche o arquivo nesse programa e clique em Tentar de novo."
+        )
+        tentar = caixa.addButton("Tentar de novo", QMessageBox.ButtonRole.AcceptRole)
+        outro = caixa.addButton(f"Salvar como “{proximo_nome_livre(caminho).name}”", QMessageBox.ButtonRole.ActionRole)
+        caixa.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        caixa.setDefaultButton(tentar)
+        caixa.exec()
+        if caixa.clickedButton() is tentar:
+            return "tentar"
+        if caixa.clickedButton() is outro:
+            return "outro"
+        return "cancelar"
+
+    def _destino_livre(self, caminho: str) -> str | None:
+        """O caminho pra gravar: o mesmo, se o arquivo não estiver aberto em
+        outro programa; senão pergunta (tentar de novo / outro nome)."""
+        while esta_preso(caminho):
+            resposta = self._perguntar_arquivo_preso(caminho)
+            if resposta == "outro":
+                return str(proximo_nome_livre(caminho))
+            if resposta != "tentar":
+                return None
+        return caminho
+
     def _exportar_svg(self) -> None:
         if not self._layout_pronto_para_exportar():
             return
@@ -1983,6 +2015,9 @@ class JanelaPrincipal(QMainWindow):
         )
         if caminho:
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
+        if not caminho:
+            return
+        caminho = self._destino_livre(caminho)
         if not caminho:
             return
         try:
@@ -2003,6 +2038,9 @@ class JanelaPrincipal(QMainWindow):
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
         if not caminho:
             return
+        caminho = self._destino_livre(caminho)
+        if not caminho:
+            return
         try:
             with self._cursor_espera():
                 exportacao.exportar_pdf(self.canvas.cena, self.canvas.layout_efetivo, caminho)
@@ -2019,6 +2057,9 @@ class JanelaPrincipal(QMainWindow):
         )
         if caminho:
             configuracoes.definir_pasta_ultima("exportar", str(Path(caminho).parent))
+        if not caminho:
+            return
+        caminho = self._destino_livre(caminho)
         if not caminho:
             return
         try:
@@ -2291,6 +2332,9 @@ class JanelaPrincipal(QMainWindow):
                 return None
         if not caminho.lower().endswith(".pdf"):
             caminho += ".pdf"
+        caminho = self._destino_livre(caminho)  # PDF anterior aberto no leitor
+        if not caminho:
+            return None
         try:
             with self._cursor_espera():
                 imagem_3d = self._imagem_3d_montada() if janela.check_3d.isChecked() else None
@@ -2380,6 +2424,10 @@ class JanelaPrincipal(QMainWindow):
         existentes = [p for p in (imagem_layout, imagem_3d) if p.exists()]
         if existentes and not confirmar_substituir(existentes):
             return []
+        livres = [self._destino_livre(str(p)) for p in (imagem_layout, imagem_3d)]  # imagem aberta num visualizador
+        if not all(livres):
+            return []
+        imagem_layout, imagem_3d = (Path(c) for c in livres)
         tela_antes = self.abas_tela.currentIndex()
         try:
             with self._cursor_espera():
