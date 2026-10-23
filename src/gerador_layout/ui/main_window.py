@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -77,7 +78,8 @@ from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, Elem
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
 from .arquivo_destino import esta_preso, proximo_nome_livre
-from .marca import AssinaturaMarca
+from .dialogo_exportar import Destino, DialogoExportar
+from .moldura import ALTURA_CONTEXTO, ALTURA_STATUS, LARGURA_COLUNA_FERRAMENTAS, BarraTitulo, PonteCorel, divisoria_status
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
@@ -173,6 +175,8 @@ class JanelaPrincipal(QMainWindow):
         self._aprovacao: dict = {}
         self._assinatura_salva: str | None = None
 
+        # Menus dentro da barra de título (ver `menuBar` e `_montar_moldura`).
+        self._barra_menus = QMenuBar()
         self._montar_ui()
         self._montar_abas_tela()
         self._montar_barra_ferramentas()
@@ -180,6 +184,7 @@ class JanelaPrincipal(QMainWindow):
         self._montar_barra_propriedades_mockup()
         self._montar_menu()
         self._montar_painel_status()
+        self._montar_moldura()
         self._conectar_sinais()
         self._ao_trocar_tipo()
         self._trocar_tela(0)  # começa na tela de Dieline
@@ -197,6 +202,11 @@ class JanelaPrincipal(QMainWindow):
         self._timer_recuperacao.setInterval(projeto_arquivo.INTERVALO_RECUPERACAO_MS)
         self._timer_recuperacao.timeout.connect(self.salvar_recuperacao)
         self._timer_recuperacao.start()
+
+    def menuBar(self) -> QMenuBar:  # noqa: N802
+        """Os menus moram na barra de título do redesign (`BarraTitulo`), não
+        na faixa de menu padrão do Qt — mesmos menus, mesmos atalhos."""
+        return self._barra_menus
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
@@ -568,66 +578,74 @@ class JanelaPrincipal(QMainWindow):
 
     # ── Menu / Exportação ───────────────────────────────────────────
     def _montar_barra_ferramentas(self) -> None:
-        """As ações de exportação são o motivo do app existir, mas antes
-        só apareciam dentro de Arquivo > Exportar layout — uma barra de
-        ferramentas sempre visível deixa isso descobrível sem precisar
-        abrir menu nenhum. O menu continua existindo (ver `_montar_menu`)
-        pra quem já tem o hábito, chamando exatamente os mesmos métodos.
-
-        Zoom e "Ajustar à tela" ficam à direita, na mesma barra — viviam
-        numa barra própria embaixo desta, sobrando um vão vazio enorme à
-        direita dos botões de exportar (a barra de ferramentas ocupa a
-        largura toda da janela, mas os botões só usam a parte esquerda).
-        Juntar os dois usa esse espaço e ainda libera uma fileira inteira
-        de altura pro canvas."""
-        barra = QToolBar("Exportar")
-        barra.setMovable(False)
-        barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.addToolBar(barra)
-
-        # Respiro antes da marca — sem isso ela fica encostada direto nas
-        # abas Dieline/Layout (toolbars adjacentes sem borda, por causa do
-        # QSS flat do app, ver `estilo.py`), lendo como se fosse só mais
-        # um botão da fileira em vez de uma marca separada (achado numa
-        # revisão de UI/UX).
-        espaco_antes_marca = QWidget()
-        espaco_antes_marca.setFixedWidth(12)
-        barra.addWidget(espaco_antes_marca)
-        rotulo_marca = AssinaturaMarca(altura=24)  # logotipo "Dobra" (ver marca.py)
-        rotulo_marca.setObjectName("rotuloMarca")
-        barra.addWidget(rotulo_marca)
-        barra.addSeparator()
-
-        # Símbolos simples (não emoji colorido — herdam a cor do texto do
-        # botão, ficam monocromáticos como o resto do app) só pra dar um
-        # pouco de caráter visual à barra e diferenciar "salvar arquivo"
-        # de "mandar pra outro programa" rapidamente, sem precisar ler.
-        barra.addAction("↓ SVG", self._exportar_svg)
-        barra.addAction("↓ PDF", self._exportar_pdf)
-        barra.addAction("↓ JPG", self._exportar_jpg)
-        acao_folha = barra.addAction("↓ Aprovação", self.gerar_folha_aprovacao)
-        acao_folha.setToolTip("Folha de aprovação em PDF pro cliente (Ctrl+Shift+P)")
-        acao_tudo = barra.addAction("↓ Salvar tudo", self.salvar_e_exportar_tudo)
-        acao_tudo.setToolTip(
-            "Salvar e exportar tudo (Ctrl+Shift+E): o projeto .autoline, a imagem do layout e a do 3D, "
-            "cada um na sua pasta, com o nome do projeto"
-        )
-        barra.addSeparator()
-        barra.addAction("→ CorelDRAW", self._exportar_corel)
-
-        espacador = QWidget()
-        espacador.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        barra.addWidget(espacador)
-
+        """Zoom e "Ajustar à tela" (vão pra barra de status, ver
+        `_montar_painel_status`). Os botões de exportar que ficavam numa
+        barra aqui foram pro diálogo único Exportar (`abrir_exportar`)."""
         self.label_zoom = QLabel("100%")
         self.label_zoom.setObjectName("rotuloTecnico")
         self.label_zoom.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
-        # Widget dentro de QToolBar só some escondendo a QAction dele.
-        self._acao_label_zoom = barra.addWidget(self.label_zoom)
-        botao_ajustar = QPushButton("Ajustar à tela")
-        botao_ajustar.clicked.connect(self._ajustar_a_tela)
-        barra.addWidget(botao_ajustar)
+        self.botao_ajustar_tela = QPushButton("Ajustar à tela")
+        self.botao_ajustar_tela.setObjectName("botaoStatus")
+        self.botao_ajustar_tela.setFlat(True)
+        self.botao_ajustar_tela.clicked.connect(self._ajustar_a_tela)
         self.canvas.zoom_alterado.connect(lambda z: self.label_zoom.setText(f"{z * 100:.0f}%"))
+
+    def _montar_moldura(self) -> None:
+        """Barra de título do redesign (REDESIGN.md 2.1): símbolo, menus,
+        projeto, seletor Dieline | Layout | 3D, desfazer/refazer e Exportar."""
+        self.barra_titulo = BarraTitulo(self._barra_menus, self.abas_tela)
+        self.setMenuWidget(self.barra_titulo)
+        pilha = self.canvas.pilha_desfazer
+        self.barra_titulo.botao_desfazer.setIcon(construir_icone("desfazer"))
+        self.barra_titulo.botao_refazer.setIcon(construir_icone("refazer"))
+        self.barra_titulo.botao_desfazer.clicked.connect(pilha.undo)
+        self.barra_titulo.botao_refazer.clicked.connect(pilha.redo)
+        self.barra_titulo.botao_desfazer.setEnabled(pilha.canUndo())
+        self.barra_titulo.botao_refazer.setEnabled(pilha.canRedo())
+        pilha.canUndoChanged.connect(self.barra_titulo.botao_desfazer.setEnabled)
+        pilha.canRedoChanged.connect(self.barra_titulo.botao_refazer.setEnabled)
+        self.barra_titulo.botao_exportar.clicked.connect(lambda: self.abrir_exportar())
+
+    def _destinos_exportar(self) -> list[Destino]:
+        """Os destinos do diálogo Exportar — cada um chama a MESMA função de
+        antes (mesmo arquivo, mesmas perguntas)."""
+        return [
+            Destino("pdf", "Arquivo de produção", "PDF", "PDF vetorial",
+                    "Layout técnico completo (faca + arte + legenda de cores), vetorial, preto sobre branco — "
+                    "para a gráfica e o clichê.", "Exportar PDF", self._exportar_pdf, True),
+            Destino("svg", "Arquivo de produção", "SVG", "SVG vetorial",
+                    "O mesmo layout técnico em SVG vetorial, preto sobre branco.", "Exportar SVG", self._exportar_svg, True),
+            Destino("jpg", "Arquivo de produção", "JPG", "Imagem JPG",
+                    "Imagem quadrada do layout, com o layout centralizado, na resolução das Configurações.",
+                    "Exportar JPG", self._exportar_jpg, True),
+            Destino("aprovacao", "Para o cliente", "✓", "Folha de aprovação",
+                    "Abre o diálogo da folha de aprovação (PDF pro cliente), sem mudança.",
+                    "Abrir folha de aprovação", self.gerar_folha_aprovacao),
+            Destino("imagem_3d", "Para o cliente", "3D", "Imagem do 3D",
+                    "A caixa em 3D na vista atual, em JPG ou PNG.", "Salvar imagem do 3D", self._exportar_imagem_3d),
+            Destino("tudo", "Tudo de uma vez", "▤", "Salvar tudo",
+                    "Projeto .autoline + imagem do layout + imagem do 3D, cada um na sua pasta, com o nome do projeto.",
+                    "Salvar tudo", self.salvar_e_exportar_tudo),
+            Destino("corel", "", "→", "Enviar para o CorelDRAW",
+                    "Manda a faca e a arte direto pro CorelDRAW aberto (conecta se precisar).",
+                    "Enviar para o CorelDRAW", self._exportar_corel),
+        ]
+
+    def abrir_exportar(self, inicial: str = "pdf", executar: bool = True) -> DialogoExportar:
+        """Diálogo único Exportar. `executar=False` (testes) devolve sem abrir."""
+
+        def previa():
+            if self.canvas.layout_efetivo is None:
+                return None
+            try:
+                return exportacao.imagem_do_layout(self.canvas.cena, self.canvas.layout_efetivo, dpi=40)
+            except Exception:  # noqa: BLE001 — sem prévia não impede exportar
+                return None
+
+        dialogo = DialogoExportar(self._destinos_exportar(), previa, self, inicial=inicial)
+        if executar and dialogo.exec() == QDialog.DialogCode.Accepted and dialogo.escolhido is not None:
+            dialogo.escolhido.acao()
+        return dialogo
 
     def _ajustar_a_tela(self) -> None:
         if self.abas_tela.currentIndex() == 2:
@@ -703,6 +721,7 @@ class JanelaPrincipal(QMainWindow):
         acao_snap.setChecked(True)
         acao_snap.setToolTip("Gruda automaticamente na grade, nas bordas de outros elementos, na face e nas guias")
         acao_snap.toggled.connect(self.canvas.definir_snap_ativo)
+        self._acao_snap = acao_snap
         menu_exibir.addMenu(self._menu_ajustar_a)
         acao_dinamicas = menu_exibir.addAction("Guias dinâmicas\tAlt+Shift+D")
         acao_dinamicas.setCheckable(True)
@@ -755,10 +774,6 @@ class JanelaPrincipal(QMainWindow):
         ferramentas própria, adicionada antes de qualquer outra, pra
         ficar sempre na linha mais acima — é navegação, não uma ação, não
         faz sentido misturar com os botões de exportar/criar elemento."""
-        barra = QToolBar("Tela")
-        barra.setMovable(False)
-        self.addToolBar(barra)
-
         self.abas_tela = QTabBar()
         self.abas_tela.addTab("Dieline")
         self.abas_tela.addTab("Layout")
@@ -768,19 +783,20 @@ class JanelaPrincipal(QMainWindow):
             "3D: a caixa montada, com animação de planificar e montar."
         )
         self.abas_tela.currentChanged.connect(self._trocar_tela)
-        barra.addWidget(self.abas_tela)
 
     def _trocar_tela(self, indice: int) -> None:
         modo_layout = indice == 1
         modo_3d = indice == 2
         self.pilha_visualizacao.setCurrentIndex(1 if modo_3d else 0)
-        self._acao_label_zoom.setVisible(not modo_3d)
+        self.label_zoom.setVisible(not modo_3d)
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
         if hasattr(self, "painel_status"):
             self.painel_status.definir_controles_de_cor(modo_layout)
         self.barra_faca.setVisible(indice == 0)
+        self.barra_ferramentas_faca.setVisible(indice == 0)
+        self.barra_contexto_3d.setVisible(modo_3d)
         self._atalho_editar_faca.setEnabled(indice == 0)  # no Layout, F10 é a Forma de curvas
         if indice != 0:
             self._acoes_faca["navegar"].setChecked(True)
@@ -969,13 +985,30 @@ class JanelaPrincipal(QMainWindow):
         # de criar elemento, em vez de ficar embaixo dela (a leitura de
         # cima pra baixo — criar elemento, depois editar propriedade dele
         # — fica confusa se as duas disputam a mesma linha).
-        self.addToolBarBreak()
         barra = QToolBar("Propriedades")
         barra.setObjectName("barraPropriedadesMockup")
         barra.setMovable(False)
         self.addToolBar(barra)
+        self.painel_propriedades_mockup.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         barra.addWidget(self.painel_propriedades_mockup)
         self.barra_propriedades_mockup = barra
+        barra.setFixedHeight(ALTURA_CONTEXTO)
+        # Organizar à direita das propriedades, na mesma linha de contexto.
+        self.removeToolBar(self.barra_organizar)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.barra_organizar)
+        # 3D: a linha de contexto continua lá (a janela não pula de altura);
+        # os controles do 3D seguem dentro da própria vista, como antes.
+        contexto_3d = QToolBar("Contexto do 3D")
+        contexto_3d.setObjectName("barraContexto")
+        contexto_3d.setMovable(False)
+        contexto_3d.setFixedHeight(ALTURA_CONTEXTO)
+        dica_3d = QLabel("Visualização 3D")
+        dica_3d.setObjectName("legendaMuted")
+        dica_3d.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        contexto_3d.addWidget(dica_3d)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, contexto_3d)
+        contexto_3d.hide()
+        self.barra_contexto_3d = contexto_3d
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _tamanho_pagina(self) -> tuple[float, float] | None:
@@ -996,8 +1029,9 @@ class JanelaPrincipal(QMainWindow):
         Desfazer/agrupar/ordem ficam na barra "Organizar" do topo, como
         na barra padrão do CorelDRAW (ver `_montar_barra_organizar`)."""
         barra = QToolBar("Caixa de ferramentas")
-        barra.setObjectName("paletaFerramentasMockup")
+        barra.setObjectName("colunaFerramentas")
         barra.setMovable(False)
+        barra.setFixedWidth(LARGURA_COLUNA_FERRAMENTAS)
         barra.setOrientation(Qt.Orientation.Vertical)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, barra)
@@ -1159,15 +1193,23 @@ class JanelaPrincipal(QMainWindow):
         Forma" que antes era feito no CorelDRAW): navegar, editar
         linhas/pontas, desenhar linha nova de corte ou vinco, mudar o tipo
         da linha selecionada e remover. Só aparece na tela Dieline."""
+        # Barra de contexto (opções da ferramenta) em cima; as ferramentas
+        # numa coluna vertical à esquerda (REDESIGN.md 2.1).
         barra = QToolBar("Faca")
-        barra.setObjectName("paletaFerramentasMockup")
+        barra.setObjectName("barraContexto")
         barra.setMovable(False)
+        barra.setFixedHeight(ALTURA_CONTEXTO)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        # Linha própria: na mesma linha das abas e da exportação, em janela
-        # menor as ferramentas sumiam atrás do "»".
-        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
         self.barra_faca = barra
+        coluna = QToolBar("Ferramentas da faca")
+        coluna.setObjectName("colunaFerramentas")
+        coluna.setMovable(False)
+        coluna.setFixedWidth(LARGURA_COLUNA_FERRAMENTAS)
+        coluna.setOrientation(Qt.Orientation.Vertical)
+        coluna.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, coluna)
+        self.barra_ferramentas_faca = coluna
 
         grupo = QActionGroup(self)
         grupo.setExclusive(True)
@@ -1178,7 +1220,7 @@ class JanelaPrincipal(QMainWindow):
             acao.setCheckable(True)
             acao.triggered.connect(lambda: self._definir_modo_faca(chave))
             grupo.addAction(acao)
-            barra.addAction(acao)
+            coluna.addAction(acao)
             self._acoes_faca[chave] = acao
 
         modo("navegar", "navegar", "Navegar — arrastar move a visão (a faca não muda)")
@@ -1188,6 +1230,7 @@ class JanelaPrincipal(QMainWindow):
             "Editar faca (F10) — clique numa linha; arraste a linha ou uma ponta (as linhas ligadas acompanham; "
             "Alt solta a ponta, Shift trava na horizontal/vertical). Delete remove a linha",
         )
+        coluna.addSeparator()
         modo("corte", "linha_corte", "Nova linha de corte — arraste de um ponto a outro (Ctrl = 15°)")
         modo("vinco", "linha_vinco", "Nova linha de vinco — arraste de um ponto a outro (Ctrl = 15°)")
         modo("retangulo", "ferramenta_retangulo", "Retângulo — arraste de um canto ao oposto: 4 linhas do tipo novo")
@@ -1202,21 +1245,13 @@ class JanelaPrincipal(QMainWindow):
             "faca_arco",
             "Arco — arraste de uma ponta à outra, solte, mova o mouse para curvar e clique para confirmar (Ctrl = 15°)",
         )
+        coluna.addSeparator()
         modo("aparar", "faca_aparar", "Aparar — clique no trecho da linha que passa do cruzamento para cortá-lo fora")
         modo("estender", "faca_estender", "Estender — clique perto da ponta: a linha cresce até a próxima linha no caminho")
         modo("arredondar", "faca_arredondar", "Arredondar canto — clique no canto onde duas retas se encontram (raio ao lado)")
         self._acoes_faca["navegar"].setChecked(True)
-        self._acao_icone(barra, "mais", "Faca em branco — começar a faca do zero (desenho livre)", self._nova_faca_em_branco)
-        self._acao_icone(
-            barra, "lista", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
-            self._abrir_catalogo_estilos,
-        )
-        self._acao_icone(
-            barra, "medida", "Construtor de dieline (Ctrl+Shift+D) — monte uma faca nova por trechos: vincos, cortes, fendas e dobras",
-            self._abrir_construtor_dieline,
-        )
-        barra.addSeparator()
 
+        barra.addWidget(QLabel(" Linha selecionada: "))
         self.combo_tipo_linha = QComboBox()
         self.combo_tipo_linha.setToolTip("Tipo da linha selecionada")
         for tipo, nome in (
@@ -1234,11 +1269,11 @@ class JanelaPrincipal(QMainWindow):
         )
         barra.addWidget(self.combo_tipo_linha)
         self._acao_paralela = self._acao_icone(
-            barra, "faca_paralela", "Paralela — cópia da linha selecionada a uma distância (negativo = outro lado)", self._criar_paralela
+            coluna, "faca_paralela", "Paralela — cópia da linha selecionada a uma distância (negativo = outro lado)", self._criar_paralela
         )
         self._acao_paralela.setEnabled(False)
         self._acao_remover_linha = self._acao_icone(
-            barra, "remover", "Remover a linha selecionada (Delete)", lambda: self.canvas.remover_linha_faca_selecionada()
+            coluna, "remover", "Remover a linha selecionada (Delete)", lambda: self.canvas.remover_linha_faca_selecionada()
         )
         self._acao_remover_linha.setEnabled(False)
         barra.addSeparator()
@@ -1263,6 +1298,24 @@ class JanelaPrincipal(QMainWindow):
         self.spin_raio_faca.setMaximumWidth(110)
         self.spin_raio_faca.valueChanged.connect(self.canvas.definir_raio_arredondar)
         barra.addWidget(self.spin_raio_faca)
+        espacador = QWidget()
+        espacador.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        barra.addWidget(espacador)
+        for icone, texto, dica, callback in (
+            ("lista", "Catálogo de estilos", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
+             self._abrir_catalogo_estilos),
+            ("medida", "Construtor de dieline",
+             "Construtor de dieline (Ctrl+Shift+D) — monte uma faca nova por trechos: vincos, cortes, fendas e dobras",
+             self._abrir_construtor_dieline),
+        ):
+            botao = QToolButton()
+            botao.setObjectName("botaoContexto")
+            botao.setIcon(construir_icone(icone))
+            botao.setText(texto)
+            botao.setToolTip(dica)
+            botao.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            botao.clicked.connect(callback)
+            barra.addWidget(botao)
         self._distancia_paralela = 3.0
 
         self.canvas.linha_faca_selecionada.connect(self._ao_selecionar_linha_faca)
@@ -1324,24 +1377,8 @@ class JanelaPrincipal(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
         self.barra_organizar = barra
 
-        self._montar_menu_ajustar_a()
-        botao_ajustar = QToolButton()
-        botao_ajustar.setText("Ajustar a")
-        botao_ajustar.setToolTip("Onde os objetos grudam ao arrastar (como o \"Ajustar a\" do CorelDRAW)")
-        botao_ajustar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        botao_ajustar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        botao_ajustar.setMenu(self._menu_ajustar_a)
-        barra.addWidget(botao_ajustar)
-        barra.addSeparator()
-
-        pilha = self.canvas.pilha_desfazer
-        acao_desfazer = self._acao_icone(barra, "desfazer", "Desfazer (Ctrl+Z)", pilha.undo)
-        acao_desfazer.setEnabled(False)
-        pilha.canUndoChanged.connect(acao_desfazer.setEnabled)
-        acao_refazer = self._acao_icone(barra, "refazer", "Refazer (Ctrl+Shift+Z)", pilha.redo)
-        acao_refazer.setEnabled(False)
-        pilha.canRedoChanged.connect(acao_refazer.setEnabled)
-        barra.addSeparator()
+        self._montar_menu_ajustar_a()  # o botão fica na barra de status (Encaixe)
+        barra.setFixedHeight(ALTURA_CONTEXTO)
         self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
         self._acao_icone(barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados())
         barra.addSeparator()
@@ -1351,6 +1388,10 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
+        barra.addSeparator()
+        self._acao_icone(
+            barra, "alinhar_centro_h", "Alinhar e distribuir (Ctrl+Shift+A)", self._no_layout(lambda: self.abrir_docker("alinhar"))
+        )
         barra.hide()
 
     def _montar_dockers(self) -> None:
@@ -1519,7 +1560,36 @@ class JanelaPrincipal(QMainWindow):
         """Barra de status do CorelDRAW: posição do cursor, objeto
         selecionado e amostras de preenchimento/contorno."""
         self.painel_status = PainelStatus()
+        self.statusBar().setFixedHeight(ALTURA_STATUS)
         self.statusBar().addPermanentWidget(self.painel_status)
+        self.statusBar().addPermanentWidget(divisoria_status())
+        # Encaixe: liga/desliga (o mesmo do menu Exibir) + a setinha abre o "Ajustar a".
+        self.botao_encaixe = QToolButton()
+        self.botao_encaixe.setObjectName("botaoStatus")
+        self.botao_encaixe.setText("Encaixe")
+        self.botao_encaixe.setCheckable(True)
+        self.botao_encaixe.setToolTip("Encaixe (snap) ao arrastar — a setinha escolhe onde gruda (Ajustar a)")
+        self.botao_encaixe.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.botao_encaixe.setMenu(self._menu_ajustar_a)
+        self.botao_encaixe.setChecked(self._acao_snap.isChecked())
+        self.botao_encaixe.toggled.connect(self._acao_snap.setChecked)
+        self._acao_snap.toggled.connect(self.botao_encaixe.setChecked)
+        self.statusBar().addPermanentWidget(self.botao_encaixe)
+        self.botao_guias = QToolButton()
+        self.botao_guias.setObjectName("botaoStatus")
+        self.botao_guias.setText("Guias dinâmicas")
+        self.botao_guias.setCheckable(True)
+        self.botao_guias.setToolTip("Guias dinâmicas (Alt+Shift+D)")
+        self.botao_guias.setChecked(self._acao_guias_dinamicas.isChecked())
+        self.botao_guias.toggled.connect(self._acao_guias_dinamicas.setChecked)
+        self._acao_guias_dinamicas.toggled.connect(self.botao_guias.setChecked)
+        self.statusBar().addPermanentWidget(self.botao_guias)
+        self.statusBar().addPermanentWidget(divisoria_status())
+        self.ponte_corel = PonteCorel()
+        self.statusBar().addPermanentWidget(self.ponte_corel)
+        self.statusBar().addPermanentWidget(divisoria_status())
+        self.statusBar().addPermanentWidget(self.botao_ajustar_tela)
+        self.statusBar().addPermanentWidget(self.label_zoom)
         self.canvas.cursor_movido.connect(self.painel_status.definir_posicao)
         self.painel_status.definir_objeto("", None, None, False)
         # Cor do objeto embaixo, como no CorelDRAW: clicar na amostra abre as
@@ -2092,8 +2162,11 @@ class JanelaPrincipal(QMainWindow):
         return projeto_arquivo.assinatura(self) != self._assinatura_salva
 
     def _atualizar_titulo(self) -> None:
-        marca = "• " if self.projeto_modificado() else ""
+        modificado = self.projeto_modificado()
+        marca = "• " if modificado else ""
         self.setWindowTitle(f"{marca}{self._nome_projeto()} — Autoline")
+        if hasattr(self, "barra_titulo"):
+            self.barra_titulo.definir_projeto(self._nome_projeto(), modificado)
         self.visualizacao_3d.vista.nome_sugerido = self._nome_projeto() if self._caminho_projeto else "caixa"
 
     # Os testes desligam (não há quem responda a pergunta).

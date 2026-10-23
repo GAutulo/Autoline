@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QSize, QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 from .estilo import Cor
@@ -43,8 +43,25 @@ def construir_icone(tipo: str) -> QIcon:
     chave = (tipo, str(Cor.TEXTO_SECUNDARIO))
     icone = _ICONES_PRONTOS.get(chave)
     if icone is None:
-        icone = _desenhar_icone(tipo)
+        icone = _com_estado_ativo(_desenhar_icone(tipo))
         _ICONES_PRONTOS[chave] = icone
+    return icone
+
+
+def _com_estado_ativo(icone: QIcon) -> QIcon:
+    """O mesmo desenho em âmbar (o acento) pro estado "ligado": a ferramenta
+    ativa fica com o fundo âmbar escuro e o ícone âmbar (REDESIGN.md 2.3)."""
+    base = icone.pixmap(QSize(TAMANHO_ICONE, TAMANHO_ICONE), 2.0)
+    ativo = QPixmap(base.size())
+    ativo.setDevicePixelRatio(base.devicePixelRatio())
+    ativo.fill(Qt.GlobalColor.transparent)
+    p = QPainter(ativo)
+    p.drawPixmap(0, 0, base)
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    p.fillRect(ativo.rect(), QColor(Cor.PRIMARIA))
+    p.end()
+    icone.addPixmap(ativo, QIcon.Mode.Normal, QIcon.State.On)
+    icone.addPixmap(ativo, QIcon.Mode.Active, QIcon.State.On)
     return icone
 
 

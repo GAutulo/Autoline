@@ -134,11 +134,24 @@ def test_redimensionar_janela_reajusta_ate_o_usuario_mexer_no_zoom(janela):
     assert canvas.transform().m11() == pytest.approx(zoom_usuario)
 
 
-def test_barra_da_faca_em_linha_propria(janela):
+def test_ferramentas_da_faca_na_coluna_e_opcoes_no_contexto(janela):
+    """Redesign: as ferramentas da faca ficam na coluna vertical (nenhuma
+    some atrás do "»" em janela pequena) e as opções na linha de contexto."""
+    from PySide6.QtCore import Qt
+
     janela.resize(1000, 700)
     janela.abas_tela.setCurrentIndex(0)
     _processar()
-    assert janela.toolBarBreak(janela.barra_faca)
+    coluna = janela.barra_ferramentas_faca
+    assert janela.toolBarArea(coluna) == Qt.ToolBarArea.LeftToolBarArea and coluna.isVisible()
+    for acao in janela._acoes_faca.values():
+        botao = coluna.widgetForAction(acao)
+        assert botao is not None and botao.isVisible()
+    assert janela.toolBarArea(janela.barra_faca) == Qt.ToolBarArea.TopToolBarArea
+    assert janela.barra_faca.height() == 44
+    janela.abas_tela.setCurrentIndex(2)
+    _processar()
+    assert not coluna.isVisible() and janela.barra_contexto_3d.isVisible()
 
 
 def test_selecionar_objeto_nao_mexe_no_zoom_nem_desloca(janela):

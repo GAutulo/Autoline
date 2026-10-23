@@ -667,4 +667,210 @@ QLabel#tituloSecao {{
 QLabel#legendaMuted {{
     color: {Cor.TEXTO_SECUNDARIO};
 }}
+
+/* ── Moldura do redesign (REDESIGN.md 2.1, ver moldura.py) ─────────── */
+QWidget#barraTitulo {{
+    background: {Cor.CARTAO};
+    border-bottom: 1px solid {Cor.BORDA};
+}}
+QMenuBar#menusTitulo {{
+    background: transparent;
+    border: none;
+    padding: 0;
+}}
+QMenuBar#menusTitulo::item {{
+    color: {Cor.TEXTO_SECUNDARIO};
+    padding: 5px 8px;
+    border-radius: 6px;
+}}
+QMenuBar#menusTitulo::item:selected {{
+    background: {Cor.ELEVADO};
+    color: {Cor.TEXTO};
+}}
+QLabel#rotuloProjeto {{
+    color: {Cor.TEXTO};
+    font-weight: 600;
+}}
+QLabel#pontoAlterado {{
+    color: {Cor.PRIMARIA};
+    font-size: 10px;
+}}
+QFrame#divisoriaTitulo, QFrame#divisoriaStatus {{
+    background: {Cor.BORDA};
+    border: none;
+}}
+/* Seletor central Dieline | Layout | 3D: segmentado, não abas de pasta. */
+QTabBar#seletorTela {{
+    background: {Cor.FUNDO_JANELA};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 8px;
+}}
+QTabBar#seletorTela::tab {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: none;
+    border-radius: 6px;
+    padding: 5px 16px;
+    margin: 3px 1px;
+    font-weight: 600;
+}}
+QTabBar#seletorTela::tab:selected {{
+    background: {Cor.CAMPO};
+    color: {Cor.TEXTO};
+}}
+QTabBar#seletorTela::tab:hover:!selected {{
+    color: {Cor.TEXTO};
+}}
+QToolButton#botaoTitulo {{
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 6px;
+}}
+QToolButton#botaoTitulo:hover {{
+    background: {Cor.ELEVADO};
+}}
+QWidget#barraTitulo QPushButton[primario="true"] {{
+    padding: 6px 16px;
+}}
+
+/* Barra de contexto (44 px): opções da ferramenta ativa. */
+QToolBar#barraContexto {{
+    background: {Cor.CARTAO};
+    border-bottom: 1px solid {Cor.BORDA};
+    padding: 0 10px;
+    spacing: 6px;
+}}
+QToolBar#barraContexto QToolButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 5px 8px;
+}}
+QToolBar#barraContexto QToolButton:hover {{
+    background: {Cor.ELEVADO};
+    border-color: {Cor.BORDA_FORTE};
+}}
+QToolBar#barraContexto QLabel {{
+    color: {Cor.TEXTO_SECUNDARIO};
+}}
+
+/* Coluna de ferramentas vertical (56 px, botões 40 × 40). */
+QToolBar#colunaFerramentas {{
+    background: {Cor.CARTAO};
+    border: none;
+    border-right: 1px solid {Cor.BORDA};
+    padding: 8px 7px;
+    spacing: 4px;
+}}
+QToolBar#colunaFerramentas QToolButton {{
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 0;
+}}
+QToolBar#colunaFerramentas QToolButton:hover {{
+    background: {Cor.ELEVADO};
+}}
+QToolBar#colunaFerramentas QToolButton:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+}}
+QToolBar#colunaFerramentas QToolButton::menu-indicator {{
+    image: none;  /* o flyout desenha o próprio triângulo no canto (ver BotaoFlyout) */
+}}
+QToolBar#colunaFerramentas::separator:vertical {{
+    background: {Cor.BORDA};
+    height: 1px;
+    margin: 6px 4px;
+}}
+
+/* Barra de status (30 px). */
+QStatusBar QToolButton#botaoStatus, QStatusBar QPushButton#botaoStatus {{
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 2px 8px;
+    color: {Cor.TEXTO_SECUNDARIO};
+    font-weight: 500;
+}}
+QStatusBar QToolButton#botaoStatus:hover, QStatusBar QPushButton#botaoStatus:hover {{
+    background: {Cor.ELEVADO};
+    color: {Cor.TEXTO};
+}}
+QStatusBar QToolButton#botaoStatus:checked {{
+    color: {Cor.PRIMARIA};
+}}
+QStatusBar QToolButton#botaoStatus[popupMode="1"] {{
+    padding-right: 18px;
+}}
+QStatusBar QToolButton#botaoStatus::menu-button {{
+    border: none;
+    width: 16px;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+}}
+QStatusBar QToolButton#botaoStatus::menu-button:hover {{
+    background: {Cor.BORDA_FORTE};
+}}
+QStatusBar QToolButton#botaoStatus::menu-arrow {{
+    width: 8px;
+    height: 8px;
+}}
+QLabel#textoStatus {{
+    color: {Cor.TEXTO_SECUNDARIO};
+}}
+
+/* Diálogo Exportar (dialogo_exportar.py). */
+QWidget#cabecalhoDialogo {{
+    border-bottom: 1px solid {Cor.BORDA};
+}}
+QWidget#rodapeDialogo {{
+    background: {Cor.FUNDO_JANELA};
+    border-top: 1px solid {Cor.BORDA};
+}}
+QWidget#navDestinos {{
+    background: {Cor.CARTAO};
+    border-right: 1px solid {Cor.BORDA};
+}}
+QLabel#rotuloGrupoDestino {{
+    color: {Cor.TEXTO_SECUNDARIO};
+    font-size: 12px;
+    font-weight: 600;
+    padding: 10px 8px 4px 8px;
+}}
+QFrame#divisoriaDestinos {{
+    background: {Cor.BORDA};
+    margin: 8px 4px;
+}}
+QPushButton#botaoDestino {{
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-weight: 500;
+}}
+QPushButton#botaoDestino:hover {{
+    background: {Cor.ELEVADO};
+    color: {Cor.TEXTO};
+}}
+QPushButton#botaoDestino:checked {{
+    background: {Cor.CAMPO};
+    border: none;
+    color: {Cor.TEXTO};
+    font-weight: 600;
+}}
+/* A prévia mostra o arquivo de produção: mesa cinza do canvas, fixa. */
+QLabel#areaPrevia {{
+    background: #E3E3E1;
+    color: #4E555C;
+    border-radius: 10px;
+}}
+QLabel#tituloTela {{
+    color: {Cor.TEXTO};
+}}
 """

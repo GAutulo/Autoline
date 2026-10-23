@@ -216,6 +216,13 @@ class PainelPropriedadesMockup(QWidget):
 
     _ALTURA = 44
 
+    def sizeHint(self):  # noqa: N802
+        """Pede só o mínimo (as abas rolam): na mesma linha de contexto, o
+        Organizar à direita ganha o espaço dele; o que sobrar vem pra cá."""
+        dica = super().sizeHint()
+        dica.setWidth(self.minimumSizeHint().width())
+        return dica
+
     def _linha_vertical(self, forte: bool = False) -> QFrame:
         linha = QFrame()
         linha.setFrameShape(QFrame.Shape.VLine)
