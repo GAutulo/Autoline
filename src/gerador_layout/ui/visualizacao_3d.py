@@ -812,10 +812,11 @@ class VistaCaixa3D(QWidget):
                             densidade,
                             razao_pixels * max(_escala_local(transformacao, sup.quad_local.at(i)) for i in range(sup.quad_local.count())),
                         )
-                    densidade_necessaria[painel.id] = max(densidade_necessaria.get(painel.id, 0.0), densidade)
-                    retangulo_painel[painel.id] = QRectF(
-                        QPointF(min(painel.x1, painel.x2), min(painel.y1, painel.y2)),
-                        QPointF(max(painel.x1, painel.x2), max(painel.y1, painel.y2)),
+                    chave_arte = painel.arte_de or painel.id
+                    densidade_necessaria[chave_arte] = max(densidade_necessaria.get(chave_arte, 0.0), densidade)
+                    retangulo_painel[chave_arte] = QRectF(
+                        QPointF(min(painel.x1, painel.x2) - painel.arte_dx, min(painel.y1, painel.y2)),
+                        QPointF(max(painel.x1, painel.x2) - painel.arte_dx, max(painel.y1, painel.y2)),
                     ).adjusted(-_ARTE_MARGEM_MM, -_ARTE_MARGEM_MM, _ARTE_MARGEM_MM, _ARTE_MARGEM_MM)
             cor, quad, transformacao = dados["cor"], dados["quad"], dados["t"]
             recortado = not poligono.inteiro or len(cam) != len(poligono.pontos)
@@ -824,8 +825,9 @@ class VistaCaixa3D(QWidget):
                 if ok:
                     na_tela = tela.intersected(QPolygonF(area_visivel))
                     if not na_tela.isEmpty():
-                        area_mm = inversa.map(na_tela).boundingRect()
-                        visivel_painel[painel.id] = visivel_painel.get(painel.id, QRectF()).united(area_mm)
+                        area_mm = inversa.map(na_tela).boundingRect().translated(-painel.arte_dx, 0.0)
+                        chave_arte = painel.arte_de or painel.id
+                        visivel_painel[chave_arte] = visivel_painel.get(chave_arte, QRectF()).united(area_mm)
             p.setPen(dados["caneta"])
             p.setBrush(cor)
             com_furos = sup.tipo == "face" and painel.furos and transformacao is not None
@@ -838,7 +840,7 @@ class VistaCaixa3D(QWidget):
             else:
                 p.drawPolygon(tela)
             if sup.tipo == "face":
-                textura = self._texturas.get(painel.id) if sup.externo and transformacao is not None else None
+                textura = self._texturas.get(painel.arte_de or painel.id) if sup.externo and transformacao is not None else None
                 tem_arte = textura is not None and textura[0] is not None
                 if not tem_arte and dados["contorno"] is None:
                     continue
@@ -848,11 +850,13 @@ class VistaCaixa3D(QWidget):
                 elif recortado:
                     p.setClipRegion(QRegion(tela.toPolygon()))
                 if tem_arte:
-                    detalhe = self._detalhes.get(painel.id)
+                    detalhe = self._detalhes.get(painel.arte_de or painel.id)
                     for imagem, k, retangulo in (textura, detalhe):
                         if imagem is None:
                             continue
-                        da_imagem = QTransform.fromScale(1.0 / k, 1.0 / k) * QTransform.fromTranslate(retangulo.left(), retangulo.top())
+                        da_imagem = QTransform.fromScale(1.0 / k, 1.0 / k) * QTransform.fromTranslate(
+                            retangulo.left() + painel.arte_dx, retangulo.top()
+                        )
                         p.setTransform(da_imagem * transformacao)
                         p.drawImage(QPointF(0.0, 0.0), imagem)
                         p.resetTransform()

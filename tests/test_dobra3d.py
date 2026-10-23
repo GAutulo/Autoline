@@ -37,6 +37,8 @@ def test_planificada_e_a_propria_dieline(tipo):
         for x, y in pp.painel.cantos:
             px, py, pz = pp.ponto(x, y)
             assert (px, py, pz) == pytest.approx((x, y, 0.0), abs=TOLERANCIA)
+            if pp.painel.arte_de is not None:
+                continue  # a outra metade da meia caixa: só existe no 3D, fora da faca
             assert -TOLERANCIA <= px <= layout.largura_total + TOLERANCIA
             assert -TOLERANCIA <= py <= layout.altura_total + TOLERANCIA
 
