@@ -11,7 +11,9 @@ exceção (ver `estilo.py`)."""
 
 from __future__ import annotations
 
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QColorDialog,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -75,6 +77,11 @@ class DialogoConfiguracoes(QDialog):
         aviso_tema.setWordWrap(True)
         aviso_tema.setObjectName("legendaMuted")
         form_aparencia.addRow(aviso_tema)
+        self.botao_cor_papelao = QPushButton()
+        self.botao_cor_papelao.setToolTip("A cor do papelão da caixa no 3D e na foto da folha de aprovação")
+        self.botao_cor_papelao.clicked.connect(self._escolher_cor_papelao)
+        self._mostrar_cor_papelao(configuracoes.cor_papelao_3d())
+        form_aparencia.addRow("Cor do papelão no 3D:", self.botao_cor_papelao)
         vbox_conteudo.addWidget(grupo_aparencia)
 
         grupo_exportacao = QGroupBox("Exportação")
@@ -206,6 +213,18 @@ class DialogoConfiguracoes(QDialog):
         linha.campo = campo
         return linha
 
+    def _mostrar_cor_papelao(self, cor: str) -> None:
+        self.cor_papelao = QColor(cor).name().upper()
+        self.botao_cor_papelao.setText(f"  {self.cor_papelao}")
+        amostra = QPixmap(28, 16)
+        amostra.fill(QColor(self.cor_papelao))
+        self.botao_cor_papelao.setIcon(QIcon(amostra))
+
+    def _escolher_cor_papelao(self) -> None:
+        cor = QColorDialog.getColor(QColor(self.cor_papelao), self, "Cor do papelão no 3D")
+        if cor.isValid():
+            self._mostrar_cor_papelao(cor.name())
+
     def _associar_arquivos(self) -> None:
         from . import associacao_arquivo
 
@@ -247,6 +266,7 @@ class DialogoConfiguracoes(QDialog):
         self.combo_fonte_texto.setCurrentText(configuracoes.fonte_padrao_texto())
         self.spin_altura_letra.setValue(configuracoes.altura_letra_padrao_mm())
         self.spin_largura_letra.setValue(configuracoes.largura_letra_padrao() * 100)
+        self._mostrar_cor_papelao(configuracoes.cor_papelao_3d())
         # Tema não tem "padrão" salvo em restaurar_padroes (é intencional
         # que o usuário não perca o tema escolhido sem querer) — só reseta
         # os números.
@@ -268,4 +288,5 @@ class DialogoConfiguracoes(QDialog):
         configuracoes.definir_pasta_imagens_3d(self.campo_pasta_3d.campo.text().strip())
         configuracoes.definir_altura_letra_padrao_mm(self.spin_altura_letra.value())
         configuracoes.definir_largura_letra_padrao(self.spin_largura_letra.value() / 100)
+        configuracoes.definir_cor_papelao_3d(self.cor_papelao)
         self.accept()

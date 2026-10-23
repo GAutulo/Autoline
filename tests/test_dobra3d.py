@@ -231,3 +231,19 @@ def test_envoltorio_tem_o_prolongamento_dos_cantos_e_ele_fica_dentro_da_caixa(ti
                     # dobra pra dentro; só a folga de 3° do canto (que entra inclinado) sobra
                     sobra = A * math.sin(math.radians(3.0)) + 1.0
                     assert mn[i] - sobra <= ponto[i] <= mx[i] + sobra
+
+
+def test_cor_do_papelao_vem_das_configuracoes():
+    from PySide6.QtGui import QColor
+
+    from gerador_layout.ui import configuracoes
+    from gerador_layout.ui.visualizacao_3d import cores_papelao
+
+    assert configuracoes.cor_papelao_3d() == "#D4B07C"  # mais claro que o kraft da marca
+    configuracoes.definir_cor_papelao_3d("#E0C090")
+    fora, dentro, borda = cores_papelao()
+    assert fora == QColor("#E0C090") and dentro.lightness() > fora.lightness() > borda.lightness()
+    configuracoes.definir_cor_papelao_3d("não é cor")
+    assert configuracoes.cor_papelao_3d() == "#D4B07C"
+    configuracoes.restaurar_padroes()
+    assert configuracoes.cor_papelao_3d() == "#D4B07C"

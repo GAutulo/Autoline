@@ -15,6 +15,7 @@ confiável salvar a escolha e aplicar no próximo início."""
 from __future__ import annotations
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QColor
 
 # Muda a chave de registro onde as preferências ficam salvas (rebranding
 # Autoline) — quem já tinha aberto o app antes vai ver as preferências
@@ -246,6 +247,19 @@ def definir_pasta_imagens_layout(pasta: str) -> None:
     _settings().setValue("pasta_imagens_layout", pasta)
 
 
+_PADRAO_COR_PAPELAO = "#D4B07C"  # kraft um pouco mais claro que o da marca (#C79A5D), o das caixas da fábrica
+
+
+def cor_papelao_3d() -> str:
+    """Cor do lado de fora do papelão no 3D (e na foto da folha de aprovação)."""
+    valor = str(_settings().value("cor_papelao_3d", _PADRAO_COR_PAPELAO, type=str))
+    return valor if QColor(valor).isValid() else _PADRAO_COR_PAPELAO
+
+
+def definir_cor_papelao_3d(cor: str) -> None:
+    _settings().setValue("cor_papelao_3d", cor)
+
+
 def pasta_imagens_3d() -> str:
     """Onde a imagem do 3D é sugerida (vazio = a última usada)."""
     return str(_settings().value("pasta_imagens_3d", "", type=str))
@@ -344,3 +358,4 @@ def restaurar_padroes() -> None:
     s.setValue("fonte_padrao_texto", _PADRAO_FONTE_TEXTO)
     s.setValue("altura_letra_padrao_mm", _PADRAO_ALTURA_LETRA_MM)
     s.setValue("largura_letra_padrao", _PADRAO_LARGURA_LETRA)
+    s.setValue("cor_papelao_3d", _PADRAO_COR_PAPELAO)

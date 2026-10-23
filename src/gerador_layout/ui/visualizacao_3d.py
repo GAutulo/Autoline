@@ -97,12 +97,16 @@ def _escala_local(t: QTransform, ponto: QPointF) -> float:
 _YAW_MONTADA = -34.0
 _PITCH_MONTADA = 24.0
 
-# Papelão: lado impresso (kraft da marca) e miolo/lado de dentro, mais claro.
-_COR_EXTERNA = QColor("#C79A5D")
-_COR_INTERNA = QColor("#E6D0A8")
+# Papelão: a cor do lado impresso vem das Configurações (a do papelão da
+# fábrica); o lado de dentro sai mais claro e a borda cortada (o miolo
+# ondulado) mais escura, na mesma proporção de sempre.
 _COR_ARESTA = QColor(74, 54, 30, 210)
-# Borda cortada do papelão (o miolo ondulado aparece mais escuro).
-_COR_ESPESSURA = QColor("#9C7444")
+
+
+def cores_papelao() -> tuple[QColor, QColor, QColor]:
+    """(lado de fora, lado de dentro, borda cortada)."""
+    externa = QColor(configuracoes.cor_papelao_3d())
+    return externa, externa.lighter(116), externa.darker(128)
 
 # Papelões comuns (espessura em mm), como na escolha de papelão do ArtiosCAD.
 # Primeiro os da escala 1:10 (a caixa desenhada em 1:10, como 605 mm → 60,5
@@ -717,6 +721,7 @@ class VistaCaixa3D(QWidget):
             caneta_vinco = QPen(QColor(74, 54, 30, 120), 1.0)
         caneta_vinco.setCosmetic(True)
         info: dict[int, dict] = {}  # por superfície, neste quadro
+        cor_externa, cor_interna, cor_espessura = cores_papelao()
         caixa_tela = QRectF()
         ordem = de_tras_pra_frente(arvore, olho, [])
         area_visivel = QRectF(0.0, 0.0, self.width(), self.height()).adjusted(-4, -4, 4, 4)
@@ -764,10 +769,10 @@ class VistaCaixa3D(QWidget):
                 )
                 if sup.tipo == "face":
                     luz = 0.55 + 0.45 * max(0.0, produto_escalar(normal_cam, _LUZ))
-                    base = _COR_EXTERNA if sup.externo else _COR_INTERNA
+                    base = cor_externa if sup.externo else cor_interna
                 else:
                     luz = 0.5 + 0.5 * max(0.0, produto_escalar(normal_cam, _LUZ))
-                    base = _COR_ESPESSURA
+                    base = cor_espessura
                 cor = QColor.fromRgbF(min(1.0, base.redF() * luz), min(1.0, base.greenF() * luz), min(1.0, base.blueF() * luz))
                 caneta_fill = QPen(cor, 1.0)
                 caneta_fill.setCosmetic(True)  # fecha a fresta de antialiasing entre pedaços
@@ -1019,7 +1024,7 @@ class VistaCaixa3D(QWidget):
         # Cores tiradas da própria faixa (já com a luz daquela face): o vão
         # entre as ondas escuro, capas e onda (papel) claras — senão, numa
         # face mais escura, a onda sumia na cor da faixa.
-        base = cor_faixa or _COR_ESPESSURA
+        base = cor_faixa or cores_papelao()[2]
         cor_vao, cor_papel = base.darker(150), base.lighter(140)
         p.save()
         p.setTransform(transformacao)
