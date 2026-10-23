@@ -227,22 +227,35 @@ class ElementoChecklistCores(ElementoMockup):
         CorelDRAW (uma conta só)."""
         m = self._medidas()
         largura_caixa = self._largura if largura_caixa is None else largura_caixa
-        itens, x, y, largura_total = [], 0.0, 0.0, 0.0
+        larguras = [self._largura_item(texto, m) for texto in self._variantes]
+        # Lado a lado: em COLUNAS alinhadas (cada uma da largura do maior
+        # item dela), quantas couberem na largura do quadro — esticar ou
+        # estreitar o quadro reorganiza. Empilhado = uma coluna só.
+        colunas = self._colunas_que_cabem(larguras, largura_caixa, m["espaco_itens"]) if self._disposicao == LADO_A_LADO else 1
+        largura_coluna = [
+            max((larguras[i] for i in range(c, len(larguras), colunas)), default=0.0) for c in range(colunas)
+        ]
+        inicio_coluna = [sum(largura_coluna[:c]) + c * m["espaco_itens"] for c in range(colunas)]
+        itens, largura_total = [], 0.0
         for indice, texto in enumerate(self._variantes):
-            largura = self._largura_item(texto, m)
-            if self._disposicao == LADO_A_LADO and x > 0 and x + largura > largura_caixa + 1e-6:
-                x, y = 0.0, y + m["linha"]  # não cabe: próxima linha
+            linha, coluna = divmod(indice, colunas)
+            x, y = inicio_coluna[coluna], linha * m["linha"]
             topo_caixa = y + (m["linha"] - m["lado"]) / 2
             caixa = QRectF(x, topo_caixa, m["lado"], m["lado"])
             base = QPointF(x + m["lado"] + m["espaco_caixa"], caixa.bottom())
-            itens.append({"indice": indice, "caixa": caixa, "base": base, "texto": texto, "largura": largura, "linha_y": y})
-            largura_total = max(largura_total, x + largura)
-            if self._disposicao == LADO_A_LADO:
-                x += largura + m["espaco_itens"]
-            else:
-                y += m["linha"]
+            itens.append({"indice": indice, "caixa": caixa, "base": base, "texto": texto, "largura": larguras[indice], "linha_y": y})
+            largura_total = max(largura_total, x + larguras[indice])
         altura_total = (max((i["linha_y"] for i in itens), default=0.0) + m["linha"]) if itens else m["linha"]
         return itens, max(largura_total, m["lado"]), altura_total
+
+    @staticmethod
+    def _colunas_que_cabem(larguras: list[float], largura_caixa: float, espaco: float) -> int:
+        """O maior número de colunas cuja soma (com o espaço entre elas) cabe."""
+        for colunas in range(len(larguras), 1, -1):
+            total = sum(max(larguras[i] for i in range(c, len(larguras), colunas)) for c in range(colunas))
+            if total + (colunas - 1) * espaco <= largura_caixa + 1e-6:
+                return colunas
+        return 1
 
     def _largura_minima_conteudo(self) -> float:
         """O item mais largo tem que caber (senão ele sairia da caixa)."""
