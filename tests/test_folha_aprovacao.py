@@ -44,9 +44,9 @@ def test_gerar_folha_pelo_programa(tmp_path):
 
     j = JanelaPrincipal()
     j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
-    j.spin_comprimento.setValue(190)
-    j.spin_largura.setValue(130)
-    j.spin_altura.setValue(230)
+    j.spin_comprimento.setValue(19)  # desenhada em 1:10
+    j.spin_largura.setValue(13)
+    j.spin_altura.setValue(23)
     j._gravar_projeto(str(tmp_path / "lord lion"))
     vistos = {}
 
@@ -62,7 +62,7 @@ def test_gerar_folha_pelo_programa(tmp_path):
         return True
 
     pdf = j.gerar_folha_aprovacao(str(tmp_path / "folha.pdf"), dialogo=preencher, abrir=False)
-    assert vistos == {"medidas": "190X130X230", "tipo": "MALETA NORMAL", "primeira": True}
+    assert vistos == {"medidas": "190X130X230", "tipo": "MALETA NORMAL", "primeira": True}  # a medida de verdade
     assert pdf is not None and pdf.is_file()
     doc = QPdfDocument()
     doc.load(str(pdf))
@@ -101,3 +101,11 @@ def test_gerar_folha_pelo_programa(tmp_path):
     assert j._aprovacao["criado_em"] == "2026-01-02"
     assert j._aprovacao["modificado_em"] == dt.date.today().isoformat()
     j.close()
+
+
+def test_medida_da_ficha_e_a_real_da_escala_1_10():
+    from gerador_layout.ui.folha_aprovacao import texto_medidas
+
+    assert texto_medidas(54, 54, 38) == "540X540X380"
+    assert texto_medidas(13.6, 1.6, 0.9) == "136X16X9"
+    assert texto_medidas(54.25, 30, 20.5) == "542,5X300X205"

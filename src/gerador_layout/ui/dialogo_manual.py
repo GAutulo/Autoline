@@ -128,6 +128,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 resolução, recortada em volta da caixa e sem os textos de ajuda. <b>Girar sozinho</b>
                 deixa a caixa montada girando devagar (desligado por padrão: girando, o
                 3D fica redesenhando o tempo todo).</p>
+                <p><b>Cor do papelão</b>: em Configurações &gt; Aparência (vale pro 3D e pra
+                foto da folha de aprovação; o lado de dentro e a borda cortada acompanham).</p>
                 <p><b>Papelão</b> (na barra do 3D): escolhe a espessura. Em cima, os da <b>escala
                 1:10</b> (a caixa desenhada reduzida, o normal aqui): onda B (0,3 mm, o
                 padrão), dupla BC (0,7 mm) e micro-ondulado E (0,15 mm). Embaixo,
@@ -236,7 +238,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 Código, Cores (as marcadas na legenda), o aviso de ATENÇÃO, o layout e o
                 rodapé com as datas, "Aprovado por" em branco e "Desenvolvido por".</p>
                 <p>Cliente, referência e código você digita (ficam guardados no projeto);
-                medidas, tipo e cores vêm do projeto e dá pra corrigir na hora. A
+                medidas, tipo e cores vêm do projeto e dá pra corrigir na hora. As
+                <b>medidas saem em tamanho real</b>: a caixa é desenhada em escala 1:10,
+                então 54 × 54 × 38 no projeto vira 540X540X380 na folha. A
                 <b>primeira</b> folha leva a data de hoje em "Criado em"; gerar de novo
                 noutro dia preenche "Modificado em" e a de criação continua (dá pra marcar
                 ou desmarcar a modificação). Uma <b>2ª folha</b> traz a caixa montada em 3D

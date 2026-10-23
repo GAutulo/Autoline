@@ -1923,6 +1923,7 @@ class JanelaPrincipal(QMainWindow):
         dialogo = DialogoConfiguracoes(self)
         if dialogo.exec() == DialogoConfiguracoes.DialogCode.Accepted:
             self.statusBar().showMessage("Configurações salvas", 6000)
+            self.visualizacao_3d.vista.update()  # cor do papelão
             if dialogo.tema_alterado:
                 resposta = QMessageBox.question(
                     self,
@@ -2257,7 +2258,7 @@ class JanelaPrincipal(QMainWindow):
         import datetime as _dt
 
         from .dialogo_folha_aprovacao import DialogoFolhaAprovacao
-        from .folha_aprovacao import gerar_pdf, nome_do_arquivo
+        from .folha_aprovacao import gerar_pdf, nome_do_arquivo, texto_medidas
 
         if not self._layout_pronto_para_exportar():
             return None
@@ -2269,7 +2270,7 @@ class JanelaPrincipal(QMainWindow):
             cliente=dados_antes.get("cliente", ""),
             referencia=dados_antes.get("referencia", ""),
             codigo=dados_antes.get("codigo", ""),
-            medidas=f"{medidas.comprimento:g}X{medidas.largura:g}X{medidas.altura:g}",
+            medidas=texto_medidas(medidas.comprimento, medidas.largura, medidas.altura),  # desenho em 1:10
             tipo=NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper(),
             cores=self._cores_impressao_ativas(),
             criado_em=_dt.date.fromisoformat(criado) if criado else None,
