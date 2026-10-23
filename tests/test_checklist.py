@@ -282,3 +282,54 @@ def test_quadrinho_do_tamanho_da_letra_e_traco_de_1pt():
     assert c.clonar().espessura_quadro_pt == pytest.approx(0.75)
     d = projeto_arquivo.elemento_para_dict(c, projeto_arquivo._Arquivos())
     assert projeto_arquivo.elemento_de_dict(d, projeto_arquivo._Arquivos()).espessura_quadro_pt == pytest.approx(0.75)
+
+
+def test_lado_a_lado_em_colunas_alinhadas_que_reorganizam_com_a_largura():
+    """Como no print: HUG, LARA, RIVIERA, JADE. Esticar ou estreitar o
+    quadro reorganiza em colunas alinhadas (4, 3, 2, 1), não linhas tortas."""
+    import pytest
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    el = ElementoChecklistCores(["HUG", "LARA", "RIVIERA", "JADE"], fonte_familia="Arial Black", disposicao=LADO_A_LADO)
+    j.canvas.adicionar_elemento_mockup(el, QPointF(20, 20))
+
+    def arranjo():
+        itens, _l, _a = el.itens_layout()
+        linhas = sorted({round(i["caixa"].top(), 4) for i in itens})
+        colunas = sorted({round(i["caixa"].left(), 4) for i in itens})
+        return len(linhas), len(colunas), itens
+
+    linhas, colunas, _ = arranjo()
+    assert (linhas, colunas) == (1, 4)  # largura natural: tudo numa linha
+    toda = el.largura
+    vistos = []
+    for fracao in (0.8, 0.6, 0.35):
+        el.definir_largura(toda * fracao)
+        linhas, colunas, itens = arranjo()
+        vistos.append(colunas)
+        assert linhas * colunas >= 4 and linhas == -(-4 // colunas)
+        # alinhadas: cada coluna começa no mesmo x em todas as linhas
+        for i, item in enumerate(itens):
+            assert item["caixa"].left() == pytest.approx(itens[i % colunas]["caixa"].left())
+        assert max(i["caixa"].left() + i["largura"] for i in itens) <= el.largura + 1e-6  # nada sai do quadro
+        assert el.altura == pytest.approx(arranjo()[2][-1]["linha_y"] + (el.itens_layout()[2] - arranjo()[2][-1]["linha_y"]))
+    assert vistos == sorted(vistos, reverse=True) and vistos[-1] < 4
+    # 2 colunas: HUG | LARA em cima, RIVIERA | JADE embaixo (como deveria no print)
+    _itens, _l, _a = el.itens_layout(largura_caixa=float("inf"))
+    larguras = [i["largura"] for i in _itens]
+    espaco = _itens[1]["caixa"].left() - larguras[0]
+    el.definir_largura(max(larguras[0], larguras[2]) + max(larguras[1], larguras[3]) + espaco + 0.01)
+    linhas, colunas, itens = arranjo()
+    assert (linhas, colunas) == (2, 2) and [i["texto"] for i in itens] == ["HUG", "LARA", "RIVIERA", "JADE"]
+    # mudar a largura (campo/alça) reorganiza, e o Ctrl+Z volta
+    el.setSelected(True)
+    j.canvas._com_undo_geometria("largura", lambda: el.definir_largura(toda))
+    assert arranjo()[:2] == (1, 4)
+    j.canvas.pilha_desfazer.undo()
+    assert arranjo()[:2] == (2, 2)
+    j.close()
