@@ -524,7 +524,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p>Funciona como uma <b>caixa de texto de checklist</b>: na barra de
                 propriedades ficam fonte, tamanho em pontos, negrito, cor e o
                 <b>arranjo</b> — <b>Empilhado</b> (um embaixo do outro) ou <b>Lado a
-                lado</b> (em linha, quebrando pra baixo quando não cabe na largura).
+                lado</b> (em colunas alinhadas: quantas couberem na largura do quadro —
+                esticar ou estreitar o quadro passa de 4 pra 3, 2 ou 1 coluna na hora).
                 <b>Espaçamento</b> (o que o F10 do CorelDRAW ajusta): no texto e no
                 checklist, os campos <b>AV</b> (entre letras: 0% normal, mais afasta,
                 negativo aproxima) e <b>entre linhas</b> (100% normal; menos aproxima as
