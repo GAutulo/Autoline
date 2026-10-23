@@ -778,6 +778,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 PDF, qualidade perfeita em qualquer escala) ou raster (JPG, resolução
                 calculada a partir do DPI configurado em Configurações) do layout
                 técnico completo (faca + mockup + legenda de cores).</p>
+                <p>O <b>JPG sai sempre quadrado</b>, com o layout no centro e sobra branca em
+                volta: chapa comprida não fica esticada onde a imagem é mostrada num
+                quadrado (Explorer, WhatsApp, catálogo). O tamanho real continua gravado
+                no arquivo (DPI).</p>
                 <p>Sempre sai em preto e traço contínuo (só o vinco tracejado) — mesmo
                 sem cor nenhuma marcada, é o padrão esperado pela gráfica pra arquivo
                 de faca, independente do tema visual do app na tela.</p>
