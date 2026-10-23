@@ -2,49 +2,51 @@
 name: Autoline
 description: Gerador de layout de caixas de papel (dieline + mockup) para produção gráfica
 colors:
-  primaria: "#8C6A3B"
-  primaria-hover: "#6B4F2A"
-  primaria-ativa: "#4F3A1E"
-  primaria-clara: "#F0E2C8"
-  primaria-pressionada: "#E6D2AC"
-  texto: "#1E1A16"
-  texto-secundario: "#8C6A3B"
-  texto-terciario: "#A8916D"
-  branco: "#F5F0E6"
-  campo: "#FBF8F1"
-  cartao: "#F5F0E6"
-  fundo-janela: "#EAE1CC"
-  borda: "#DBD6CD"
-  borda-forte: "#CAC5BC"
+  primaria: "#A55A0D"
+  primaria-hover: "#8A4A0A"
+  primaria-ativa: "#6E3C08"
+  primaria-clara: "#F6E3CC"
+  primaria-pressionada: "#EED2B0"
+  selecao: "#EBBE86"
+  texto: "#15181B"
+  texto-secundario: "#4E555C"
+  texto-terciario: "#6B7178"
+  branco: "#FFFFFF"
+  campo: "#FFFFFF"
+  elevado: "#FFFFFF"
+  cartao: "#F7F6F3"
+  fundo-janela: "#ECEAE5"
+  borda: "#DAD7D0"
+  borda-forte: "#C4C0B8"
   erro: "#C1432A"
-  canvas-fundo: "rgb(250, 246, 237)"
-  canvas-grade: "rgba(30, 26, 22, 0.055)"
-  painel-flutuante: "rgba(250, 246, 237, 0.922)"
-  primaria-escuro: "#C79A5D"
-  primaria-hover-escuro: "#E7C68C"
-  primaria-ativa-escuro: "#F0DDB0"
-  primaria-clara-escuro: "#3A2F20"
-  primaria-pressionada-escuro: "#2F2519"
-  texto-escuro: "#EDE6D8"
-  texto-secundario-escuro: "#B9AF9C"
-  texto-terciario-escuro: "#8C8270"
-  branco-escuro: "#1E1A16"
-  campo-escuro: "#3A3025"
-  cartao-escuro: "#26201A"
-  fundo-janela-escuro: "#1E1A16"
-  borda-escuro: "#3A3629"
-  borda-forte-escuro: "#585349"
+  painel-flutuante: "rgba(247, 246, 243, 0.922)"
+  primaria-escuro: "#F0A04B"
+  primaria-hover-escuro: "#FFC27D"
+  primaria-ativa-escuro: "#FFD9A8"
+  primaria-clara-escuro: "#3A2810"
+  primaria-pressionada-escuro: "#2E200C"
+  selecao-escuro: "#5A3F1A"
+  texto-escuro: "#E7E9EB"
+  texto-secundario-escuro: "#A3AAB2"
+  texto-terciario-escuro: "#7D858E"
+  branco-escuro: "#1A1206"
+  campo-escuro: "#23282D"
+  elevado-escuro: "#1D2125"
+  cartao-escuro: "#16191C"
+  fundo-janela-escuro: "#0F1113"
+  borda-escuro: "#2A2F35"
+  borda-forte-escuro: "#3A4048"
   erro-escuro: "#C1432A"
-  canvas-fundo-escuro: "rgb(30, 26, 22)"
-  canvas-grade-escuro: "rgba(237, 230, 216, 0.063)"
-  painel-flutuante-escuro: "rgba(38, 32, 26, 0.922)"
+  painel-flutuante-escuro: "rgba(22, 25, 28, 0.922)"
+  canvas-mesa: "#E3E3E1"
 typography:
   display:
-    fontFamily: "Big Shoulders Stencil, sans-serif"
+    fontFamily: "Archivo, sans-serif"
     fontSize: "20px"
     fontWeight: 700
+    fontStretch: "112%"
     lineHeight: "normal"
-    letterSpacing: "1px"
+    letterSpacing: "-0.015em"
   body:
     fontFamily: "IBM Plex Sans, sans-serif"
     fontSize: "13px"
@@ -72,7 +74,7 @@ spacing:
   xl: "20px"
 components:
   button-secondary:
-    backgroundColor: "{colors.campo}"
+    backgroundColor: "{colors.elevado}"
     textColor: "{colors.texto}"
     rounded: "{rounded.lg}"
     padding: "7px 16px"
@@ -106,55 +108,61 @@ components:
 
 ## Overview
 
-**Creative North Star: "A Chapa de Papelão"**
+**Creative North Star: "Grafite técnico, um acento âmbar"** (redesign — ver `REDESIGN.md`)
 
-O sistema visual parte do material que o produto manipula: papelão kraft, tinta de impressão, o osso/carvão de uma embalagem antes de virar produto acabado. Não é uma paleta neutra genérica com um acento decorativo por cima — Carvão, Kraft, Tinta e Osso são nomes de material, não nomes de cor, e cada um carrega uma função no fluxo real de produção gráfica (kraft é a chapa, tinta é correção/atenção, carvão e osso são os neutros quentes que substituem o cinza puro de qualquer software CAD/SaaS padrão).
+A interface é uma ferramenta de precisão em volta do trabalho, não o trabalho: superfícies grafite em degraus (janela → painel → elevado → campo) e um único acento âmbar, que é também a face kraft do logotipo. O conteúdo que vai para a gráfica — a mesa cinza, a página branca, a faca preta — não muda com o tema: o canvas é o mesmo nos dois.
 
-A personalidade é **densa mas organizada**: o Autoline assume que a tela vai ter bastante informação técnica de uma vez (painéis, medidas, propriedades de mockup) e resolve isso com hierarquia clara — cartão (`CARTAO`) vs janela (`FUNDO_JANELA`) vs campo interativo (`CAMPO`) sempre em tons distintos — em vez de fingir minimalismo escondendo densidade que o usuário precisa ver. Não há uma anti-referência visual negativa confirmada além do que o próprio código já impõe: chapado por completo (sem gradiente, sem sombra flutuante — profundidade vem só de borda e diferença de tom), um único acento de cor (`PRIMARIA`) reaproveitado em todo canto em vez de uma cor nova por elemento.
+A personalidade é **densa mas organizada**: o Autoline assume bastante informação técnica de uma vez (painéis, medidas, propriedades de mockup) e resolve isso com hierarquia clara de tons, não escondendo densidade. Chapado por completo (sem gradiente, sem sombra — profundidade só por borda e diferença de tom) e um único acento (`PRIMARIA`) reaproveitado em todo canto.
 
 **Key Characteristics:**
-- Paleta de material (Carvão/Kraft/Tinta/Osso), não paleta de marca genérica
-- Um único acento de cor no app inteiro — sua raridade é o ponto
+- Grafite neutro + âmbar; o âmbar é a única cor de destaque
 - Totalmente chapado: sem gradiente, sem sombra; profundidade só por borda + tom
-- Tipografia de exibição usada em exatamente um lugar (a marca), nunca para hierarquia geral
-- Tema claro e escuro são paletas completas e independentes, não um claro invertido matematicamente
+- Fonte de exibição (Archivo) só na marca e nos títulos de tela
+- Tema escuro é o principal; o claro é derivado da mesma estrutura (não um negativo matemático)
+- O canvas e os arquivos exportados não herdam o tema
 
 ## Colors
 
-A paleta descreve papel e produção gráfica, não uma marca de tecnologia: kraft (cor da própria chapa de papelão) como acento, tinta como cor de atenção/erro, carvão e osso como os dois neutros quentes que substituem preto/branco/cinza puro.
-
 ### Primary
-- **Kraft** (`{colors.primaria}` / `{colors.primaria-escuro}`): o único acento do app — usado em bordas de foco, ícone/rótulo da marca, indicadores marcados (checkbox, radio), e botões de ação primária (exportar). Kraft não é o mesmo hexadecimal nos dois temas por design: no tema claro é a versão escura (`#8C6A3B`) porque o kraft "puro" claro não tem contraste suficiente como texto sobre fundo claro; no tema escuro é a versão clara/pura (`#C79A5D`). Contraste WCAG foi calculado para cada combinação antes de fechar os valores.
+- **Âmbar** (`{colors.primaria-escuro}` / `{colors.primaria}`): o único acento — botão primário (Exportar), foco de campo, ferramenta ativa (fundo `{colors.primaria-clara-escuro}` com ícone âmbar), indicadores marcados. No tema claro é o âmbar escurecido da versão clara do logotipo, porque o âmbar puro não tem contraste como texto sobre fundo claro. Texto sobre o âmbar: `{colors.branco-escuro}` (`#1A1206`) no escuro, branco no claro. Contraste WCAG calculado para cada par.
 
-### Neutral
-- **Carvão** (`{colors.texto}` no tema claro, `{colors.branco-escuro}` no escuro): o neutro mais escuro — texto principal no tema claro, fundo de janela e superfície mais profunda no tema escuro.
-- **Osso** (`{colors.branco}` / `{colors.texto-escuro}`): o neutro mais claro/quente — substitui o branco puro; cartões e campo de texto no tema claro, texto principal no tema escuro.
-- **Campo** (`{colors.campo}` / `{colors.campo-escuro}`): fundo reservado só para elementos interativos (campo de texto, combobox). Regra deliberada: no tema claro é *mais claro* que o cartão; no tema escuro é *mais claro* que o cartão também (nunca mais escuro) — mantém o mesmo princípio de "isto é uma superfície interativa" nos dois temas.
-- **Borda / Borda Forte** (`{colors.borda}`, `{colors.borda-forte}` + variantes escuras): separação de superfícies inteiramente por borda, nunca por sombra.
+### Neutral (escuro → claro)
+- **Janela** `#0F1113` / `#ECEAE5` · **Painel** (`CARTAO`) `#16191C` / `#F7F6F3` · **Elevado** (botão secundário, menu) `#1D2125` / `#FFFFFF` · **Campo** `#23282D` / `#FFFFFF`.
+- **Borda / Borda forte**: `#2A2F35` / `#3A4048` no escuro; separação inteiramente por borda, nunca por sombra.
+- **Texto / Secundário / Terciário**: `#E7E9EB` / `#A3AAB2` / `#7D858E` no escuro.
+
+### Canvas (fora do tema)
+- Mesa `#E3E3E1`, página branca com malha, faca preta (corte contínuo, vinco tracejado) — iguais em qualquer tema.
 
 ### Named Rules
-**The One Accent Rule.** `PRIMARIA` é a única cor de destaque em todo o aplicativo — inclusive nas telas de exportação/CorelDRAW. Nenhum elemento novo introduz uma cor de acento própria; tudo que precisa se destacar usa Kraft.
+**The One Accent Rule.** `PRIMARIA` (âmbar) é a única cor de destaque em todo o aplicativo — inclusive nas telas de exportação/CorelDRAW. Nenhum elemento novo introduz uma cor de acento própria.
 
-**The Production Truth Rule.** Os arquivos exportados (SVG/PDF/JPG/CorelDRAW) nunca herdam a paleta do app — são sempre preto sobre branco, porque isso é convenção da gráfica de produção, não preferência estética. O tema (claro/escuro) é só para a interface, nunca para o output.
+**The Production Truth Rule.** Os arquivos exportados (SVG/PDF/JPG/CorelDRAW) e a folha de aprovação nunca herdam a paleta do app — são sempre preto sobre branco (a folha mantém o próprio padrão), porque isso é convenção da gráfica de produção, não preferência estética.
 
-**The Ink Stays Fixed Rule.** `ERRO` (tinta, `#C1432A`) é o único token de cor que não muda entre os temas — correção/atenção precisa ser reconhecível independente do tema ativo.
+**The Ink Stays Fixed Rule.** `ERRO` (tinta, `#C1432A`, também a zona segura) é o único token de cor que não muda entre os temas.
 
 ## Typography
 
-**Display Font:** Big Shoulders Stencil (com fallback sans-serif)
-**Body Font:** IBM Plex Sans (com fallback sans-serif)
-**Label/Mono Font:** IBM Plex Mono (com fallback monospace)
-
-**Character:** Um stencil condensado e industrial reservado só para a marca, contra um corpo humanista neutro (IBM Plex Sans) que faz o trabalho pesado de telas densas — a mesma dualidade "chão de fábrica gráfico" vs. "ferramenta de precisão" que aparece na paleta.
+**Display Font:** Archivo 700, semi-expandida (eixo de largura 112) — `ui/marca.py::fonte_marca`
+**Body Font:** IBM Plex Sans 13 px
+**Label/Mono Font:** IBM Plex Mono (números e medidas)
 
 ### Hierarchy
-- **Display** (700, 20px, letter-spacing 1px): só a marca (`QLabel#rotuloMarca` na barra de ferramentas). Nunca usado para títulos de seção ou qualquer hierarquia funcional — usar a fonte de exibição em outro lugar dilui a marca.
-- **Body** (400, 13px): todo texto de interface — rótulos, campos, botões, menus.
-- **Título de cartão** (600, 13px, herdado do body): título de `QGroupBox`, apenas peso mais forte, mesma família.
-- **Label/Mono** (500, 13px): leituras técnicas — zoom, cota de medida, DPI (`QLabel#rotuloTecnico`) — a família muda porque números tabulares/técnicos precisam de largura fixa, não porque é uma hierarquia de importância.
+- **Display** (Archivo 700, semi-expandida): só a assinatura "autoline" e os títulos de tela (Início, Exportar). Nunca para títulos de seção ou hierarquia funcional.
+- **Body** (Plex Sans 400, 13px): todo texto de interface — rótulos, campos, botões, menus. Seção: 600, 15px.
+- **Título de cartão** (600, 13px): título de `QGroupBox`.
+- **Label/Mono** (Plex Mono 500, 13px): leituras técnicas — zoom, cota, medidas, DPI (`QLabel#rotuloTecnico`).
 
 ### Named Rules
-**The Brand-Only Display Rule.** A fonte de exibição (Big Shoulders Stencil) aparece em exatamente um seletor do sistema inteiro (`QLabel#rotuloMarca`). Se aparecer em um segundo lugar, não é mais assinatura — é decoração.
+**The Brand-Only Display Rule.** A fonte de exibição aparece só na marca e nos títulos de tela. Em qualquer outro lugar, é decoração.
+
+## Brand — logotipo "Dobra"
+
+- **Símbolo** (viewBox 0 0 120 120, `ui/marca.py::SIMBOLO_SVG`): o A de duas faces de uma caixa dobrada — interna clara `#E7E9EB`, externa âmbar `#F0A04B` — com a travessa tracejada como um vinco.
+- **Abaixo de 64 px**: travessa cheia (sem tracejado), `x1=44 x2=76`, espessura 9–12.
+- **Versão clara** (impressos e tema claro): face esquerda `#15181B`, face direita `#B4630F`, travessa `#15181B`.
+- **Assinatura**: símbolo + "autoline" em caixa baixa, Archivo 700 semi-expandida (`AssinaturaMarca`).
+- **Ícone do app** (`assets/gerar_icone.py` → `icon.ico`): quadrado arredondado `#1D2125` com borda `#3A4048` e o símbolo; 16–256 px.
 
 ## Layout
 
@@ -175,7 +183,7 @@ Escala de raio consistente por categoria de elemento, nunca arbitrária por widg
 
 ### Buttons
 - **Shape:** raio 7px (`{rounded.lg}`)
-- **Secundário (padrão):** fundo `{colors.campo}`, borda `{colors.borda}`, peso 600 — é o padrão de qualquer `QPushButton` sem marcação extra; a maioria dos botões do app é secundária.
+- **Secundário (padrão):** fundo `{colors.elevado}`, borda `{colors.borda-forte}`, peso 600 — é o padrão de qualquer `QPushButton` sem marcação extra; a maioria dos botões do app é secundária.
 - **Primário:** fundo `{colors.primaria}`, texto `{colors.branco}` — reservado para ação primária (ex.: exportação na barra de ferramentas); exige `setProperty("primario", True)` explícito antes do widget ser mostrado.
 - **Hover / Pressed:** hover clareia para `{colors.primaria-clara}` (secundário) ou `{colors.primaria-hover}` (primário); pressed aprofunda para `{colors.primaria-pressionada}` / `{colors.primaria-ativa}`. Sem transição de sombra ou elevação, só troca de cor.
 - **Flat (`QPushButton:flat`):** sem borda nem fundo em repouso, usado para ações terciárias dentro de linhas densas.
@@ -190,7 +198,7 @@ Escala de raio consistente por categoria de elemento, nunca arbitrária por widg
 - **Internal Padding:** 16px 12px 12px 12px (exceção: `grupoMedidasGeradas` em 6px 8px)
 
 ### Inputs / Fields
-- **Style:** fundo `{colors.campo}` (sempre mais claro que o cartão ao redor, nos dois temas), borda 1.5px `{colors.borda-forte}`, raio 6px
+- **Style:** fundo `{colors.campo}` (sempre mais claro que o cartão ao redor, nos dois temas), borda 1px `{colors.borda-forte}`, raio 6px
 - **Focus:** borda muda de cor para `{colors.primaria}`, mantendo a mesma espessura — sem glow nem sombra
 - **Disabled:** fundo cai para `{colors.fundo-janela}`, texto para `{colors.texto-terciario}`
 
@@ -205,12 +213,12 @@ Painel lateral docável e rolável usado para editar qualquer elemento de mockup
 ### Do:
 - **Do** reutilizar `{colors.primaria}` para qualquer novo destaque — nunca introduzir uma segunda cor de acento.
 - **Do** manter toda superfície nova chapada (sem sombra); comunicar profundidade só com tom de fundo + borda.
-- **Do** manter a fonte de exibição (Big Shoulders Stencil) restrita à marca; qualquer título novo usa o corpo (IBM Plex Sans) em peso 600-700.
+- **Do** manter a fonte de exibição (Archivo) restrita à marca e aos títulos de tela; qualquer título de seção usa o corpo (IBM Plex Sans) em peso 600-700.
 - **Do** garantir que `CAMPO` seja sempre mais claro que o `CARTAO` ao redor, nos dois temas, para qualquer elemento interativo novo.
 - **Do** manter arquivos exportados (SVG/PDF/JPG/CorelDRAW) em preto sobre branco, independente do tema ativo do app.
 
 ### Don't:
 - **Don't** adicionar `box-shadow` ou qualquer efeito de elevação — quebra a regra Flat-By-Default.
-- **Don't** usar a mesma cor de acento em ambos os temas — o par claro/escuro do Kraft existe porque o contraste WCAG exige valores diferentes; copiar o hex de um tema para o outro quebra a legibilidade.
+- **Don't** usar a mesma cor de acento em ambos os temas — o par claro/escuro do âmbar existe porque o contraste WCAG exige valores diferentes; copiar o hex de um tema para o outro quebra a legibilidade.
 - **Don't** introduzir gradiente em nenhum componente — o sistema é inteiramente chapado, de propósito, como anti-referência a SaaS genérico.
 - **Don't** usar raio de canto fora da escala documentada (3/4/6/7/10/13px) sem justificar por que o elemento é excepcional (como o chip de cor).

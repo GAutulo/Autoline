@@ -77,6 +77,7 @@ from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, Elem
 from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
 from .arquivo_destino import esta_preso, proximo_nome_livre
+from .marca import AssinaturaMarca
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
@@ -592,7 +593,7 @@ class JanelaPrincipal(QMainWindow):
         espaco_antes_marca = QWidget()
         espaco_antes_marca.setFixedWidth(12)
         barra.addWidget(espaco_antes_marca)
-        rotulo_marca = QLabel("AUTOLINE")
+        rotulo_marca = AssinaturaMarca(altura=24)  # logotipo "Dobra" (ver marca.py)
         rotulo_marca.setObjectName("rotuloMarca")
         barra.addWidget(rotulo_marca)
         barra.addSeparator()
