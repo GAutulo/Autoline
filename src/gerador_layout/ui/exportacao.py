@@ -403,6 +403,16 @@ def exportar_jpg(
     """
     if dpi is None:
         dpi = configuracoes.dpi_exportacao_jpg()
+    imagem = imagem_do_layout(scene, layout, dpi=dpi)
+    if not imagem.save(caminho, "JPG", quality=95):
+        raise RuntimeError(
+            f"Não consegui salvar o JPG em: {caminho} (verifique permissão de escrita e espaço em disco)"
+        )
+
+
+def imagem_do_layout(scene: QGraphicsScene, layout: LayoutCaixa, *, dpi: float) -> QImage:
+    """A mesma imagem que o JPG grava (quadrada, fundo branco, preto da
+    produção) — o JPG e a prévia do diálogo Exportar usam esta conta só."""
     rect, legenda = _rect_com_legenda(scene, layout)
     selecao = _SelecaoOculta(scene)
     penas = _PenasExportacao(scene)
@@ -432,7 +442,7 @@ def exportar_jpg(
 
         painter = QPainter(imagem)
         if not painter.isActive():
-            raise RuntimeError(f"Não consegui preparar a imagem para exportação em: {caminho}")
+            raise RuntimeError("Não consegui preparar a imagem para exportação")
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -452,8 +462,4 @@ def exportar_jpg(
         penas.restaurar()
         selecao.restaurar()
         legenda.remover()
-
-    if not imagem.save(caminho, "JPG", quality=95):
-        raise RuntimeError(
-            f"Não consegui salvar o JPG em: {caminho} (verifique permissão de escrita e espaço em disco)"
-        )
+    return imagem
