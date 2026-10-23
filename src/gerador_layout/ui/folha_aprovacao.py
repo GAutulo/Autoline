@@ -72,6 +72,16 @@ def datas_da_vez(criado_em: _dt.date | None, hoje: _dt.date, modificacao: bool |
     return criado_em, (hoje if modificacao else None)
 
 
+# As caixas são desenhadas em escala 1:10 (ver o papelão do 3D em
+# configuracoes.py): a ficha vai pro cliente com a medida de VERDADE.
+ESCALA_DESENHO = 10
+
+
+def texto_medidas(comprimento: float, largura: float, altura: float, escala: float = ESCALA_DESENHO) -> str:
+    """"54X54X38" desenhado em 1:10 → "540X540X380" na ficha."""
+    return "X".join(f"{round(v * escala, 3):g}".replace(".", ",") for v in (comprimento, largura, altura))
+
+
 def nome_do_arquivo(dados: DadosFolha) -> str:
     """Como o modelo: "32792 CAIXA 02 - 06 LONG NECK 355ML TRADICIONAL.pdf"."""
     partes = [p.strip() for p in (dados.codigo, dados.referencia) if p.strip()]
