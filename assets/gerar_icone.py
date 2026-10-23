@@ -1,69 +1,61 @@
-"""Gera o ícone do aplicativo (assets/icon.ico) a partir de formas simples.
-Não faz parte do app em si — é só uma ferramenta de build.
+"""Gera o ícone do aplicativo (assets/icon.ico) — logotipo "Dobra"
+(REDESIGN.md, seção 3): quadrado arredondado #1D2125 com borda #3A4048 e o
+símbolo dentro. Abaixo de 64 px a travessa vira traço cheio (mais grosso),
+como no resto da marca (ver src/gerador_layout/ui/marca.py).
+
+Não faz parte do app em si — é só uma ferramenta de build:
+    .venv/Scripts/python.exe assets/gerar_icone.py
 """
+
+from pathlib import Path
+
 from PIL import Image, ImageDraw
 
+_FUNDO = (0x1D, 0x21, 0x25, 255)
+_BORDA = (0x3A, 0x40, 0x48, 255)
+_CLARA = (0xE7, 0xE9, 0xEB, 255)
+_AMBAR = (0xF0, 0xA0, 0x4B, 255)
+_FACE_ESQUERDA = ((12, 106), (48, 14), (60, 14), (60, 44), (34, 106))
+_FACE_DIREITA = ((108, 106), (72, 14), (60, 14), (60, 44), (86, 106))
+_SUPERAMOSTRA = 8  # desenha grande e reduz: borda lisa em qualquer tamanho
+
+
 def desenhar_icone(tamanho: int) -> Image.Image:
-    img = Image.new("RGBA", (tamanho, tamanho), (0, 0, 0, 0))
+    lado = tamanho * _SUPERAMOSTRA
+    img = Image.new("RGBA", (lado, lado), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
-    # Paleta Autoline (ver estilo.py): carvão de fundo, painéis em osso,
-    # contorno em kraft escuro, vinco tracejado em kraft — mesma lógica
-    # de cores do resto do rebranding, não uma paleta só do ícone.
-    cor_fundo = (30, 26, 22, 255)     # carvão
-    cor_caixa = (237, 230, 216, 255)  # osso
-    cor_linha = (140, 106, 59, 255)   # kraft escuro
-    cor_vinco = (199, 154, 93, 255)   # kraft
+    # Cartão: raio ~22% (96 px → 22 px na referência); borda de 1 px no tamanho final.
+    borda = round(max(1.0, tamanho / 96) * _SUPERAMOSTRA) if tamanho >= 24 else 0  # 16 px: sem borda (referência)
+    d.rounded_rectangle([0, 0, lado - 1, lado - 1], radius=round(lado * 0.22), fill=_FUNDO,
+                        outline=_BORDA if borda else None, width=borda)
 
-    pad = int(tamanho * 0.08)
-    d.rounded_rectangle([pad, pad, tamanho - pad, tamanho - pad], radius=int(tamanho * 0.14), fill=cor_fundo)
+    # Símbolo: 2/3 do cartão, centralizado (64 em 96 na referência).
+    simbolo = lado * (64 / 96 if tamanho >= 32 else 13 / 16)
+    origem = (lado - simbolo) / 2
+    k = simbolo / 120.0
 
-    # "planificação" de caixa simplificada: cruz de painéis
-    cx, cy = tamanho / 2, tamanho / 2
-    lado = tamanho * 0.20
-    largura_linha = max(1, int(tamanho * 0.02))
+    def ponto(x, y):
+        return (origem + x * k, origem + y * k)
 
-    painel_w = lado
-    painel_h = lado
+    d.polygon([ponto(x, y) for x, y in _FACE_ESQUERDA], fill=_CLARA)
+    d.polygon([ponto(x, y) for x, y in _FACE_DIREITA], fill=_AMBAR)
+    if tamanho >= 64:
+        # Travessa tracejada "8 3", espessura 8 (assinatura grande).
+        y = origem + 80 * k
+        x, fim, traco, vao = 45.0, 75.0, 8.0, 3.0
+        while x < fim:
+            d.rectangle([origem + x * k, y - 4 * k, origem + min(x + traco, fim) * k, y + 4 * k], fill=_CLARA)
+            x += traco + vao
+    else:
+        espessura = 12 if tamanho <= 16 else (10 if tamanho <= 32 else 9)
+        d.rectangle([*ponto(44, 80 - espessura / 2), *ponto(76, 80 + espessura / 2)], fill=_CLARA)
+    return img.resize((tamanho, tamanho), Image.Resampling.LANCZOS)
 
-    retangulos = [
-        (cx - painel_w * 1.5, cy - painel_h / 2, cx - painel_w / 2, cy + painel_h / 2),  # esquerda
-        (cx - painel_w / 2, cy - painel_h * 1.5, cx + painel_w / 2, cy - painel_h / 2),  # cima
-        (cx - painel_w / 2, cy - painel_h / 2, cx + painel_w / 2, cy + painel_h / 2),    # centro
-        (cx - painel_w / 2, cy + painel_h / 2, cx + painel_w / 2, cy + painel_h * 1.5),  # baixo
-        (cx + painel_w / 2, cy - painel_h / 2, cx + painel_w * 1.5, cy + painel_h / 2),  # direita
-    ]
-    for r in retangulos:
-        d.rectangle(r, fill=cor_caixa, outline=cor_linha, width=largura_linha)
 
-    # vincos (linhas tracejadas simplificadas como pontilhado) entre painel central e os 4 ao redor
-    def linha_tracejada(p1, p2, cor, largura):
-        import math
-        x1, y1 = p1
-        x2, y2 = p2
-        dist = math.hypot(x2 - x1, y2 - y1)
-        passos = max(2, int(dist / (tamanho * 0.025)))
-        for i in range(passos):
-            if i % 2 == 0:
-                t0 = i / passos
-                t1 = (i + 0.6) / passos
-                d.line([
-                    (x1 + (x2 - x1) * t0, y1 + (y2 - y1) * t0),
-                    (x1 + (x2 - x1) * t1, y1 + (y2 - y1) * t1),
-                ], fill=cor, width=largura)
-
-    linha_tracejada((cx - painel_w / 2, cy - painel_h / 2), (cx - painel_w / 2, cy + painel_h / 2), cor_vinco, largura_linha)
-    linha_tracejada((cx + painel_w / 2, cy - painel_h / 2), (cx + painel_w / 2, cy + painel_h / 2), cor_vinco, largura_linha)
-    linha_tracejada((cx - painel_w / 2, cy - painel_h / 2), (cx + painel_w / 2, cy - painel_h / 2), cor_vinco, largura_linha)
-    linha_tracejada((cx - painel_w / 2, cy + painel_h / 2), (cx + painel_w / 2, cy + painel_h / 2), cor_vinco, largura_linha)
-
-    return img
-
-tamanhos = [16, 24, 32, 48, 64, 128, 256]
-imagens = [desenhar_icone(t) for t in tamanhos]
-imagens[-1].save(
-    "icon.ico",
-    format="ICO",
-    sizes=[(t, t) for t in tamanhos],
-)
-print("Ícone gerado: icon.ico")
+if __name__ == "__main__":
+    tamanhos = [16, 24, 32, 48, 64, 128, 256]
+    imagens = [desenhar_icone(t) for t in tamanhos]
+    destino = Path(__file__).resolve().parent / "icon.ico"
+    imagens[-1].save(destino, format="ICO", sizes=[(t, t) for t in tamanhos], append_images=imagens[:-1])
+    print(f"Ícone gerado: {destino}")
