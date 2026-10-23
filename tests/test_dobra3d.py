@@ -247,3 +247,30 @@ def test_cor_do_papelao_vem_das_configuracoes():
     assert configuracoes.cor_papelao_3d() == "#D4B07C"
     configuracoes.restaurar_padroes()
     assert configuracoes.cor_papelao_3d() == "#D4B07C"
+
+
+@pytest.mark.parametrize("medidas", [(30, 30, 80), (54, 54, 38), (136, 16, 9)])
+def test_sombra_no_chao_e_inteira_na_foto(medidas):
+    """Caixa alta: a sombra ficava no meio da altura e larga demais, cortada
+    reta nas bordas da foto."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+    j.spin_comprimento.setValue(medidas[0])
+    j.spin_largura.setValue(medidas[1])
+    j.spin_altura.setValue(medidas[2])
+    vista = j.visualizacao_3d.vista
+    assert vista._meia_altura_montada == pytest.approx(medidas[2] / 2, rel=0.05)
+    img = j._imagem_3d_montada()
+    w, h = img.width(), img.height()
+    borda = [(x, 0) for x in range(0, w, 9)] + [(x, h - 1) for x in range(0, w, 9)]
+    borda += [(0, y) for y in range(0, h, 9)] + [(w - 1, y) for y in range(0, h, 9)]
+    assert max(255 - img.pixelColor(x, y).red() for x, y in borda) <= 12  # nada de sombra cortada na borda
+    j.close()
