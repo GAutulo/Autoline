@@ -94,7 +94,7 @@ def _escala_local(t: QTransform, ponto: QPointF) -> float:
     )
 
 # Vista "3/4" da caixa montada (graus, relativos a `cima`/`frente` do modelo).
-_YAW_MONTADA = -34.0
+_YAW_MONTADA = -42.0  # mostra bem a lateral, não só a frente
 _PITCH_MONTADA = 24.0
 
 # Papelão: a cor do lado impresso vem das Configurações (a do papelão da
