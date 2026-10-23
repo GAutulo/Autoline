@@ -382,6 +382,10 @@ def exportar_pdf(scene: QGraphicsScene, layout: LayoutCaixa, caminho: str) -> No
         legenda.remover()
 
 
+_JPG_LADO_MAX_PX = 12000  # ~430 MB de imagem quadrada; acima disso a resolução baixa
+_JPG_MARGEM = 0.04  # sobra branca em volta, pra o layout não encostar na borda
+
+
 def exportar_jpg(
     scene: QGraphicsScene, layout: LayoutCaixa, caminho: str, *, dpi: int | None = None
 ) -> None:
@@ -405,9 +409,20 @@ def exportar_jpg(
     sem_cache = cache_desligado(scene)
     sem_cache.__enter__()  # vetorial de verdade, não a imagem do cache de tela
     try:
-        pixels_por_mm = dpi / 25.4
-        largura = max(1, round(rect.width() * pixels_por_mm))
-        altura = max(1, round(rect.height() * pixels_por_mm))
+        # Imagem QUADRADA, com o layout centralizado e sobra branca: chapa
+        # comprida não fica "esticada" onde a imagem é mostrada num quadrado
+        # (Explorer, WhatsApp, catálogo). Lado limitado pra não estourar a
+        # memória numa chapa grande: aí a resolução baixa (e fica gravada).
+        lado_mm = max(rect.width(), rect.height()) * (1 + 2 * _JPG_MARGEM)
+        pixels_por_mm = min(dpi / 25.4, _JPG_LADO_MAX_PX / max(lado_mm, 1e-6))
+        lado = max(1, round(lado_mm * pixels_por_mm))
+        largura = altura = lado
+        destino = QRectF(
+            (lado - rect.width() * pixels_por_mm) / 2,
+            (lado - rect.height() * pixels_por_mm) / 2,
+            rect.width() * pixels_por_mm,
+            rect.height() * pixels_por_mm,
+        )
 
         imagem = QImage(largura, altura, QImage.Format.Format_RGB32)
         imagem.fill(0xFFFFFFFF)  # fundo branco
@@ -429,7 +444,7 @@ def exportar_jpg(
             # (30,30)mm saindo desenhado em ~(5,5)mm na imagem final, bem
             # menor e fora do lugar. Confirmado comparando o resultado
             # com/sem `target` explícito nessas unidades.
-            scene.render(painter, target=QRectF(0, 0, largura, altura), source=rect)
+            scene.render(painter, target=destino, source=rect)
         finally:
             painter.end()
     finally:
