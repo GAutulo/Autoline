@@ -423,6 +423,8 @@ class VistaCaixa3D(QWidget):
         self._centro_montado: Vetor = (0.0, 0.0, 0.0)
         self._raio_plano = 1.0
         self._raio_montado = 1.0
+        self._meia_altura_montada = 0.5
+        self._raio_base_montada = 1.0
         # Arte: `fonte(pedidos) -> imagens` (ver `renderizar_arte_regioes`)
         # e uma textura por painel: id → (imagem | None, px/mm, retângulo mm).
         self._fonte_arte = None
@@ -461,6 +463,14 @@ class VistaCaixa3D(QWidget):
             self._centro_montado = _lerp_vetor(montado[0], montado[1], 0.5)
             self._raio_plano = max(math.dist(plano[0], plano[1]) / 2.0, 1.0)
             self._raio_montado = max(math.dist(montado[0], montado[1]) / 2.0, 1.0)
+            # Pra sombra: meia altura de verdade (na direção de "cima") e o raio
+            # da BASE — não o raio da caixa inteira, que numa caixa alta punha o
+            # chão no meio dela e a sombra larga demais (cortada na foto).
+            tamanho = tuple(montado[1][i] - montado[0][i] for i in range(3))
+            cima = normalizar(modelo.cima)
+            altura = abs(produto_escalar(tamanho, cima))
+            self._meia_altura_montada = altura / 2.0
+            self._raio_base_montada = max(math.sqrt(max(0.0, produto_escalar(tamanho, tamanho) - altura * altura)) / 2.0, 1.0)
         self._texturas.clear()  # painéis mudaram de lugar/tamanho
         self._detalhes.clear()
         self.update()
@@ -638,6 +648,9 @@ class VistaCaixa3D(QWidget):
                 self._gerar_texturas(detalhes, self._detalhes)
                 imagem = self._pintar_em_imagem(escala, fundo)
             caixa = self._foto.get("caixa")
+            sombra = self._foto.get("sombra")
+            if caixa is not None and sombra is not None:
+                caixa = caixa.united(sombra)  # a sombra inteira na foto, sem corte reto
         finally:
             self._foto = None
             self._timer_texturas.start()  # a tela volta pra resolução dela
@@ -921,23 +934,29 @@ class VistaCaixa3D(QWidget):
         if u <= 0.01:
             return
         cima = normalizar(self._modelo.cima)
-        meia_altura = self._raio_montado * 0.6
-        chao = tuple(self._centro_montado[i] - cima[i] * meia_altura for i in range(3))
+        chao = tuple(self._centro_montado[i] - cima[i] * self._meia_altura_montada for i in range(3))
         olho = self._camera()[0]
-        if produto_escalar(tuple(olho[i] - chao[i] for i in range(3)), cima) <= 0:
+        para_olho = tuple(olho[i] - chao[i] for i in range(3))
+        if produto_escalar(para_olho, cima) <= 0:
             return  # olhando por baixo do chão: não tem sombra pra ver
         pc = para_camera(chao)
         if pc[2] <= 1.0:
             return
         centro = para_tela(pc)
-        rx = escala * self._raio_montado * 1.1 / pc[2]
+        rx = escala * self._raio_base_montada * 1.6 / pc[2]
+        # Achatada conforme a câmera olha o chão: de cima, redonda; de lado, fina.
+        achatamento = max(0.12, min(1.0, produto_escalar(normalizar(para_olho), cima)))
+        ry = rx * achatamento
+        foto = getattr(self, "_foto", None)  # só existe durante a foto
+        if foto is not None:
+            foto["sombra"] = QRectF(centro.x() - rx, centro.y() - ry, 2 * rx, 2 * ry)
         gradiente = QRadialGradient(QPointF(0.0, 0.0), 1.0)
-        gradiente.setColorAt(0.0, QColor(0, 0, 0, int(70 * u)))
-        gradiente.setColorAt(0.6, QColor(0, 0, 0, int(28 * u)))
+        gradiente.setColorAt(0.0, QColor(0, 0, 0, int(95 * u)))
+        gradiente.setColorAt(0.6, QColor(0, 0, 0, int(40 * u)))
         gradiente.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.save()
         p.translate(centro)
-        p.scale(rx, rx * 0.32)
+        p.scale(rx, ry)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(gradiente)
         p.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0)
