@@ -37,7 +37,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Tipos de caixa</b> (passe o mouse na lista pra ver a explicação de
                 cada um): maleta normal e transpassada, cada uma também em <b>meia
                 caixa</b> — só Aba × L × C na impressora (ex.: 40 × 240 × 590), pra
-                caixa grande feita em duas metades coladas depois —; os envoltórios
+                caixa grande feita em duas metades coladas depois; no <b>3D ela aparece
+                inteira</b>, com a outra metade igual e a mesma arte, sem mudar a faca —; os envoltórios
                 (fechamento normal ou no meio, com ou sem corte); e o <b>envoltório
                 capa (bandeja)</b>: A × C × A na impressora e A × L × A no riscador,
                 fundo com 4 paredes e os cantos do envoltório, sem tampa. Em

@@ -34,7 +34,7 @@ mudam entre "com corte" e "sem corte" ficam de fora.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .models import TIPOS_MALETA as _TIPOS_MALETA
 from .models import TIPOS_MEIA_CAIXA as _TIPOS_MEIA
@@ -160,6 +160,10 @@ class PainelDobravel:
     furos: tuple[tuple[tuple[float, float], ...], ...] = ()
     ponto_interno: tuple[float, float] | None = None
     linha_origem: int | None = None  # índice da linha da faca que é a dobradiça
+    # Painel que só existe no 3D (a outra metade da meia caixa, fora da faca):
+    # mostra a arte do painel `arte_de`, deslocada `arte_dx` mm na chapa.
+    arte_de: str | None = None
+    arte_dx: float = 0.0
 
     @property
     def cantos(self) -> list[tuple[float, float]]:
@@ -299,8 +303,11 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
     if len(xs) < (4 if meia else 6) or len(ys) < 4:
         return ModeloCaixa3D()
     if meia:
+        # Meia caixa: no 3D ela aparece INTEIRA (a outra metade é igual: mesma
+        # L e C, mesma arte) — só o modelo ganha a metade, a faca não.
         x0, x1, x2, x3 = xs[:4]
-        x4 = x5 = x3
+        x4 = x3 + (x2 - x1)
+        x5 = x4 + (x3 - x2)
     else:
         x0, x1, x2, x3, x4, x5 = xs[:6]
     y0, y1, y2, y3 = ys[:4]
@@ -310,18 +317,14 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
     paineis = [
         PainelDobravel("frente", "Frente", x2, y1, x3, y2),
         PainelDobravel("lateral1", "Lateral 1", x1, y1, x2, y2, "frente", _vertical(x2, y1, y2), 90.0, 0.0, 0.40),
-        # A aba de cola fecha por dentro do verso (na meia caixa, fica pra
-        # colar na outra metade).
+        # A aba de cola fecha por dentro do verso.
         PainelDobravel(
             "aba_cola", "Aba de cola", x0, y1, x1, y2, "lateral1", _vertical(x1, y1, y2),
-            0.0 if meia else 90.0 + folga, 0.20, 0.50, camada=1,
+            90.0 + folga, 0.20, 0.50, camada=1,
         ),
+        PainelDobravel("lateral2", "Lateral 2", x3, y1, x4, y2, "frente", _vertical(x3, y1, y2), 90.0, 0.0, 0.40),
+        PainelDobravel("verso", "Verso", x4, y1, x5, y2, "lateral2", _vertical(x4, y1, y2), 90.0, 0.10, 0.48),
     ]
-    if not meia:
-        paineis += [
-            PainelDobravel("lateral2", "Lateral 2", x3, y1, x4, y2, "frente", _vertical(x3, y1, y2), 90.0, 0.0, 0.40),
-            PainelDobravel("verso", "Verso", x4, y1, x5, y2, "lateral2", _vertical(x4, y1, y2), 90.0, 0.10, 0.48),
-        ]
 
     # Abas de fundo (riscador inferior) e de tampa (superior): as menores
     # (nas laterais) dobram antes e ficam por baixo das maiores (frente e
@@ -333,8 +336,6 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
         ("lateral2", "Lateral 2", x3, x4, False),
         ("verso", "Verso", x4, x5, True),
     ]
-    if meia:
-        colunas = colunas[:2]
     for lado, y_aba1, y_aba2, y_dobra, base in (
         ("fundo", y2, y3, y2, 0.50),
         ("tampa", y0, y1, y1, 0.75),
@@ -358,13 +359,20 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
                 )
             )
 
+    if meia:
+        # A metade que só existe no 3D leva a arte da metade desenhada.
+        copia = {"lateral2": ("lateral1", x3 - x1), "verso": ("frente", x4 - x2)}
+        for lado in ("fundo", "tampa"):
+            copia[f"{lado}_lateral2"] = (f"{lado}_lateral1", x3 - x1)
+            copia[f"{lado}_verso"] = (f"{lado}_frente", x4 - x2)
+        paineis = [replace(p, arte_de=copia[p.id][0], arte_dx=copia[p.id][1]) if p.id in copia else p for p in paineis]
+
     return ModeloCaixa3D(
         paineis=paineis,
         cima=(0.0, -1.0, 0.0),  # o riscador superior vira a tampa
         frente=(0.0, 0.0, -1.0),  # a frente não se mexe: segue virada pro lado impresso
         pitch_planificada=0.0,
         descricao=("Maleta transpassada" if transpassada else "Maleta normal") + (" — meia caixa" if meia else ""),
-        solido_fechado=not meia,  # meia caixa é aberta: o lado de dentro aparece
     )
 
 
