@@ -47,13 +47,21 @@ def test_meia_caixa_so_tem_aba_l_c(tipo):
     assert [p.id for p in paineis] == ["aba_cola", "lateral1", "frente"]
 
 
-def test_meia_caixa_no_3d_e_aberta():
+def test_meia_caixa_no_3d_aparece_inteira():
+    """No 3D a meia caixa aparece como a caixa inteira (a outra metade igual:
+    mesma L, mesmo C, a mesma arte) — só no modelo; a faca continua meia."""
     layout = _layout(TipoCaixa.MALETA_NORMAL_MEIA, comprimento=300, largura=200, altura=150)
+    assert layout.segmentos_impressora == pytest.approx([4, 200, 300])  # a faca não muda
     modelo = montar_modelo(TipoCaixa.MALETA_NORMAL_MEIA, layout.segmentos_impressora, layout.segmentos_riscador)
-    assert not modelo.vazio and not modelo.solido_fechado
-    ids = {p.id for p in modelo.paineis}
-    assert {"frente", "lateral1", "aba_cola"} <= ids and "verso" not in ids and "lateral2" not in ids
-    mn, mx = caixa_envolvente([p for p in posicionar(modelo, 1.0) if p.painel.id in {"frente", "lateral1"}])
+    assert not modelo.vazio and modelo.solido_fechado
+    por_id = {p.id: p for p in modelo.paineis}
+    assert {"frente", "lateral1", "lateral2", "verso", "aba_cola", "tampa_verso", "fundo_lateral2"} <= set(por_id)
+    # a metade repetida mostra a arte da metade desenhada
+    assert (por_id["verso"].arte_de, por_id["lateral2"].arte_de) == ("frente", "lateral1")
+    assert por_id["verso"].x1 - por_id["verso"].arte_dx == pytest.approx(por_id["frente"].x1)
+    assert por_id["frente"].arte_de is None
+    paredes = {"frente", "verso", "lateral1", "lateral2"}
+    mn, mx = caixa_envolvente([p for p in posicionar(modelo, 1.0) if p.painel.id in paredes])
     assert sorted(round(mx[i] - mn[i], 3) for i in range(3)) == pytest.approx([150, 200, 300])
 
 
