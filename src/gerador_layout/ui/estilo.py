@@ -12,23 +12,21 @@ elemento. Os arquivos exportados (SVG/PDF/JPG/CorelDRAW) NÃO importam
 nada daqui — são sempre preto sobre branco, seja qual for o tema do
 app, porque isso é convenção da gráfica, não preferência visual.
 
-## Rebranding "Autoline" (nome de trabalho, ver `dossie_projeto.html`)
+## Redesign (REDESIGN.md, seção 2.3)
 
-Paleta Carvão/Kraft/Tinta/Osso — kraft é a cor da própria chapa de
-papelão, tinta é a cor de correção/atenção (`ERRO`), o resto é
-neutro quente em vez de cinza puro. Vem do mesmo material que já foi
-usado pra propor o rebranding (`autoline-rebranding.html`), adaptado
-pro sistema de tokens que já existia aqui.
+Grafite técnico com UM acento âmbar (`#F0A04B` no escuro). Superfícies
+em degraus: janela → painel (`CARTAO`) → elevado (`ELEVADO`: botão
+secundário, menu) → campo (`CAMPO`). Chapado (sem sombra nem gradiente),
+raios 6 (campo) / 7 (botão) / 10 (cartão) / pílula (chip de cor).
 
-Kraft (`#C79A5D`) é um tom médio: contra fundo escuro (Carvão) só
-funciona bem como TEXTO se for a versão clara; contra fundo claro
-(Osso) só funciona bem como texto se for a versão escura — por isso
-`PRIMARIA` não é o mesmo hex nos dois temas (tema escuro usa o kraft
-"puro"/claro, tema claro usa o kraft escuro), e por isso `BRANCO`
-(cor de texto sobre um botão preenchido com `PRIMARIA`) também
-inverte: carvão escuro sobre o kraft claro do tema escuro, osso claro
-sobre o kraft escuro do tema claro. Contraste calculado (WCAG) pra
-cada combinação antes de fechar os valores, não só "parece bom".
+O âmbar puro só funciona como texto sobre fundo escuro; no tema claro
+`PRIMARIA` é o âmbar escurecido da versão clara do logotipo, e `BRANCO`
+(texto sobre um botão preenchido com `PRIMARIA`) inverte junto: quase
+preto sobre o âmbar do escuro, branco sobre o âmbar escuro do claro.
+Contraste calculado (WCAG) pra cada combinação antes de fechar os valores.
+
+O canvas (mesa, página, malha, faca) NÃO usa estas cores — fica igual em
+qualquer tema (ver `preview_canvas._COR_MESA`).
 
 ## Tema claro/escuro
 
@@ -58,49 +56,55 @@ from . import configuracoes
 # ser MAIS CLARO que o cartão (não mais escuro) pra manter o mesmo
 # princípio de contraste "isso aqui é uma superfície interativa".
 _PALETA_CLARA = {
-    "PRIMARIA": "#8C6A3B",  # kraft escuro — kraft "puro" não tem contraste suficiente como texto sobre fundo claro
-    "PRIMARIA_HOVER": "#6B4F2A",
-    "PRIMARIA_ATIVA": "#4F3A1E",
-    "PRIMARIA_CLARA": "#F0E2C8",
-    "PRIMARIA_PRESSIONADA": "#E6D2AC",
+    # Derivado do escuro (mesma estrutura, ver REDESIGN.md 2.3): neutros
+    # quase brancos e o âmbar escurecido da versão clara do logotipo — o
+    # âmbar "puro" não tem contraste como texto sobre fundo claro.
+    "PRIMARIA": "#A55A0D",  # âmbar escuro (4,8:1 sobre o painel)
+    "PRIMARIA_HOVER": "#8A4A0A",
+    "PRIMARIA_ATIVA": "#6E3C08",
+    "PRIMARIA_CLARA": "#F6E3CC",  # fundo da ferramenta ativa / hover
+    "PRIMARIA_PRESSIONADA": "#EED2B0",
     # Seleção (texto marcado num campo, item de lista, botão ligado): tem que
-    # destacar do campo E do cartão — PRIMARIA_CLARA não destaca no escuro.
-    "SELECAO": "#D4B37A",
-    "TEXTO": "#1E1A16",  # carvão
-    "TEXTO_SECUNDARIO": "#8C6A3B",  # kraft escuro
-    "TEXTO_TERCIARIO": "#A8916D",
-    "BRANCO": "#F5F0E6",  # osso 2 — texto claro sobre o kraft escuro de PRIMARIA
-    "CAMPO": "#FBF8F1",
-    "CARTAO": "#F5F0E6",  # osso 2
-    "FUNDO_JANELA": "#EAE1CC",
-    "BORDA": "#DBD6CD",
-    "BORDA_FORTE": "#CAC5BC",
-    "ERRO": "#C1432A",  # tinta
+    # destacar do campo E do cartão.
+    "SELECAO": "#EBBE86",
+    "TEXTO": "#15181B",
+    "TEXTO_SECUNDARIO": "#4E555C",
+    "TEXTO_TERCIARIO": "#6B7178",
+    "BRANCO": "#FFFFFF",  # texto sobre um botão preenchido com PRIMARIA (5,2:1)
+    "CAMPO": "#FFFFFF",
+    "ELEVADO": "#FFFFFF",  # botão secundário, menus
+    "CARTAO": "#F7F6F3",  # painel
+    "FUNDO_JANELA": "#ECEAE5",
+    "BORDA": "#DAD7D0",
+    "BORDA_FORTE": "#C4C0B8",
+    "ERRO": "#C1432A",  # tinta / zona segura (igual antes)
     "CANVAS_FUNDO_RGB": (250, 246, 237),
     "CANVAS_GRADE_RGBA": (30, 26, 22, 14),
-    "PAINEL_FLUTUANTE_RGBA": (250, 246, 237, 235),
+    "PAINEL_FLUTUANTE_RGBA": (247, 246, 243, 235),
 }
 
 _PALETA_ESCURA = {
-    "PRIMARIA": "#C79A5D",  # kraft
-    "PRIMARIA_HOVER": "#E7C68C",  # kraft claro
-    "PRIMARIA_ATIVA": "#F0DDB0",
-    "PRIMARIA_CLARA": "#3A2F20",
-    "PRIMARIA_PRESSIONADA": "#2F2519",
-    "SELECAO": "#6E5330",
-    "TEXTO": "#EDE6D8",  # osso
-    "TEXTO_SECUNDARIO": "#B9AF9C",  # osso dim
-    "TEXTO_TERCIARIO": "#8C8270",
-    "BRANCO": "#1E1A16",  # carvão — texto escuro sobre o kraft claro de PRIMARIA
-    "CAMPO": "#3A3025",
-    "CARTAO": "#26201A",  # carvão 2
-    "FUNDO_JANELA": "#1E1A16",  # carvão
-    "BORDA": "#3A3629",
-    "BORDA_FORTE": "#585349",
-    "ERRO": "#C1432A",  # tinta
+    # Grafite técnico com um acento âmbar (REDESIGN.md 2.3) — valores exatos.
+    "PRIMARIA": "#F0A04B",  # âmbar, o único acento
+    "PRIMARIA_HOVER": "#FFC27D",
+    "PRIMARIA_ATIVA": "#FFD9A8",
+    "PRIMARIA_CLARA": "#3A2810",  # fundo da ferramenta ativa / hover
+    "PRIMARIA_PRESSIONADA": "#2E200C",
+    "SELECAO": "#5A3F1A",
+    "TEXTO": "#E7E9EB",
+    "TEXTO_SECUNDARIO": "#A3AAB2",
+    "TEXTO_TERCIARIO": "#7D858E",
+    "BRANCO": "#1A1206",  # texto sobre o âmbar (botão primário)
+    "CAMPO": "#23282D",
+    "ELEVADO": "#1D2125",  # botão secundário, menus
+    "CARTAO": "#16191C",  # painel
+    "FUNDO_JANELA": "#0F1113",  # janela
+    "BORDA": "#2A2F35",
+    "BORDA_FORTE": "#3A4048",
+    "ERRO": "#C1432A",  # tinta / zona segura (igual antes)
     "CANVAS_FUNDO_RGB": (30, 26, 22),
     "CANVAS_GRADE_RGBA": (237, 230, 216, 16),
-    "PAINEL_FLUTUANTE_RGBA": (38, 32, 26, 235),
+    "PAINEL_FLUTUANTE_RGBA": (22, 25, 28, 235),
 }
 
 _PALETAS = {configuracoes.TEMA_CLARO: _PALETA_CLARA, configuracoes.TEMA_ESCURO: _PALETA_ESCURA}
@@ -152,7 +156,7 @@ _aplicar_paleta(_PALETAS.get(configuracoes.tema(), _PALETA_CLARA))
 # qualquer máquina Windows, independente do que estiver instalado.
 FONTE_FAMILIA = "IBM Plex Sans"  # corpo — texto normal em todo o app
 FONTE_MONO = "IBM Plex Mono"  # leituras técnicas: zoom, cota de medida, DPI
-FONTE_DISPLAY = "Big Shoulders Stencil"  # só a marca — ver QLabel#rotuloMarca
+FONTE_DISPLAY = "Archivo"  # marca e títulos de tela (700, semi-expandida — ver marca.py)
 
 FOLHA_DE_ESTILO = f"""
 * {{
@@ -216,7 +220,7 @@ QGroupBox::indicator:checked {{
 QComboBox, QDoubleSpinBox, QSpinBox, QLineEdit, QTextEdit, QPlainTextEdit {{
     color: {Cor.TEXTO};
     background: {Cor.CAMPO};
-    border: 1.5px solid {Cor.BORDA_FORTE};
+    border: 1px solid {Cor.BORDA_FORTE};
     border-radius: 6px;
     padding: 4px 8px;
     min-height: 22px;
@@ -227,14 +231,14 @@ QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover {{
     border-color: {Cor.BORDA_FORTE};
 }}
 QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
-    border: 1.5px solid {Cor.PRIMARIA};
+    border: 1px solid {Cor.PRIMARIA};
 }}
 QComboBox::drop-down {{
     border: none;
     width: 22px;
 }}
 QComboBox QAbstractItemView {{
-    background: {Cor.CAMPO};
+    background: {Cor.ELEVADO};
     border: 1px solid {Cor.BORDA};
     selection-background-color: {Cor.SELECAO};
     selection-color: {Cor.TEXTO};
@@ -247,8 +251,8 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
 
 /* ── Botões ──────────────────────────────────────────────────────── */
 QPushButton {{
-    background: {Cor.CAMPO};
-    border: 1px solid {Cor.BORDA};
+    background: {Cor.ELEVADO};
+    border: 1px solid {Cor.BORDA_FORTE};
     border-radius: 7px;
     padding: 7px 16px;
     font-weight: 600;
@@ -411,7 +415,7 @@ QMenuBar::item:selected {{
     background: {Cor.PRIMARIA_CLARA};
 }}
 QMenu {{
-    background: {Cor.CARTAO};
+    background: {Cor.ELEVADO};
     border: 1px solid {Cor.BORDA};
     padding: 4px;
 }}
