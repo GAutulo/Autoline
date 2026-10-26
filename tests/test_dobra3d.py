@@ -251,7 +251,7 @@ def test_cor_do_papelao_vem_das_configuracoes():
     assert configuracoes.cor_papelao_3d() == "#D4B07C"
 
 
-@pytest.mark.parametrize("medidas", [(30, 30, 80), (54, 54, 38), (136, 16, 9)])
+@pytest.mark.parametrize("medidas", [(30, 30, 80), (54, 54, 38), (136, 16, 9), (193.5, 28.2, 8)])
 def test_sombra_no_chao_e_inteira_na_foto(medidas):
     """Caixa alta: a sombra ficava no meio da altura e larga demais, cortada
     reta nas bordas da foto."""
@@ -275,4 +275,11 @@ def test_sombra_no_chao_e_inteira_na_foto(medidas):
     borda = [(x, 0) for x in range(0, w, 9)] + [(x, h - 1) for x in range(0, w, 9)]
     borda += [(0, y) for y in range(0, h, 9)] + [(w - 1, y) for y in range(0, h, 9)]
     assert max(255 - img.pixelColor(x, y).red() for x, y in borda) <= 12  # nada de sombra cortada na borda
+    # a caixa ocupa a foto (antes, numa caixa comprida, a sombra redonda abria
+    # o recorte e a caixa ficava pequena na folha de aprovação)
+    xs = [x for y in range(0, h, 6) for x in range(0, w, 6)
+          if img.pixelColor(x, y).red() < 220 and abs(img.pixelColor(x, y).red() - img.pixelColor(x, y).blue()) > 25]
+    ys = [y for y in range(0, h, 6) for x in range(0, w, 6)
+          if img.pixelColor(x, y).red() < 220 and abs(img.pixelColor(x, y).red() - img.pixelColor(x, y).blue()) > 25]
+    assert max((max(xs) - min(xs)) / w, (max(ys) - min(ys)) / h) > 0.7
     j.close()

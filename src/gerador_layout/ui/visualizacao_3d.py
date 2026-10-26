@@ -425,6 +425,7 @@ class VistaCaixa3D(QWidget):
         self._raio_montado = 1.0
         self._meia_altura_montada = 0.5
         self._raio_base_montada = 1.0
+        self._eixos_base: list = []
         # Arte: `fonte(pedidos) -> imagens` (ver `renderizar_arte_regioes`)
         # e uma textura por painel: id → (imagem | None, px/mm, retângulo mm).
         self._fonte_arte = None
@@ -471,6 +472,10 @@ class VistaCaixa3D(QWidget):
             altura = abs(produto_escalar(tamanho, cima))
             self._meia_altura_montada = altura / 2.0
             self._raio_base_montada = max(math.sqrt(max(0.0, produto_escalar(tamanho, tamanho) - altura * altura)) / 2.0, 1.0)
+            # Os dois eixos do chão e a meia medida da base em cada um (a
+            # sombra segue o retângulo da base, não um círculo).
+            eixos = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+            self._eixos_base = [(eixos[i], tamanho[i] / 2.0) for i in range(3) if abs(cima[i]) < 0.5]
         self._texturas.clear()  # painéis mudaram de lugar/tamanho
         self._detalhes.clear()
         self.update()
@@ -656,7 +661,7 @@ class VistaCaixa3D(QWidget):
             self._timer_texturas.start()  # a tela volta pra resolução dela
         if recortar and caixa is not None and not caixa.isEmpty():
             # Recorta em volta da caixa: margem de 12% (cabe a sombra embaixo).
-            margem = max(caixa.width(), caixa.height()) * 0.12
+            margem = max(caixa.width(), caixa.height()) * 0.06
             area = caixa.adjusted(-margem, -margem, margem, margem * 1.6).intersected(QRectF(self.rect()))
             px = area.toAlignedRect()
             imagem = imagem.copy(
@@ -946,24 +951,48 @@ class VistaCaixa3D(QWidget):
         pc = para_camera(chao)
         if pc[2] <= 1.0:
             return
-        centro = para_tela(pc)
-        rx = escala * self._raio_base_montada * 1.6 / pc[2]
-        # Achatada conforme a câmera olha o chão: de cima, redonda; de lado, fina.
-        achatamento = max(0.12, min(1.0, produto_escalar(normalizar(para_olho), cima)))
-        ry = rx * achatamento
+        if len(self._eixos_base) != 2:
+            return
+        (a, meia_a), (b, meia_b) = self._eixos_base
+
+        # Quanto o esfumado passa da base: o mesmo pra todo lado (crescer
+        # proporcional esticava demais as pontas de uma caixa comprida).
+        # Pela altura, mas dentro de uma faixa pela base: caixa alta não
+        # espalha uma sombra mais larga que ela; caixa baixa ainda tem sombra.
+        espalhar = max(1.0, min(max(self._meia_altura_montada * 0.9, min(meia_a, meia_b) * 0.3), max(meia_a, meia_b) * 0.5))
+
+        def contorno(folga: float) -> QPolygonF | None:
+            """O retângulo da base no chão, com `folga` mm a mais em volta."""
+            pontos = []
+            for sa, sb in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                canto = tuple(
+                    chao[i] + a[i] * sa * (meia_a + folga) + b[i] * sb * (meia_b + folga) for i in range(3)
+                )
+                cam = para_camera(canto)
+                if cam[2] <= 1.0:
+                    return None
+                pontos.append(para_tela(cam))
+            return QPolygonF(pontos)
+
+        # Esfumado em camadas: a de fora quase transparente, as de dentro
+        # somando o escuro — a sombra acompanha a forma da caixa (uma caixa
+        # comprida tinha uma elipse redonda enorme, e a foto ficava pequena).
+        camadas = []
+        total = 18
+        for k in range(total):
+            poligono = contorno(espalhar * (1.0 - k / total))
+            if poligono is None:
+                return
+            camadas.append(poligono)
         foto = getattr(self, "_foto", None)  # só existe durante a foto
         if foto is not None:
-            foto["sombra"] = QRectF(centro.x() - rx, centro.y() - ry, 2 * rx, 2 * ry)
-        gradiente = QRadialGradient(QPointF(0.0, 0.0), 1.0)
-        gradiente.setColorAt(0.0, QColor(0, 0, 0, int(95 * u)))
-        gradiente.setColorAt(0.6, QColor(0, 0, 0, int(40 * u)))
-        gradiente.setColorAt(1.0, QColor(0, 0, 0, 0))
+            foto["sombra"] = camadas[0].boundingRect()
         p.save()
-        p.translate(centro)
-        p.scale(rx, ry)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(gradiente)
-        p.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0)
+        p.setBrush(QColor(0, 0, 0, int(6 * u)))
+        for poligono in camadas:
+            p.drawPolygon(poligono)
         p.restore()
 
     def _desenhar_dobradicas(self, p: QPainter) -> None:
