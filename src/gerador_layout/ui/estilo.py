@@ -847,6 +847,42 @@ QLabel#textoStatus {{
     color: {Cor.TEXTO_SECUNDARIO};
 }}
 
+/* Tela de Início (tela_inicio.py). */
+QWidget#telaInicio {{
+    background: {Cor.FUNDO_JANELA};
+}}
+QPushButton#cartaoEstilo {{
+    text-align: left;
+    background: {Cor.CARTAO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 10px;
+    padding: 14px;
+    font-weight: 600;
+}}
+QPushButton#cartaoEstilo:hover {{
+    background: {Cor.CARTAO};
+    border-color: {Cor.PRIMARIA};
+    color: {Cor.TEXTO};
+}}
+QPushButton#cartaoEstilo:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+    color: {Cor.TEXTO};
+}}
+QListWidget#listaRecentes {{
+    background: {Cor.CARTAO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 10px;
+    padding: 6px;
+}}
+QListWidget#listaRecentes::item {{
+    padding: 6px;
+    border-radius: 7px;
+}}
+QListWidget#listaRecentes::item:hover {{
+    background: {Cor.ELEVADO};
+}}
+
 /* Diálogo Exportar (dialogo_exportar.py). */
 QWidget#cabecalhoDialogo {{
     border-bottom: 1px solid {Cor.BORDA};
