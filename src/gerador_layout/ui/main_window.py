@@ -1243,7 +1243,7 @@ class JanelaPrincipal(QMainWindow):
         modo("navegar", "navegar", "Navegar — arrastar move a visão (a faca não muda)")
         modo(
             "forma",
-            "ferramenta_forma",
+            "editar_faca",
             "Editar faca (F10) — clique numa linha; arraste a linha ou uma ponta (as linhas ligadas acompanham; "
             "Alt solta a ponta, Shift trava na horizontal/vertical). Delete remove a linha",
         )
@@ -1253,7 +1253,7 @@ class JanelaPrincipal(QMainWindow):
         modo("retangulo", "ferramenta_retangulo", "Retângulo — arraste de um canto ao oposto: 4 linhas do tipo novo")
         modo(
             "medida",
-            "medida",
+            "linha_medida",
             "Linha por medida (ArtiosCAD) — clique o ponto inicial e digite comprimento e ângulo "
             "(0° = direita, 90° = cima), Enter. A próxima começa onde esta acabou; Esc para",
         )
@@ -1319,7 +1319,7 @@ class JanelaPrincipal(QMainWindow):
         espacador.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         barra.addWidget(espacador)
         for icone, texto, dica, callback in (
-            ("lista", "Catálogo de estilos", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
+            ("catalogo", "Catálogo de estilos", "Catálogo de estilos (Ctrl+Shift+N) — FEFCO 0201, 0427 e os seus, em qualquer medida",
              self._abrir_catalogo_estilos),
             ("medida", "Construtor de dieline",
              "Construtor de dieline (Ctrl+Shift+D) — monte uma faca nova por trechos: vincos, cortes, fendas e dobras",

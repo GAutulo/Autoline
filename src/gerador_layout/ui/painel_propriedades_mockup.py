@@ -1025,9 +1025,9 @@ class PainelPropriedadesMockup(QWidget):
         self._separador()
         botoes_alinhamento = []
         for chave, icone, dica in (
-            ("esquerda", "alinhar_esquerda", "Texto alinhado à esquerda"),
-            ("centro", "alinhar_centro_h", "Texto centralizado"),
-            ("direita", "alinhar_direita", "Texto alinhado à direita"),
+            ("esquerda", "texto_esquerda", "Texto alinhado à esquerda"),
+            ("centro", "texto_centro", "Texto centralizado"),
+            ("direita", "texto_direita", "Texto alinhado à direita"),
         ):
             botao = self._botao_icone(icone, dica, checkable=True)
             botao.setProperty("alinharTexto", chave)  # nome do objeto fica o do estilo dos botões da barra
