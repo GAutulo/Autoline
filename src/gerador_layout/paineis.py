@@ -64,7 +64,8 @@ def calcular_paineis(
         return _paineis_maleta(segmentos_impressora, segmentos_riscador)
     if tipo == TipoCaixa.ENVOLTORIO_CAPA:
         return _paineis_capa(segmentos_impressora, segmentos_riscador)
-    return _paineis_envoltorio(segmentos_impressora, segmentos_riscador)
+    com_corte = tipo in (TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE, TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE)
+    return _paineis_envoltorio(segmentos_impressora, segmentos_riscador, com_corte)
 
 
 def _paineis_capa(segmentos_impressora: list[float], segmentos_riscador: list[float]) -> list[Painel]:
@@ -112,14 +113,24 @@ def _paineis_maleta(segmentos_impressora: list[float], segmentos_riscador: list[
         ("verso", "Verso", 4, False),
     ]
     # Meia caixa (Aba | L | C) só tem as três primeiras.
-    return [
+    paineis = [
         Painel(id_, nome, xs[col], ys[1], xs[col + 1], ys[2], eh_aba)
         for id_, nome, col, eh_aba in definicoes
         if col + 1 < len(xs)
     ]
+    # Abas de tampa (em cima) e de fundo (embaixo) de cada coluna: também
+    # recebem arte (logo, símbolo) — sem elas a malha e as medidas até a
+    # borda da face sumiam ali.
+    for id_, nome, col, _eh_aba in definicoes[1:]:
+        if col + 1 < len(xs):
+            paineis.append(Painel(f"tampa_{id_}", f"Tampa — {nome}", xs[col], ys[0], xs[col + 1], ys[1], False))
+            paineis.append(Painel(f"fundo_{id_}", f"Fundo — {nome}", xs[col], ys[2], xs[col + 1], ys[3], False))
+    return paineis
 
 
-def _paineis_envoltorio(segmentos_impressora: list[float], segmentos_riscador: list[float]) -> list[Painel]:
+def _paineis_envoltorio(
+    segmentos_impressora: list[float], segmentos_riscador: list[float], com_corte: bool = True
+) -> list[Painel]:
     # Impressora (X): Aba | Altura | Comprimento | Altura | Aba → x0..x5
     # Riscador   (Y): Aba | Altura | Largura | Altura | Aba     → y0..y5
     # A "cruz" central (Frente no meio + Lateral/Tampa/Fundo grudados nas
@@ -138,7 +149,23 @@ def _paineis_envoltorio(segmentos_impressora: list[float], segmentos_riscador: l
         ("tampa", "Tampa", 2, 1),
         ("fundo", "Fundo", 2, 3),
     ]
-    return [
+    paineis = [
         Painel(id_, nome, xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=False)
         for id_, nome, col, linha in definicoes
     ]
+    # O resto da chapa, que também é caixa (malha, medidas, alinhar na face):
+    # o fechamento de cima e o de baixo (as linhas do Riscador nas pontas),
+    # os cantos (prolongamento da coluna da lateral) e as abas laterais.
+    # "Sem corte": os cantos de fora também ficam na chapa.
+    paineis += [
+        Painel("fechamento_sup", "Fechamento superior", xs[2], ys[0], xs[3], ys[1], eh_aba=False),
+        Painel("fechamento_inf", "Fechamento inferior", xs[2], ys[4], xs[3], ys[5], eh_aba=False),
+    ]
+    for col, lado in ((1, "1"), (3, "2")):
+        for linha, onde in ((0, "sup"), (1, "sup_parede"), (3, "inf_parede"), (4, "inf")):
+            paineis.append(Painel(f"canto_{lado}_{onde}", f"Canto {lado}", xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=True))
+    for col, lado in ((0, "1"), (4, "2")):
+        for linha in ((2,) if com_corte else (0, 1, 2, 3, 4)):
+            sufixo = "" if linha == 2 else f"_{linha}"
+            paineis.append(Painel(f"aba_lateral_{lado}{sufixo}", f"Aba lateral {lado}", xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=True))
+    return paineis
