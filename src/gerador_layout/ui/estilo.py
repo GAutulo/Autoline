@@ -755,6 +755,29 @@ QToolBar#barraContexto QLabel {{
     color: {Cor.TEXTO_SECUNDARIO};
 }}
 
+/* Organizar (direita da linha de contexto do Layout): ícones compactos. */
+QToolBar#barraOrganizar {{
+    background: {Cor.CARTAO};
+    border-bottom: 1px solid {Cor.BORDA};
+    padding: 0 6px;
+    spacing: 1px;
+}}
+QToolBar#barraOrganizar QToolButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 4px;
+}}
+QToolBar#barraOrganizar QToolButton:hover {{
+    background: {Cor.ELEVADO};
+    border-color: {Cor.BORDA_FORTE};
+}}
+QToolBar#barraOrganizar::separator {{
+    background: {Cor.BORDA};
+    width: 1px;
+    margin: 10px 3px;
+}}
+
 /* Coluna de ferramentas vertical (56 px, botões 40 × 40). */
 QToolBar#colunaFerramentas {{
     background: {Cor.CARTAO};

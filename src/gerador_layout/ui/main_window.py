@@ -6,7 +6,7 @@ import math
 from contextlib import contextmanager
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -202,6 +202,23 @@ class JanelaPrincipal(QMainWindow):
         self._timer_recuperacao.setInterval(projeto_arquivo.INTERVALO_RECUPERACAO_MS)
         self._timer_recuperacao.timeout.connect(self.salvar_recuperacao)
         self._timer_recuperacao.start()
+
+    def resizeEvent(self, evento) -> None:  # noqa: N802
+        super().resizeEvent(evento)
+        self._dividir_linha_de_contexto()
+
+    def _dividir_linha_de_contexto(self) -> None:
+        """Layout: propriedades e Organizar dividem a mesma linha. O Qt dá a
+        sobra pra última barra (Organizar) e as abas de propriedades ficavam
+        sem espaço; aqui as propriedades ficam com tudo menos o que o
+        Organizar precisa."""
+        barra = getattr(self, "barra_propriedades_mockup", None)
+        organizar = getattr(self, "barra_organizar", None)
+        if barra is None or organizar is None:
+            return
+        # Só a largura PREFERIDA (o mínimo continua o do painel): fixar a
+        # largura impedia a janela de encolher numa tela menor.
+        self.painel_propriedades_mockup.definir_largura_preferida(self.width() - organizar.sizeHint().width() - 40)
 
     def menuBar(self) -> QMenuBar:  # noqa: N802
         """Os menus moram na barra de título do redesign (`BarraTitulo`), não
@@ -1371,7 +1388,7 @@ class JanelaPrincipal(QMainWindow):
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
         padrão do CorelDRAW (não na caixa de ferramentas)."""
         barra = QToolBar("Organizar")
-        barra.setObjectName("paletaFerramentasMockup")
+        barra.setObjectName("barraOrganizar")
         barra.setMovable(False)
         barra.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, barra)
@@ -1379,6 +1396,10 @@ class JanelaPrincipal(QMainWindow):
 
         self._montar_menu_ajustar_a()  # o botão fica na barra de status (Encaixe)
         barra.setFixedHeight(ALTURA_CONTEXTO)
+        # Compacto (o Qt não usa o padding da QSS como margem de QToolBar).
+        barra.setIconSize(QSize(20, 20))
+        barra.layout().setContentsMargins(6, 0, 6, 0)
+        barra.layout().setSpacing(1)
         self._acao_icone(barra, "agrupar", "Agrupar (Ctrl+G)", lambda: self.canvas.agrupar_selecionados())
         self._acao_icone(barra, "desagrupar", "Desagrupar (Ctrl+U)", lambda: self.canvas.desagrupar_selecionados())
         barra.addSeparator()
