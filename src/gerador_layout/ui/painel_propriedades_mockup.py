@@ -216,11 +216,19 @@ class PainelPropriedadesMockup(QWidget):
 
     _ALTURA = 44
 
+    _largura_preferida = 0
+
+    def definir_largura_preferida(self, largura: int) -> None:
+        """A janela diz quanto sobra na linha de contexto (descontado o
+        Organizar à direita) — ver `JanelaPrincipal._dividir_linha_de_contexto`."""
+        if largura != self._largura_preferida:
+            self._largura_preferida = largura
+            self.updateGeometry()
+
     def sizeHint(self):  # noqa: N802
-        """Pede só o mínimo (as abas rolam): na mesma linha de contexto, o
-        Organizar à direita ganha o espaço dele; o que sobrar vem pra cá."""
+        """O que sobra na linha (nunca menos que o mínimo; as abas rolam)."""
         dica = super().sizeHint()
-        dica.setWidth(self.minimumSizeHint().width())
+        dica.setWidth(max(self.minimumSizeHint().width(), self._largura_preferida))
         return dica
 
     def _linha_vertical(self, forte: bool = False) -> QFrame:
