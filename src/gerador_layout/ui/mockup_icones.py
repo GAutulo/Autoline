@@ -43,9 +43,32 @@ def construir_icone(tipo: str) -> QIcon:
     chave = (tipo, str(Cor.TEXTO_SECUNDARIO))
     icone = _ICONES_PRONTOS.get(chave)
     if icone is None:
-        icone = _com_estado_ativo(_desenhar_icone(tipo))
+        icone = _com_estado_ativo(_icone_svg(tipo) or _desenhar_icone(tipo))
         _ICONES_PRONTOS[chave] = icone
     return icone
+
+
+def _icone_svg(tipo: str) -> QIcon | None:
+    """O ícone do conjunto do redesign (icones_svg.py), na cor do tema; None
+    se o tipo não está no conjunto (fica o desenho antigo abaixo)."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtSvg import QSvgRenderer
+
+    from .icones_svg import svg
+
+    texto = svg(tipo, QColor(Cor.TEXTO_SECUNDARIO).name())
+    if texto is None:
+        return None
+    renderizador = QSvgRenderer(QByteArray(texto.encode("utf-8")))
+    escala = 2
+    pixmap = QPixmap(TAMANHO_ICONE * escala, TAMANHO_ICONE * escala)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderizador.render(painter, QRectF(0, 0, pixmap.width(), pixmap.height()))
+    painter.end()
+    pixmap.setDevicePixelRatio(escala)
+    return QIcon(pixmap)
 
 
 def _com_estado_ativo(icone: QIcon) -> QIcon:
