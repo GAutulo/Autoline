@@ -2556,6 +2556,9 @@ class JanelaPrincipal(QMainWindow):
                 vista.resize(1200, 820)
             vista._progresso = 1.0
             vista.vista_inicial()
+            # Um pouco mais longe: a sombra embaixo cabe na vista (o recorte
+            # da foto é justo, então a caixa sai do mesmo tamanho na folha).
+            vista._zoom *= 0.85
             return vista.renderizar_imagem(max(2.5, 3000.0 / max(1, vista.width())), QColor(255, 255, 255))
         finally:
             (vista._progresso, vista._yaw_usuario, vista._pitch_usuario, vista._zoom, vista._pan, vista._giro_auto) = guardado
