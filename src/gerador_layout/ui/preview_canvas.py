@@ -4201,7 +4201,7 @@ class PainelLegendaCores(QWidget):
         super().__init__(parent)
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 6)
-        self._layout.setSpacing(16)
+        self._layout.setSpacing(6)
         self.hide()
 
     def definir_cores(self, cores: list[CorImpressao]) -> None:
@@ -4215,8 +4215,8 @@ class PainelLegendaCores(QWidget):
             self.hide()
             return
 
-        titulo = QLabel("CORES:")
-        titulo.setStyleSheet(f"font-weight: 700; color: {Cor.TEXTO}; font-size: 12px;")
+        titulo = QLabel("CORES")
+        titulo.setObjectName("tituloSecaoInspetor")
         self._layout.addWidget(titulo)
 
         for cor in cores:
@@ -4226,26 +4226,25 @@ class PainelLegendaCores(QWidget):
         self.show()
 
     def _criar_item(self, cor: CorImpressao) -> QWidget:
+        """Chip do redesign: amostra de 12 px + nome, na cor do texto do
+        tema (a amostra já diz qual é a tinta; "PRETO" em preto sumia)."""
         item = QWidget()
+        item.setObjectName("chipLegenda")
+        item.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         item_layout = QHBoxLayout(item)
-        item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(5)
+        item_layout.setContentsMargins(8, 3, 10, 3)
+        item_layout.setSpacing(6)
 
-        bolinha = QLabel()
-        bolinha.setFixedSize(10, 10)
-        bolinha.setStyleSheet(
-            f"background: rgb({cor.r},{cor.g},{cor.b}); border-radius: 5px; "
-            "border: 1px solid rgba(0, 0, 0, 60);"
+        amostra = QLabel()
+        amostra.setFixedSize(12, 12)
+        amostra.setStyleSheet(
+            f"background: rgb({cor.r},{cor.g},{cor.b}); border-radius: 3px; "
+            f"border: 1px solid {Cor.BORDA_FORTE};"
         )
-        item_layout.addWidget(bolinha)
+        item_layout.addWidget(amostra)
 
-        # Essa linha fica no fundo da janela (escuro no tema escuro): "PRETO"
-        # em preto sumia. A cor é clareada/escurecida só o bastante pra ler.
-        from .estilo import cor_legivel_sobre
-
-        lr, lg, lb = cor_legivel_sobre(cor.r, cor.g, cor.b)
-        nome = QLabel(cor.nome)
-        nome.setStyleSheet(f"color: rgb({lr},{lg},{lb}); font-weight: 600; font-size: 12px;")
+        nome = QLabel(cor.nome.title() if cor.nome.isupper() else cor.nome)
+        nome.setObjectName("nomeChipLegenda")
         item_layout.addWidget(nome)
 
         return item

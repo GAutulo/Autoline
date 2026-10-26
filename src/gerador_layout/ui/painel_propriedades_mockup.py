@@ -8,12 +8,14 @@ rótulo de texto — pedido explícito do usuário ("esse painel de
 propriedades deveria ficar em cima separado por ícones igual é em
 outros CAD... texto = ícone de uma letra, alinhamento = ícone de um
 objeto com uma linha no local que será alinhado"). 
-Arrumação (pedido do usuário: "odeio que esse espaço fique toda hora
-alterando"): altura FIXA de uma linha; à esquerda, sempre no mesmo lugar,
-o tipo do objeto e o que vale pra todo objeto (posição, tamanho, giro,
-proporção, espelhar) — desabilitado quando não há o que editar, nunca
-some; à direita, ABAS com o que é do tipo (Letra, Espaçamento, Posição...).
-A aba escolhida fica lembrada por tipo de objeto.
+Arrumação do redesign (prancheta Layout do REDESIGN.md): DUAS vistas do
+mesmo painel —
+- a linha de contexto (este widget, 44 px): o tipo do objeto e as opções
+  principais dele (fonte, tamanho, alinhamento...);
+- o INSPETOR (`self.inspetor`, vai na aba Propriedades à direita): título e
+  face, Geometria · mm, Alinhar ao painel, Tinta e as demais seções do tipo
+  (Espaçamento, Quadro, Posição...), e a distância até a borda da face.
+Mesmos campos de antes, só em outro lugar.
 """
 
 from __future__ import annotations
@@ -21,11 +23,14 @@ from __future__ import annotations
 import warnings
 from typing import Callable
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QSizePolicy,
+    QButtonGroup,
     QComboBox,
+    QGridLayout,
+    QPushButton,
     QFontComboBox,
     QDoubleSpinBox,
     QFrame,
@@ -53,6 +58,7 @@ from .mockup_cota import ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
+from .layout_fluxo import LayoutFluxo
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
@@ -83,36 +89,6 @@ NOME_TIPO_ELEMENTO: dict[type, str] = {
     ElementoCurva: "Curva",
     ElementoCotaAngular: "Cota angular",
 }
-
-
-class _Paginas(QWidget):
-    """As páginas das abas, uma à mostra. Não é um QStackedWidget porque ele
-    mede pela MAIOR página (escondida inclusive) e a área rolava à toa."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._lista: list[QWidget] = []
-
-    def addWidget(self, pagina: QWidget) -> None:  # noqa: N802
-        pagina.setVisible(not self._lista)
-        self._lista.append(pagina)
-        self._layout.addWidget(pagina)
-
-    def setCurrentIndex(self, indice: int) -> None:  # noqa: N802
-        for i, pagina in enumerate(self._lista):
-            pagina.setVisible(i == indice)
-
-    def count(self) -> int:
-        return len(self._lista)
-
-    def widget(self, indice: int) -> QWidget:
-        return self._lista[indice]
-
-    def removeWidget(self, pagina: QWidget) -> None:  # noqa: N802
-        self._lista.remove(pagina)
-        self._layout.removeWidget(pagina)
 
 
 class PainelPropriedadesMockup(QWidget):
@@ -153,68 +129,105 @@ class PainelPropriedadesMockup(QWidget):
         self.propriedades_alteradas: Callable[[ElementoMockup, dict, dict], None] | None = None
         self._foto_base: dict | None = None
 
-        self._aba_por_tipo: dict[str, str] = {}
-        self._chave_tipo = ""
-        self._paginas_layout: list[QHBoxLayout] = []
+        # Ligado de fora: "+ Nova tinta" do inspetor.
+        self.nova_tinta_solicitada: Callable[[], None] | None = None
+        self._secoes: dict[str, QWidget] = {}
+        self._n_secao = 0
 
+        # ── Linha de contexto (este widget) ─────────────────────────
         raiz = QHBoxLayout(self)
         raiz.setContentsMargins(4, 2, 4, 2)
-        raiz.setSpacing(6)
-
+        raiz.setSpacing(10)
         self._rotulo_tipo = QLabel("Nada selecionado")
         self._rotulo_tipo.setObjectName("rotuloTipoPropriedade")
-        self._rotulo_tipo.setFixedWidth(120)  # largura fixa: o resto não anda ao trocar de objeto
-        self._rotulo_tipo.setWordWrap(True)  # nome comprido ("Acabamento de produção") em 2 linhas
         raiz.addWidget(self._rotulo_tipo)
+        raiz.addWidget(self._linha_vertical())
+        self._linha = QWidget()
+        self._layout_linha = QHBoxLayout(self._linha)
+        self._layout_linha.setContentsMargins(0, 0, 0, 0)
+        self._layout_linha.setSpacing(6)
+        raiz.addWidget(self._linha, 1)
+        self.setFixedHeight(self._ALTURA)
 
-        # Fixo: o que vale pra todo objeto.
-        self._fixo = QWidget()
-        self._layout_campos = QHBoxLayout(self._fixo)
-        self._layout_campos.setContentsMargins(0, 0, 0, 0)
-        self._layout_campos.setSpacing(5)
-        self._montar_fixo()
-        raiz.addWidget(self._fixo)
-        raiz.addWidget(self._linha_vertical(forte=True))
-
-        # Abas com o que é do tipo do objeto.
-        self._abas = QTabBar()
-        self._abas.setObjectName("abasPropriedades")
-        self._abas.setDrawBase(False)
-        self._abas.setExpanding(False)
-        self._abas.setUsesScrollButtons(False)
-        self._abas.currentChanged.connect(self._ao_trocar_aba)
-        self._paginas = _Paginas()
-        # Abas + página na mesma área que rola: numa tela estreita rola, em
-        # vez de forçar a janela a ficar mais larga que a tela.
-        area = QWidget()
-        linha_area = QHBoxLayout(area)
-        linha_area.setContentsMargins(0, 0, 0, 0)
-        linha_area.setSpacing(8)
-        linha_area.addWidget(self._abas)
-        linha_area.addWidget(self._paginas, 1)
-        rolagem = QScrollArea()
-        rolagem.setObjectName("rolagemPropriedades")
-        rolagem.setWidget(area)
-        rolagem.setWidgetResizable(True)
-        rolagem.setFrameShape(QFrame.Shape.NoFrame)
-        rolagem.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        rolagem.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        rolagem.setMinimumWidth(80)
-        raiz.addWidget(rolagem, 1)
-
+        # ── Inspetor (aba Propriedades, à direita) ──────────────────
+        self.inspetor = QWidget()
+        self.inspetor.setObjectName("conteudoInspetor")
+        coluna = QVBoxLayout(self.inspetor)
+        coluna.setContentsMargins(16, 16, 16, 16)
+        coluna.setSpacing(18)
+        cabecalho = QHBoxLayout()
+        titulos = QVBoxLayout()
+        titulos.setSpacing(2)
+        self._titulo_inspetor = QLabel("Nada selecionado")
+        self._titulo_inspetor.setObjectName("tituloInspetor")
+        self._subtitulo_inspetor = QLabel("")
+        self._subtitulo_inspetor.setObjectName("legendaMuted")
+        titulos.addWidget(self._titulo_inspetor)
+        titulos.addWidget(self._subtitulo_inspetor)
+        cabecalho.addLayout(titulos, 1)
         self._botao_remover = QToolButton()
         self._botao_remover.setObjectName("botaoIconePropriedade")
         self._botao_remover.setIcon(construir_icone("remover"))
         self._botao_remover.setToolTip("Remover (Delete)")
         self._botao_remover.clicked.connect(self._ao_clicar_remover)
-        raiz.addWidget(self._botao_remover)
+        cabecalho.addWidget(self._botao_remover, 0, Qt.AlignmentFlag.AlignTop)
+        coluna.addLayout(cabecalho)
 
-        self.setFixedHeight(self._ALTURA)
-        rolagem.setFixedHeight(self._ALTURA)
+        self._fixo = QWidget()
+        self._layout_fixo = QVBoxLayout(self._fixo)
+        self._layout_fixo.setContentsMargins(0, 0, 0, 0)
+        self._layout_fixo.setSpacing(18)
+        self._montar_fixo()
+        coluna.addWidget(self._fixo)
+
+        # Tinta (preenchida por tipo; some quando o objeto não tem tinta).
+        self._secao_tinta, self._layout_tinta = self._nova_secao_widget("Tinta")
+        coluna.addWidget(self._secao_tinta)
+        self._secao_tinta.hide()
+
+        # As outras seções do tipo (Espaçamento, Quadro, Posição...).
+        self._area_secoes = QWidget()
+        self._layout_secoes = QVBoxLayout(self._area_secoes)
+        self._layout_secoes.setContentsMargins(0, 0, 0, 0)
+        self._layout_secoes.setSpacing(18)
+        coluna.addWidget(self._area_secoes)
+
+        # Onde o objeto está dentro da face (antes só no tooltip de um ícone).
+        self._caixa_info = QLabel()
+        self._caixa_info.setObjectName("infoPosicaoFace")
+        self._caixa_info.setWordWrap(True)
+        self._caixa_info.hide()
+        coluna.addWidget(self._caixa_info)
+        coluna.addStretch(1)
+
+        self._layout_campos = self._layout_linha
         self._definir_campos(None)
 
     _ALTURA = 44
+
+    def findChildren(self, *args, **kwargs):  # noqa: N802
+        """Os campos do inspetor moram em outro dock, mas continuam sendo
+        deste painel: quem procura um campo aqui acha nas duas vistas."""
+        achados = list(super().findChildren(*args, **kwargs))
+        return achados + [w for w in self.inspetor.findChildren(*args, **kwargs) if w not in achados]
+
+    def findChild(self, *args, **kwargs):  # noqa: N802
+        achado = super().findChild(*args, **kwargs)
+        return achado if achado is not None else self.inspetor.findChild(*args, **kwargs)
+
+    def _nova_secao_widget(self, titulo: str) -> tuple[QWidget, LayoutFluxo]:
+        caixa = QWidget()
+        caixa.setObjectName("secaoInspetor")
+        vertical = QVBoxLayout(caixa)
+        vertical.setContentsMargins(0, 0, 0, 0)
+        vertical.setSpacing(10)
+        rotulo = QLabel(titulo.upper())
+        rotulo.setObjectName("tituloSecaoInspetor")
+        vertical.addWidget(rotulo)
+        corpo = QWidget()
+        fluxo = LayoutFluxo(corpo, espaco=6)
+        vertical.addWidget(corpo)
+        return caixa, fluxo
 
     _largura_preferida = 0
 
@@ -239,44 +252,29 @@ class PainelPropriedadesMockup(QWidget):
             linha.setObjectName("separadorForte")
         return linha
 
-    # ── Abas ─────────────────────────────────────────────────────────
+    # ── Linha de contexto + seções do inspetor ──────────────────────
     def _nova_aba(self, nome: str) -> None:
-        """Os campos montados daqui em diante vão pra uma aba nova."""
-        pagina = QWidget()
-        layout = QHBoxLayout(pagina)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(5)
-        self._paginas.addWidget(pagina)
-        self._paginas_layout.append(layout)
-        self._abas.blockSignals(True)
-        self._abas.addTab(nome)
-        self._abas.blockSignals(False)
-        self._layout_campos = layout
-
-    def _finalizar_abas(self, chave_tipo: str) -> None:
-        for layout in self._paginas_layout:
-            layout.addStretch(1)
-        self._chave_tipo = chave_tipo
-        nomes = [self._abas.tabText(i) for i in range(self._abas.count())]
-        lembrada = self._aba_por_tipo.get(chave_tipo)
-        indice = nomes.index(lembrada) if lembrada in nomes else 0
-        self._abas.blockSignals(True)
-        self._abas.setCurrentIndex(indice)
-        self._abas.blockSignals(False)
-        self._paginas.setCurrentIndex(indice)
-
-    def _ao_trocar_aba(self, indice: int) -> None:
-        if indice < 0:
+        """A 1ª "aba" do tipo é a linha de contexto (opções principais); as
+        outras viram seções do inspetor, com o mesmo nome."""
+        self._n_secao += 1
+        if self._n_secao == 1:
+            self._layout_campos = self._layout_linha
             return
-        self._paginas.setCurrentIndex(indice)
-        self._aba_por_tipo[self._chave_tipo] = self._abas.tabText(indice)
+        caixa, fluxo = self._nova_secao_widget(nome)
+        self._layout_secoes.addWidget(caixa)
+        self._secoes[nome] = caixa
+        self._layout_campos = fluxo
+
+    def _finalizar_abas(self, _chave_tipo: str) -> None:
+        self._layout_linha.addStretch(1)
+        self._layout_campos = self._layout_linha
+
+    def nomes_secoes(self) -> list[str]:
+        return list(self._secoes)
 
     def mostrar_aba(self, nome: str) -> bool:
-        for i in range(self._abas.count()):
-            if self._abas.tabText(i) == nome:
-                self._abas.setCurrentIndex(i)
-                return True
-        return False
+        """Compatibilidade: a seção existe? (agora fica sempre à mostra)."""
+        return nome in self._secoes
 
     # ── Peça básica: ícone + widget lado a lado, sem rótulo de texto ──
     def _grupo(self, tipo_icone: str, widget: QWidget, tooltip: str) -> QWidget:
@@ -354,7 +352,7 @@ class PainelPropriedadesMockup(QWidget):
         self.rebasear_foto()
         if self._elemento is None:
             return
-        for w in self._paginas.findChildren(QWidget):
+        for w in self._linha.findChildren(QWidget) + self._area_secoes.findChildren(QWidget) + self._secao_tinta.findChildren(QWidget):
             for nome in ("valueChanged", "currentIndexChanged", "toggled", "editingFinished", "clicked", "currentFontChanged"):
                 sinal = getattr(w, nome, None)
                 if sinal is not None and hasattr(sinal, "connect"):
@@ -500,6 +498,13 @@ class PainelPropriedadesMockup(QWidget):
     def _definir_rotulo_tipo(self, texto: str, apagado: bool = False) -> None:
         self._rotulo_tipo.setText(texto)
         self._rotulo_tipo.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};" if apagado else "font-weight: 700;")
+        self._titulo_inspetor.setText(texto)
+        face = ""
+        elemento = self._elemento
+        if elemento is not None and elemento.painel_id is not None:
+            painel = next((p for p in self._obter_paineis() if p.id == elemento.painel_id), None)
+            face = painel.nome if painel is not None else ""
+        self._subtitulo_inspetor.setText(face)
 
     def _montar_estado_sem_selecao(self) -> None:
         """Barra de propriedades sem nada selecionado, como no CorelDRAW:
@@ -599,48 +604,76 @@ class PainelPropriedadesMockup(QWidget):
 
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_fixo(self) -> None:
-        """Posição, tamanho, giro, proporção e espelhar — montados UMA vez e
-        sempre no mesmo lugar; só os valores mudam com a seleção."""
+        """Geometria · mm e Alinhar ao painel — montados UMA vez, sempre no
+        mesmo lugar do inspetor; só os valores mudam com a seleção."""
+        geometria, _ = self._nova_secao_widget("Geometria · mm")
+        grade = QGridLayout()
+        grade.setHorizontalSpacing(10)
+        grade.setVerticalSpacing(8)
+        geometria.layout().addLayout(grade)
         campos = (
-            ("x", "x", "Posição X", " mm", -100000.0, 100000.0),
-            ("y", "y", "Posição Y", " mm", -100000.0, 100000.0),
-            ("largura", "largura", "Largura", " mm", 0.1, 100000.0),
-            ("altura", "altura", "Altura", " mm", 0.1, 100000.0),
-            ("angulo", "angulo", "Ângulo de rotação", " °", -3600.0, 3600.0),
+            ("x", "X", "Posição X", " mm", -100000.0, 100000.0, 0, 0),
+            ("y", "Y", "Posição Y", " mm", -100000.0, 100000.0, 0, 1),
+            ("largura", "L", "Largura", " mm", 0.1, 100000.0, 1, 0),
+            ("altura", "A", "Altura", " mm", 0.1, 100000.0, 1, 1),
+            ("angulo", "↻", "Ângulo de rotação", " °", -3600.0, 3600.0, 2, 0),
         )
-        for chave, tipo_icone, tooltip, sufixo, minimo, maximo in campos:
+        for chave, letra, tooltip, sufixo, minimo, maximo, linha, coluna_g in campos:
             spin = QDoubleSpinBox()
             spin.setObjectName(f"geometria_{chave}")
             spin.setRange(minimo, maximo)
             spin.setDecimals(2)
             spin.setSuffix(sufixo)
-            spin.setFixedWidth(96)
-            # Campo de texto sem setinhas, como na barra do CorelDRAW — as
-            # setas comiam a largura e cortavam o número ("120,0(").
+            spin.setMinimumWidth(90)
+            # Campo de texto sem setinhas, como na barra do CorelDRAW.
             spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             # Só aplica ao confirmar (Enter/Tab/perder o foco): aplicando a
             # cada tecla, digitar "20" virava "40" (o "2" batia no mínimo).
             spin.setKeyboardTracking(False)
+            spin.setToolTip(tooltip)
             spin.valueChanged.connect(lambda valor, c=chave: self._ao_editar_geometria(c, valor))
             spin.valueChanged.connect(self._conferir_mudanca)  # desfazer (depois de aplicar)
             self._spins_geometria[chave] = spin
-            self._grupo(tipo_icone, spin, tooltip)
+            rotulo = QLabel(letra)
+            rotulo.setObjectName("letraCampo")
+            rotulo.setToolTip(tooltip)
+            par = QHBoxLayout()
+            par.setSpacing(8)
+            par.addWidget(rotulo)
+            par.addWidget(spin, 1)
+            grade.addLayout(par, linha, coluna_g)
 
-        self._botao_trava = self._botao_icone("trava", "Travar proporção largura/altura", checkable=True)
+        self._botao_trava = QToolButton()
+        self._botao_trava.setObjectName("botaoTextoInspetor")
+        self._botao_trava.setCheckable(True)
+        self._botao_trava.setText("Travar proporção")
+        self._botao_trava.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._botao_trava.toggled.connect(self._ao_trocar_trava)
-        self._botao_espelho_h = self._botao_icone("espelho_h", "Espelhar na horizontal", checkable=True)
-        self._botao_espelho_v = self._botao_icone("espelho_v", "Espelhar na vertical", checkable=True)
-        for botao in (self._botao_espelho_h, self._botao_espelho_v):
+        grade.addWidget(self._botao_trava, 2, 1)
+        espelhos = QHBoxLayout()
+        espelhos.setSpacing(4)
+        self._botao_espelho_h = QToolButton()
+        self._botao_espelho_v = QToolButton()
+        for botao, icone, dica in (
+            (self._botao_espelho_h, "espelho_h", "Espelhar na horizontal"),
+            (self._botao_espelho_v, "espelho_v", "Espelhar na vertical"),
+        ):
+            botao.setObjectName("botaoIconePropriedade")
+            botao.setIcon(construir_icone(icone))
+            botao.setToolTip(dica)
+            botao.setCheckable(True)
             botao.toggled.connect(self._ao_trocar_espelho)
             botao.toggled.connect(self._conferir_mudanca)
+            espelhos.addWidget(botao)
+        espelhos.addStretch(1)
+        grade.addLayout(espelhos, 3, 0, 1, 2)
+        self._layout_fixo.addWidget(geometria)
 
-        # Alinhar na face da caixa: um botão com menu, sempre aqui (é o que
-        # mais se usa depois de posicionar).
-        self._layout_campos.addSpacing(4)
-        botao_alinhar = self._botao_icone("alinhar_centro_h", "Alinhar na face da caixa")
-        botao_alinhar.setObjectName("botaoAlinharFace")
-        botao_alinhar.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu_alinhar = QMenu(botao_alinhar)
+        alinhar, _ = self._nova_secao_widget("Alinhar ao painel")
+        linha_alinhar = QHBoxLayout()
+        linha_alinhar.setSpacing(4)
+        alinhar.layout().addLayout(linha_alinhar)
+        self._botoes_alinhar_face: list[QToolButton] = []
         for tipo_icone, alinhamento, tooltip in (
             ("alinhar_esquerda", "esquerda", "Alinhar à esquerda da face"),
             ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente na face"),
@@ -649,11 +682,17 @@ class PainelPropriedadesMockup(QWidget):
             ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
             ("alinhar_base", "base", "Alinhar à base da face"),
         ):
-            acao = menu_alinhar.addAction(construir_icone(tipo_icone), tooltip)
-            acao.triggered.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
-            acao.triggered.connect(self._conferir_mudanca)
-        botao_alinhar.setMenu(menu_alinhar)
-        self._botao_alinhar_face = botao_alinhar
+            botao = QToolButton()
+            botao.setObjectName("botaoAlinharFace")
+            botao.setProperty("alinhamento", alinhamento)
+            botao.setIcon(construir_icone(tipo_icone))
+            botao.setToolTip(tooltip)
+            botao.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
+            botao.clicked.connect(self._conferir_mudanca)
+            linha_alinhar.addWidget(botao)
+            self._botoes_alinhar_face.append(botao)
+        self._layout_fixo.addWidget(alinhar)
 
     def _mostrar_trava(self, travada: bool) -> None:
         # Dois desenhos, como no CorelDRAW: cadeado fechado = proporção travada.
@@ -697,7 +736,8 @@ class PainelPropriedadesMockup(QWidget):
         self._botao_espelho_v.setChecked(bool(espelhavel and elemento.espelho_v))
         for botao in botoes:
             botao.blockSignals(False)
-        self._botao_alinhar_face.setEnabled(tem and bool(self._obter_paineis()))
+        for botao in self._botoes_alinhar_face:
+            botao.setEnabled(tem and bool(self._obter_paineis()))
         if tem:
             self._atualizar_campos_geometria()
 
@@ -798,12 +838,9 @@ class PainelPropriedadesMockup(QWidget):
         # horizontal não tem espaço pra escrever isso sempre visível
         # (era um QLabel de texto no dock antigo) — vira ícone com
         # tooltip dinâmico, igual qualquer indicador de status de CAD.
-        self._rotulo_posicao_painel = QLabel()
-        self._rotulo_posicao_painel.setObjectName("iconeCampoPropriedade")
-        self._rotulo_posicao_painel.setPixmap(construir_icone("medida").pixmap(TAMANHO_ICONE, TAMANHO_ICONE))
-        self._layout_campos.addWidget(self._rotulo_posicao_painel)
+        self._rotulo_posicao_painel = self._caixa_info
+        self._caixa_info.show()
         self._atualizar_rotulo_posicao_painel()
-        self._separador()
         self._montar_campos_escala()
 
     _TOLERANCIA_CENTRALIZADO_MM = 0.5
@@ -821,6 +858,7 @@ class PainelPropriedadesMockup(QWidget):
         if elemento is not None and elemento.painel_id is not None:
             painel = next((p for p in self._obter_paineis() if p.id == elemento.painel_id), None)
         if elemento is None or painel is None:
+            rotulo.setText("Sem face escolhida — escolha a face em Posição, ou use Alinhar ao painel.")
             rotulo.setToolTip("Posição na face: sem face escolhida.")
             return
 
@@ -837,6 +875,8 @@ class PainelPropriedadesMockup(QWidget):
             f"Topo {topo:.1f} / Base {base:.1f} mm" + (" (centralizado V)" if centralizado_v else ""),
         ]
         rotulo.setToolTip("\n".join(partes))
+        menor = min(esq, dir_, topo, base)
+        rotulo.setText(f"Na face {painel.nome}: {menor:.1f} mm da borda mais próxima.\n" + "\n".join(partes))
 
     def _alinhar_ao_painel(self, alinhamento: str) -> None:
         elemento = self._elemento
@@ -911,24 +951,34 @@ class PainelPropriedadesMockup(QWidget):
 
     def _limpar_barra(self) -> None:
         combo = getattr(self, "_combo_fonte_guardado", None)
-        self._abas.blockSignals(True)
-        while self._abas.count():
-            self._abas.removeTab(0)
-        self._abas.blockSignals(False)
-        while self._paginas.count():
-            pagina = self._paginas.widget(0)
-            self._paginas.removeWidget(pagina)
-            if combo is not None and pagina.isAncestorOf(combo):
-                # Tira o seletor de fonte (reaproveitado) antes de apagar a aba dele.
-                self._desligar_combo_fonte()
-                combo.hide()
-                combo.setParent(self)
-            # `hide()` antes de tirar o pai: senão o widget podia aparecer
-            # um instante como janela solta antes do `deleteLater`.
-            pagina.hide()
-            pagina.setParent(None)
-            pagina.deleteLater()
-        self._paginas_layout = []
+
+        def esvaziar(layout) -> None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is None:
+                    continue
+                if combo is not None and (widget is combo or widget.isAncestorOf(combo)):
+                    # O seletor de fonte é reaproveitado: sai antes de apagar.
+                    self._desligar_combo_fonte()
+                    combo.hide()
+                    combo.setParent(self)
+                    if widget is combo:
+                        continue
+                # `hide()` antes de tirar o pai: senão o widget podia aparecer
+                # um instante como janela solta antes do `deleteLater`.
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+
+        esvaziar(self._layout_linha)
+        esvaziar(self._layout_secoes)
+        esvaziar(self._layout_tinta)
+        self._secao_tinta.hide()
+        self._caixa_info.hide()
+        self._secoes = {}
+        self._n_secao = 0
+        self._layout_campos = self._layout_linha
 
     def _combo_cor(self, cor_atual: CorImpressao, ao_mudar: Callable[[CorImpressao], None]) -> QComboBox:
         combo = QComboBox()
@@ -951,12 +1001,28 @@ class PainelPropriedadesMockup(QWidget):
         return combo
 
     def _linha_cor_tinta(self, cor_atual: CorImpressao, ao_mudar: Callable[[CorImpressao], None]) -> None:
-        if self._obter_tintas():
-            self._grupo("tinta", self._combo_cor(cor_atual, ao_mudar), "Cor de tinta")
-        else:
-            aviso = QLabel("Marque uma cor na legenda pra poder escolher aqui.")
-            aviso.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};")
-            self._layout_campos.addWidget(aviso)
+        """Tinta no inspetor: um botão por tinta da legenda (a do objeto
+        marcada) e "+ Nova tinta"."""
+        from PySide6.QtGui import QIcon, QPixmap
+
+        self._secao_tinta.show()
+        grupo = QButtonGroup(self._secao_tinta)
+        grupo.setExclusive(True)
+        for tinta in self._obter_tintas():
+            amostra = QPixmap(16, 16)
+            amostra.fill(QColor(tinta.r, tinta.g, tinta.b))
+            botao = QPushButton(QIcon(amostra), tinta.nome.title() if tinta.nome.isupper() else tinta.nome)
+            botao.setObjectName("chipTinta")
+            botao.setCheckable(True)
+            botao.setChecked(tinta.nome.upper() == cor_atual.nome.upper())
+            botao.setProperty("tinta", tinta.nome)
+            botao.clicked.connect(lambda _c=False, t=tinta: ao_mudar(t))
+            grupo.addButton(botao)
+            self._layout_tinta.addWidget(botao)
+        nova = QPushButton("+ Nova tinta")
+        nova.setObjectName("botaoNovaTinta")
+        nova.clicked.connect(lambda: self.nova_tinta_solicitada and self.nova_tinta_solicitada())
+        self._layout_tinta.addWidget(nova)
 
     def _campo_espessura_traco(self, valor_atual: float, ao_mudar: Callable[[float], None]) -> None:
         spin = QDoubleSpinBox()
