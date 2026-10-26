@@ -65,6 +65,12 @@ CORPOS: dict[str, str] = {
     "ferramenta_imagem": '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><circle cx="9" cy="9.5" r="1.8"/>'
                          '<path d="M3.5 17 L9 12.5 L13 15.5 L16 13 L20.5 16.5"/>',
     "ferramenta_logo": '<path d="M4.5 19.5 L10 5 H14 L19.5 19.5"/><path d="M7.5 13.5 H16.5"/><path d="M12 5 V9"/>',
+    # ── Cartões de estilo da tela de Início ─────────────────────────
+    "caixa_maleta": '<path d="M4 8 L12 4 L20 8 V16 L12 20 L4 16 Z"/><path d="M4 8 L12 12 L20 8 M12 12 V20"/>',
+    "caixa_transpassada": '<path d="M4 8 L12 4 L20 8 V16 L12 20 L4 16 Z"/><path d="M4 8 L12 12 L20 8 M12 12 V20"/>'
+                          '<path d="M8 6 L16 10" stroke-dasharray="2 2"/>',
+    "caixa_envoltorio": '<rect x="3" y="7" width="18" height="10" rx="1"/><path d="M8 7 V17 M16 7 V17" stroke-dasharray="2 2"/>',
+    "caixa_capa": '<path d="M3 9 H21 L19 17 H5 Z"/><path d="M3 9 L5 7 H19 L21 9"/>',
     # ── Organizar ───────────────────────────────────────────────────
     "agrupar": '<path d="M3 7 V3 H7 M17 3 H21 V7 M21 17 V21 H17 M7 21 H3 V17"/>'
                '<rect x="7" y="7" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',

@@ -67,6 +67,8 @@ def main() -> None:
     projeto = next((a for a in sys.argv[1:] if a.lower().endswith(".autoline")), None)
     if not janela.verificar_recuperacao() and projeto and Path(projeto).is_file():
         janela.abrir_projeto(projeto)
+    elif janela.projeto_modificado() is False and not projeto:
+        janela.mostrar_inicio()  # começa pela tela de Início (REDESIGN.md 2.2)
     sys.exit(app.exec())
 
 

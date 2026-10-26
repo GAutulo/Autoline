@@ -69,7 +69,7 @@ from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .dialogo_estilos import DialogoEstilos, pasta_estilos_usuario
-from ..estilos import estilo_da_faca, salvar_estilo
+from ..estilos import carregar_estilos, estilo_da_faca, salvar_estilo
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota, criar_cota
 from .mockup_cota_angular import ElementoCotaAngular
@@ -79,6 +79,7 @@ from .mockup_icones import construir_icone
 from .mockup_imagem import ElementoImagem
 from .arquivo_destino import esta_preso, proximo_nome_livre
 from .dialogo_exportar import Destino, DialogoExportar
+from .tela_inicio import Cartao, TelaInicio
 from .moldura import ALTURA_CONTEXTO, ALTURA_STATUS, LARGURA_COLUNA_FERRAMENTAS, BarraTitulo, PonteCorel, divisoria_status
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
@@ -185,6 +186,7 @@ class JanelaPrincipal(QMainWindow):
         self._montar_menu()
         self._montar_painel_status()
         self._montar_moldura()
+        self._montar_inicio()
         self._conectar_sinais()
         self._ao_trocar_tipo()
         self._trocar_tela(0)  # começa na tela de Dieline
@@ -227,8 +229,12 @@ class JanelaPrincipal(QMainWindow):
 
     # ── Montagem da UI ──────────────────────────────────────────────
     def _montar_ui(self) -> None:
+        # Pilha do centro: a área de trabalho (abas) e a tela de Início.
+        self.pilha_central = QStackedWidget()
+        self.setCentralWidget(self.pilha_central)
         central = QWidget()
-        self.setCentralWidget(central)
+        self.pilha_central.addWidget(central)
+        self._area_trabalho = central
         layout_raiz = QHBoxLayout(central)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -623,6 +629,81 @@ class JanelaPrincipal(QMainWindow):
         pilha.canRedoChanged.connect(self.barra_titulo.botao_refazer.setEnabled)
         self.barra_titulo.botao_exportar.clicked.connect(lambda: self.abrir_exportar())
 
+    # ── Tela de Início (REDESIGN.md 2.2) ────────────────────────────
+    def _montar_inicio(self) -> None:
+        from .projeto_arquivo import ler_miniatura
+
+        cartoes = [
+            Cartao("Maleta normal", "também meia caixa", "caixa_maleta", tipo=TipoCaixa.MALETA_NORMAL),
+            Cartao("Maleta transpassada", "também meia caixa", "caixa_transpassada", tipo=TipoCaixa.MALETA_TRANSPASSADA),
+            Cartao("Envoltório", "normal ou fecha no meio · com/sem corte", "caixa_envoltorio",
+                   tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE),
+            Cartao("Envoltório capa", "bandeja", "caixa_capa", tipo=TipoCaixa.ENVOLTORIO_CAPA),
+            Cartao("FEFCO 0201", "catálogo de estilos", sigla="0201", acao=lambda: self._inicio_estilo("FEFCO 0201")),
+            Cartao("FEFCO 0427", "catálogo de estilos", sigla="0427", acao=lambda: self._inicio_estilo("FEFCO 0427")),
+            Cartao("Faca em branco", "desenho livre", "mais", acao=lambda: self._inicio_e(self._nova_faca_em_branco)),
+            Cartao("Construtor de dieline", "monte por trechos", "linha_medida",
+                   acao=lambda: self._inicio_e(self._abrir_construtor_dieline)),
+        ]
+        self.tela_inicio = TelaInicio(cartoes)
+        self.tela_inicio.criar = self._criar_pelo_inicio
+        self.tela_inicio.abrir_projeto = self.abrir_projeto
+        self.tela_inicio.ver_todos = self.abrir_galeria_recentes
+        self.tela_inicio.abrir_configuracoes = self._abrir_configuracoes
+        self.tela_inicio.obter_recentes = configuracoes.projetos_recentes
+        self.tela_inicio.ler_miniatura = ler_miniatura
+        self.pilha_central.addWidget(self.tela_inicio)
+        self.barra_titulo.simbolo.ao_clicar = self.mostrar_inicio
+        self.barra_titulo.simbolo.setToolTip("Início")
+        # Clicar numa tela do seletor (mesmo a que já estava) sai do Início.
+        self.abas_tela.tabBarClicked.connect(lambda _i: self.mostrar_trabalho())
+
+    @property
+    def no_inicio(self) -> bool:
+        return self.pilha_central.currentWidget() is self.tela_inicio
+
+    def mostrar_inicio(self) -> None:
+        if self.no_inicio:
+            return
+        if self.abas_tela.currentIndex() == 1:  # lembra os dockers abertos do Layout
+            self._docks_abertos_layout = {chave for chave, dock in self._docks.items() if dock.isVisible()}
+            self._estava_no_layout = False
+        for barra in self.findChildren(QToolBar):
+            barra.hide()
+        for dock in self._docks.values():
+            dock.hide()
+        self.tela_inicio.recarregar_recentes()
+        self.pilha_central.setCurrentWidget(self.tela_inicio)
+
+    def mostrar_trabalho(self) -> None:
+        if not self.no_inicio:
+            return
+        self.pilha_central.setCurrentWidget(self._area_trabalho)
+        self._trocar_tela(self.abas_tela.currentIndex())  # devolve as barras da tela atual
+
+    def _criar_pelo_inicio(self, tipo: TipoCaixa, comprimento: float, largura: float, altura: float) -> None:
+        """"Criar faca": projeto novo com o tipo e as medidas escolhidos."""
+        if not self.novo_projeto():
+            return
+        self.combo_tipo.setCurrentIndex(self.combo_tipo.findData(tipo))
+        self.spin_comprimento.setValue(comprimento)
+        self.spin_largura.setValue(largura)
+        self.spin_altura.setValue(altura)
+        self.abas_tela.setCurrentIndex(0)
+        self.mostrar_trabalho()
+
+    def _inicio_e(self, acao) -> None:
+        """Projeto novo, volta pro trabalho (Dieline) e faz `acao`."""
+        if not self.novo_projeto():
+            return
+        self.abas_tela.setCurrentIndex(0)
+        self.mostrar_trabalho()
+        acao()
+
+    def _inicio_estilo(self, codigo: str) -> None:
+        nome = next((e.nome_exibicao for e in carregar_estilos(pasta_estilos_usuario()) if e.nome_exibicao.startswith(codigo)), None)
+        self._inicio_e(lambda: self._abrir_catalogo_estilos(nome))
+
     def _destinos_exportar(self) -> list[Destino]:
         """Os destinos do diálogo Exportar — cada um chama a MESMA função de
         antes (mesmo arquivo, mesmas perguntas)."""
@@ -672,6 +753,8 @@ class JanelaPrincipal(QMainWindow):
 
     def _montar_menu(self) -> None:
         menu_arquivo = self.menuBar().addMenu("&Arquivo")
+        menu_arquivo.addAction("Início", self.mostrar_inicio)
+        menu_arquivo.addSeparator()
         acao = menu_arquivo.addAction("Novo projeto", self.novo_projeto)
         acao.setShortcut(QKeySequence("Ctrl+N"))
         acao = menu_arquivo.addAction("Abrir projeto...", self.abrir_projeto)
@@ -875,10 +958,12 @@ class JanelaPrincipal(QMainWindow):
         )
 
     # ── Estilos paramétricos (catálogo, como o do ArtiosCAD) ─────────────
-    def _abrir_catalogo_estilos(self) -> None:
+    def _abrir_catalogo_estilos(self, estilo_inicial: str | None = None) -> None:
         atual = getattr(self, "_estilo_atual", None)
+        if not isinstance(estilo_inicial, str):  # ligado a clique: chega um bool
+            estilo_inicial = atual[0] if atual else None
         dialogo = DialogoEstilos(
-            self, estilo_inicial=atual[0] if atual else None, valores_iniciais=atual[1] if atual else None
+            self, estilo_inicial=estilo_inicial, valores_iniciais=atual[1] if atual else None
         )
         if dialogo.exec() != QDialog.DialogCode.Accepted or dialogo.faca is None:
             return
@@ -2265,6 +2350,7 @@ class JanelaPrincipal(QMainWindow):
         if avisos:
             QMessageBox.information(self, "Abrir projeto", "\n".join(avisos))
         self.statusBar().showMessage(f"Projeto aberto: {caminho}", 6000)
+        self.mostrar_trabalho()
         return True
 
     def novo_projeto(self) -> bool:

@@ -107,6 +107,14 @@ class AssinaturaMarca(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setToolTip("Autoline")
         self.setAccessibleName("Autoline")
+        self.ao_clicar = None  # barra de título: o símbolo leva ao Início
+
+    def mousePressEvent(self, evento) -> None:  # noqa: N802
+        if self.ao_clicar is not None and evento.button() == Qt.MouseButton.LeftButton:
+            self.ao_clicar()
+            evento.accept()
+            return
+        super().mousePressEvent(evento)
 
     def _largura_texto(self) -> float:
         return 0.0 if self._so_simbolo else QFontMetricsF(self._fonte).horizontalAdvance("autoline")
@@ -133,4 +141,37 @@ class AssinaturaMarca(QWidget):
             metrica = QFontMetricsF(self._fonte)
             base = y + (self._altura + metrica.capHeight()) / 2
             p.drawText(QPointF(self._altura + self._altura * 0.27, base), "autoline")
+        p.end()
+
+
+class TituloTela(QWidget):
+    """Título de tela (Início, Exportar) em Archivo 700 semi-expandida. Pinta
+    o próprio texto: a QSS global (`font-size` do QWidget) passaria por cima
+    de uma fonte posta num QLabel."""
+
+    def __init__(self, texto: str, tamanho_px: float = 28, parent=None) -> None:
+        super().__init__(parent)
+        self._texto = texto
+        self._fonte = fonte_marca(tamanho_px)
+        self.setObjectName("tituloTela")
+        self.setAccessibleName(texto)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+    def texto(self) -> str:
+        return self._texto
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        metrica = QFontMetricsF(self._fonte)
+        return QSize(round(metrica.horizontalAdvance(self._texto)) + 4, round(metrica.height()) + 2)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return self.sizeHint()
+
+    def paintEvent(self, _evento) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        p.setFont(self._fonte)
+        p.setPen(self.palette().windowText().color())
+        metrica = QFontMetricsF(self._fonte)
+        p.drawText(QPointF(0, (self.height() + metrica.capHeight()) / 2), self._texto)
         p.end()
