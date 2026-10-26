@@ -151,7 +151,9 @@ def test_ferramentas_da_faca_na_coluna_e_opcoes_no_contexto(janela):
     assert janela.barra_faca.height() == 44
     janela.abas_tela.setCurrentIndex(2)
     _processar()
-    assert not coluna.isVisible() and janela.barra_contexto_3d.isVisible()
+    # 3D sem linha de contexto (os controles ficam na própria vista)
+    assert not coluna.isVisible() and not janela.barra_faca.isVisible()
+    assert not janela.barra_propriedades_mockup.isVisible()
 
 
 def test_selecionar_objeto_nao_mexe_no_zoom_nem_desloca(janela):
