@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QTabBar,
     QToolBar,
     QToolButton,
@@ -235,6 +236,9 @@ class JanelaPrincipal(QMainWindow):
         central = QWidget()
         self.pilha_central.addWidget(central)
         self._area_trabalho = central
+        # Página escondida não dita a largura mínima da janela (a do Início
+        # somada ao inspetor do Layout passava de uma tela de 1366).
+        self.pilha_central.currentChanged.connect(lambda _i: self._so_pagina_atual_conta(self.pilha_central))
         layout_raiz = QHBoxLayout(central)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -653,10 +657,18 @@ class JanelaPrincipal(QMainWindow):
         self.tela_inicio.obter_recentes = configuracoes.projetos_recentes
         self.tela_inicio.ler_miniatura = ler_miniatura
         self.pilha_central.addWidget(self.tela_inicio)
+        self._so_pagina_atual_conta(self.pilha_central)
         self.barra_titulo.simbolo.ao_clicar = self.mostrar_inicio
         self.barra_titulo.simbolo.setToolTip("Início")
         # Clicar numa tela do seletor (mesmo a que já estava) sai do Início.
         self.abas_tela.tabBarClicked.connect(lambda _i: self.mostrar_trabalho())
+
+    @staticmethod
+    def _so_pagina_atual_conta(pilha: QStackedWidget) -> None:
+        for i in range(pilha.count()):
+            atual = i == pilha.currentIndex()
+            politica = QSizePolicy.Policy.Preferred if atual else QSizePolicy.Policy.Ignored
+            pilha.widget(i).setSizePolicy(politica, QSizePolicy.Policy.Preferred)
 
     @property
     def no_inicio(self) -> bool:
@@ -665,13 +677,12 @@ class JanelaPrincipal(QMainWindow):
     def mostrar_inicio(self) -> None:
         if self.no_inicio:
             return
-        if self.abas_tela.currentIndex() == 1:  # lembra os dockers abertos do Layout
-            self._docks_abertos_layout = {chave for chave, dock in self._docks.items() if dock.isVisible()}
+        if self.abas_tela.currentIndex() == 1:  # lembra a página aberta do inspetor
+            self._guardar_inspetor_layout()
             self._estava_no_layout = False
         for barra in self.findChildren(QToolBar):
             barra.hide()
-        for dock in self._docks.values():
-            dock.hide()
+        self.dock_inspetor.hide()
         self.tela_inicio.recarregar_recentes()
         self.pilha_central.setCurrentWidget(self.tela_inicio)
 
@@ -888,15 +899,18 @@ class JanelaPrincipal(QMainWindow):
         modo_layout = indice == 1
         modo_3d = indice == 2
         self.pilha_visualizacao.setCurrentIndex(1 if modo_3d else 0)
+        # A barra de controles do 3D é larga: escondida, não pode ditar a
+        # largura mínima da janela (no Layout ainda tem o inspetor ao lado).
+        self._so_pagina_atual_conta(self.pilha_visualizacao)
         self.label_zoom.setVisible(not modo_3d)
         self.painel_esquerdo.setVisible(not modo_layout)
         self._grupo_medidas.setVisible(not modo_layout)
         self.barra_mockup.setVisible(modo_layout)
         if hasattr(self, "painel_status"):
             self.painel_status.definir_controles_de_cor(modo_layout)
+            self._atualizar_tintas_status()
         self.barra_faca.setVisible(indice == 0)
         self.barra_ferramentas_faca.setVisible(indice == 0)
-        self.barra_contexto_3d.setVisible(modo_3d)
         self._atalho_editar_faca.setEnabled(indice == 0)  # no Layout, F10 é a Forma de curvas
         if indice != 0:
             self._acoes_faca["navegar"].setChecked(True)
@@ -906,13 +920,11 @@ class JanelaPrincipal(QMainWindow):
         # Dockers só na tela de Layout: ao sair, lembra quais estavam
         # abertos pra reabrir na volta.
         if modo_layout:
-            for chave in self._docks_abertos_layout:
-                self._docks[chave].show()
+            self._abrir_inspetor_layout()
         else:
             if self._estava_no_layout:
-                self._docks_abertos_layout = {chave for chave, dock in self._docks.items() if dock.isVisible()}
-            for dock in self._docks.values():
-                dock.hide()
+                self._guardar_inspetor_layout()
+            self.dock_inspetor.hide()
         self._estava_no_layout = modo_layout
         self.barra_propriedades_mockup.setVisible(modo_layout)
         self.canvas.definir_modo_mockup(modo_layout)
@@ -1098,20 +1110,25 @@ class JanelaPrincipal(QMainWindow):
         # Organizar à direita das propriedades, na mesma linha de contexto.
         self.removeToolBar(self.barra_organizar)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.barra_organizar)
-        # 3D: a linha de contexto continua lá (a janela não pula de altura);
-        # os controles do 3D seguem dentro da própria vista, como antes.
-        contexto_3d = QToolBar("Contexto do 3D")
-        contexto_3d.setObjectName("barraContexto")
-        contexto_3d.setMovable(False)
-        contexto_3d.setFixedHeight(ALTURA_CONTEXTO)
-        dica_3d = QLabel("Visualização 3D")
-        dica_3d.setObjectName("legendaMuted")
-        dica_3d.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        contexto_3d.addWidget(dica_3d)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, contexto_3d)
-        contexto_3d.hide()
-        self.barra_contexto_3d = contexto_3d
+        # Inspetor: a aba Propriedades (Geometria, Alinhar ao painel, Tinta...).
+        rolagem = QScrollArea()
+        rolagem.setObjectName("rolagemInspetor")
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QFrame.Shape.NoFrame)
+        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        rolagem.setWidget(self.painel_propriedades_mockup.inspetor)
+        self.abas_inspetor.insertTab(0, rolagem, "Propriedades")
+        self.abas_inspetor.setCurrentIndex(0)
+        self._docks["propriedades"] = _PaginaInspetor(self, rolagem, "Propriedades", False)
+        self.painel_propriedades_mockup.nova_tinta_solicitada = self._nova_tinta_inspetor
+        # 3D: sem linha de contexto (os controles ficam na própria vista).
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
+
+    def _nova_tinta_inspetor(self) -> None:
+        """"+ Nova tinta" do inspetor: as tintas moram na legenda da
+        Dieline — vai pra lá, onde se marca/adiciona a cor."""
+        self.abas_tela.setCurrentIndex(0)
+        self.statusBar().showMessage("Marque ou adicione a tinta na legenda de cores, acima do desenho.", 6000)
 
     def _tamanho_pagina(self) -> tuple[float, float] | None:
         pagina = self.canvas.retangulo_pagina()
@@ -1501,33 +1518,51 @@ class JanelaPrincipal(QMainWindow):
         barra.hide()
 
     def _montar_dockers(self) -> None:
-        """Janelas de encaixe do CorelDRAW (ver `dockers_corel.py`), em
-        abas na borda direita, entre o desenho e a paleta. Começam
-        fechadas, como no CorelDRAW, e só existem na tela de Layout."""
+        """Inspetor da direita (prancheta Layout do REDESIGN.md): UM dock,
+        entre o desenho e a paleta, com as abas Propriedades | Objetos |
+        Alinhar | ··· (Transformações, Simbologias). Os dockers do
+        CorelDRAW (ver `dockers_corel.py`) viram páginas dele; `_docks`
+        continua respondendo por cada um (ver `_PaginaInspetor`). Só existe
+        na tela de Layout."""
         self.docker_objetos = DockerObjetos(self.canvas)
         self.docker_alinhar = DockerAlinhar(self.canvas)
         self.docker_transformacoes = DockerTransformacoes(self.canvas)
         self.docker_simbologias = DockerSimbologias()
         self.docker_simbologias.inserir_simbolo.connect(self.inserir_simbolo)
-        self._docks: dict[str, QDockWidget] = {}
-        anterior = None
-        for chave, titulo, conteudo in (
-            ("objetos", "Objetos", self.docker_objetos),
-            ("alinhar", "Alinhar e distribuir", self.docker_alinhar),
-            ("transformacoes", "Transformações", self.docker_transformacoes),
-            ("simbologias", "Simbologias", self.docker_simbologias),
+        self.dock_inspetor = QDockWidget("Inspetor", self)
+        self.dock_inspetor.setObjectName("dockInspetor")
+        self.dock_inspetor.setTitleBarWidget(QWidget())  # sem título: as abas já dizem o que é
+        self.dock_inspetor.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.dock_inspetor.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        self.abas_inspetor = QTabWidget()
+        self.abas_inspetor.setObjectName("abasInspetor")
+        self.abas_inspetor.setDocumentMode(True)
+        self.abas_inspetor.setMinimumWidth(300)
+        self.dock_inspetor.setWidget(self.abas_inspetor)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_inspetor)
+        self.resizeDocks([self.dock_inspetor], [320], Qt.Orientation.Horizontal)
+        self.dock_inspetor.hide()
+        mais = QToolButton()
+        mais.setObjectName("botaoMaisInspetor")
+        mais.setText("···")
+        mais.setToolTip("Mais painéis")
+        mais.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        mais.setMenu(QMenu(mais))
+        self.abas_inspetor.setCornerWidget(mais, Qt.Corner.TopRightCorner)
+        self._docks: dict[str, _PaginaInspetor] = {}
+        for chave, titulo, rotulo_aba, conteudo, no_menu in (
+            ("objetos", "Objetos", "Objetos", self.docker_objetos, False),
+            ("alinhar", "Alinhar e distribuir", "Alinhar", self.docker_alinhar, False),
+            ("transformacoes", "Transformações", "Transformações", self.docker_transformacoes, True),
+            ("simbologias", "Simbologias", "Simbologias", self.docker_simbologias, True),
         ):
-            dock = QDockWidget(titulo, self)
-            dock.setObjectName(f"docker_{chave}")
-            dock.setWidget(conteudo)
-            dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-            if anterior is not None:
-                self.tabifyDockWidget(anterior, dock)
-            anterior = dock
-            dock.hide()
-            self._docks[chave] = dock
-        self._docks_abertos_layout: set[str] = set()
+            self.abas_inspetor.addTab(conteudo, rotulo_aba)
+            pagina = _PaginaInspetor(self, conteudo, titulo, no_menu)
+            if no_menu:  # no "···": a aba só aparece quando é escolhida
+                self.abas_inspetor.setTabVisible(self.abas_inspetor.indexOf(conteudo), False)
+                mais.menu().addAction(titulo, lambda p=pagina: p.show())
+            self._docks[chave] = pagina
+        self._docks_abertos_layout: set[str] = {"propriedades"}
         self._estava_no_layout = False
 
         # Atalhos do CorelDRAW pra abrir cada docker (só na tela de Layout).
@@ -1556,6 +1591,23 @@ class JanelaPrincipal(QMainWindow):
             funcao()
 
         return rodar
+
+    def _abrir_inspetor_layout(self) -> None:
+        """Volta ao Layout: o inspetor reabre na página em que estava."""
+        abertos = self._docks_abertos_layout
+        if not abertos:
+            return
+        self.dock_inspetor.show()
+        for chave in abertos:
+            if chave in self._docks:
+                self._docks[chave].show()
+
+    def _guardar_inspetor_layout(self) -> None:
+        if not self.dock_inspetor.isVisible():
+            self._docks_abertos_layout = set()
+            return
+        atual = next((c for c, d in self._docks.items() if d.isVisible()), "propriedades")
+        self._docks_abertos_layout = {atual}
 
     def abrir_docker(self, chave: str, aba_transformacao: str | None = None) -> None:
         dock = self._docks[chave]
@@ -1672,24 +1724,37 @@ class JanelaPrincipal(QMainWindow):
         # Encaixe: liga/desliga (o mesmo do menu Exibir) + a setinha abre o "Ajustar a".
         self.botao_encaixe = QToolButton()
         self.botao_encaixe.setObjectName("botaoStatus")
-        self.botao_encaixe.setText("Encaixe")
         self.botao_encaixe.setCheckable(True)
         self.botao_encaixe.setToolTip("Encaixe (snap) ao arrastar — a setinha escolhe onde gruda (Ajustar a)")
         self.botao_encaixe.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.botao_encaixe.setMenu(self._menu_ajustar_a)
+        self.botao_encaixe.toggled.connect(
+            lambda ligado: self.botao_encaixe.setText(f"Encaixe: {'ligado' if ligado else 'desligado'}")
+        )
         self.botao_encaixe.setChecked(self._acao_snap.isChecked())
+        self.botao_encaixe.setText(f"Encaixe: {'ligado' if self._acao_snap.isChecked() else 'desligado'}")
         self.botao_encaixe.toggled.connect(self._acao_snap.setChecked)
         self._acao_snap.toggled.connect(self.botao_encaixe.setChecked)
         self.statusBar().addPermanentWidget(self.botao_encaixe)
         self.botao_guias = QToolButton()
         self.botao_guias.setObjectName("botaoStatus")
-        self.botao_guias.setText("Guias dinâmicas")
         self.botao_guias.setCheckable(True)
         self.botao_guias.setToolTip("Guias dinâmicas (Alt+Shift+D)")
+        self.botao_guias.toggled.connect(
+            lambda ligadas: self.botao_guias.setText(f"Guias dinâmicas: {'ligadas' if ligadas else 'desligadas'}")
+        )
         self.botao_guias.setChecked(self._acao_guias_dinamicas.isChecked())
+        self.botao_guias.setText(
+            f"Guias dinâmicas: {'ligadas' if self._acao_guias_dinamicas.isChecked() else 'desligadas'}"
+        )
         self.botao_guias.toggled.connect(self._acao_guias_dinamicas.setChecked)
         self._acao_guias_dinamicas.toggled.connect(self.botao_guias.setChecked)
         self.statusBar().addPermanentWidget(self.botao_guias)
+        # Layout: quantas tintas o trabalho tem (a legenda/checklist de cores).
+        self.rotulo_tintas_status = QLabel()
+        self.rotulo_tintas_status.setObjectName("legendaMuted")
+        self.rotulo_tintas_status.hide()
+        self.statusBar().addPermanentWidget(self.rotulo_tintas_status)
         self.statusBar().addPermanentWidget(divisoria_status())
         self.ponte_corel = PonteCorel()
         self.statusBar().addPermanentWidget(self.ponte_corel)
@@ -1707,6 +1772,16 @@ class JanelaPrincipal(QMainWindow):
         self.painel_status.amostra_preenchimento.clicada.connect(lambda: self._menu_cor_status(contorno=False))
         self.painel_status.amostra_contorno.clicada.connect(lambda: self._menu_cor_status(contorno=True))
         self.painel_status.definir_controles_de_cor(False)
+
+    def _atualizar_tintas_status(self) -> None:
+        rotulo = getattr(self, "rotulo_tintas_status", None)
+        if rotulo is None:
+            return
+        n = len(self._cores_impressao_ativas())
+        # Curto: numa tela de 1366 a descrição da caixa, à esquerda, sumia.
+        rotulo.setText(f"{n} {'tinta' if n == 1 else 'tintas'}")
+        rotulo.setToolTip("Checklist de cores: tintas marcadas na legenda")
+        rotulo.setVisible(self.abas_tela.currentIndex() == 1)
 
     def _menu_cor_status(self, contorno: bool, executar: bool = True) -> QMenu:
         """Lista de tintas (com amostra) pra aplicar no selecionado — o mesmo
@@ -2668,6 +2743,7 @@ class JanelaPrincipal(QMainWindow):
         layout = self._servico.calcular(medidas)
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
+        self._atualizar_tintas_status()
         self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
         self.canvas.definir_paineis(self._paineis_atuais)
         self._atualizar_modelo_3d()
@@ -2686,3 +2762,49 @@ class JanelaPrincipal(QMainWindow):
         self.statusBar().showMessage(layout.descricao)
         if hasattr(self, "_timer_titulo"):
             self._timer_titulo.start()  # medidas/cores não passam pelo desfazer
+
+
+class _PaginaInspetor:
+    """Uma página do inspetor com a cara de um QDockWidget (`isVisible`,
+    `show`, `hide`, `raise_`, `windowTitle`) — quem abria/fechava os
+    dockers continua funcionando igual."""
+
+    def __init__(self, janela: "JanelaPrincipal", widget: QWidget, titulo: str, no_menu: bool) -> None:
+        self._janela = janela
+        self._widget = widget
+        self._titulo = titulo
+        self._no_menu = no_menu
+
+    def _indice(self) -> int:
+        return self._janela.abas_inspetor.indexOf(self._widget)
+
+    def windowTitle(self) -> str:  # noqa: N802
+        return self._titulo
+
+    def widget(self) -> QWidget:
+        return self._widget
+
+    def isVisible(self) -> bool:  # noqa: N802
+        abas = self._janela.abas_inspetor
+        return self._janela.dock_inspetor.isVisible() and abas.currentIndex() == self._indice()
+
+    def show(self) -> None:
+        abas = self._janela.abas_inspetor
+        if self._no_menu:  # só uma do "···" à mostra por vez
+            for pagina in self._janela._docks.values():
+                if pagina._no_menu and pagina is not self:
+                    abas.setTabVisible(pagina._indice(), False)
+            abas.setTabVisible(self._indice(), True)
+        abas.setCurrentIndex(self._indice())
+        self._janela.dock_inspetor.show()
+
+    def raise_(self) -> None:
+        self.show()
+
+    def hide(self) -> None:
+        if not self.isVisible():
+            return
+        abas = self._janela.abas_inspetor
+        if self._no_menu:
+            abas.setTabVisible(self._indice(), False)
+        abas.setCurrentIndex(abas.indexOf(self._janela._docks["propriedades"].widget()))

@@ -80,9 +80,9 @@ def test_alinhar_na_face_sem_ter_escolhido_a_face(janela):
     t.setSelected(True)
     QApplication.processEvents()
     assert t.painel_id is None
-    botao = _botao(janela, lambda x: x.objectName() == "botaoAlinharFace")
+    botao = _botao(janela, lambda x: x.objectName() == "botaoAlinharFace" and x.property("alinhamento") == "centro_h")
     assert botao.isEnabled()  # antes ficava cinza até escolher a face
-    next(acao for acao in botao.menu().actions() if "Centralizar horizontalmente" in acao.text()).trigger()
+    botao.click()
     assert t.painel_id == painel_lateral.id  # achou a face onde ele está
     assert t.pos().x() + t.largura / 2 == pytest.approx((painel_lateral.x1 + painel_lateral.x2) / 2)
 

@@ -932,4 +932,116 @@ QLabel#areaPrevia {{
 QLabel#tituloTela {{
     color: {Cor.TEXTO};
 }}
+
+/* ── Inspetor da direita (prancheta Layout do REDESIGN.md) ────────── */
+QDockWidget#dockInspetor {{
+    border-left: 1px solid {Cor.BORDA};
+}}
+QTabWidget#abasInspetor::pane {{
+    background: {Cor.CARTAO};
+    border: none;
+    border-top: 1px solid {Cor.BORDA};
+}}
+QTabWidget#abasInspetor > QTabBar {{
+    background: {Cor.CARTAO};
+}}
+QTabWidget#abasInspetor > QTabBar::tab {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 12px;
+    font-weight: 600;
+}}
+QTabWidget#abasInspetor > QTabBar::tab:selected {{
+    color: {Cor.TEXTO};
+    border-bottom: 2px solid {Cor.PRIMARIA};
+}}
+QTabWidget#abasInspetor > QTabBar::tab:hover:!selected {{
+    color: {Cor.TEXTO};
+}}
+QToolButton#botaoMaisInspetor {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: none;
+    padding: 6px 10px;
+    font-weight: 700;
+}}
+QToolButton#botaoMaisInspetor::menu-indicator {{
+    image: none;
+}}
+QWidget#conteudoInspetor {{
+    background: {Cor.CARTAO};
+}}
+QLabel#tituloInspetor {{
+    font-size: 15px;
+    font-weight: 700;
+    color: {Cor.TEXTO};
+}}
+QLabel#tituloSecaoInspetor {{
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: {Cor.TEXTO_TERCIARIO};
+}}
+QLabel#letraCampo {{
+    color: {Cor.TEXTO_TERCIARIO};
+    font-family: "{FONTE_MONO}";
+    min-width: 12px;
+}}
+QToolButton#botaoAlinharFace {{
+    background: {Cor.ELEVADO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 6px;
+    padding: 6px;
+}}
+QToolButton#botaoAlinharFace:hover {{
+    background: {Cor.PRIMARIA_CLARA};
+    border-color: {Cor.PRIMARIA};
+}}
+QToolButton#botaoTextoInspetor {{
+    background: transparent;
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 6px;
+    padding: 5px 8px;
+}}
+QToolButton#botaoTextoInspetor:checked {{
+    color: {Cor.PRIMARIA};
+    border-color: {Cor.PRIMARIA};
+}}
+QPushButton#chipTinta, QPushButton#botaoNovaTinta {{
+    background: transparent;
+    color: {Cor.TEXTO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 14px;
+    padding: 5px 10px;
+    min-height: 16px;
+}}
+QPushButton#chipTinta:checked {{
+    background: {Cor.ELEVADO};
+    border: 2px solid {Cor.PRIMARIA};
+}}
+QPushButton#botaoNovaTinta {{
+    color: {Cor.TEXTO_SECUNDARIO};
+    border-style: dashed;
+}}
+/* Legenda de cores acima do desenho (PainelLegendaCores): chips. */
+QWidget#chipLegenda {{
+    background: {Cor.ELEVADO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 11px;
+}}
+QLabel#nomeChipLegenda {{
+    color: {Cor.TEXTO};
+    font-size: 12px;
+    font-weight: 600;
+}}
+QLabel#infoPosicaoFace {{
+    background: {Cor.ELEVADO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: {Cor.TEXTO_SECUNDARIO};
+}}
 """
