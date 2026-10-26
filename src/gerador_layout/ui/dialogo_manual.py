@@ -47,6 +47,19 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
                 posicionar texto, formas, imagens, logotipo e símbolos de manuseio por
                 cima (o "mockup").</p>
+                <p><b>Moldura da janela</b>: em cima, a <b>barra de título</b> (o símbolo
+                leva à tela de <b>Início</b>, os menus, o nome do projeto — ● âmbar se não
+                salvo —, o seletor <b>Dieline | Layout | 3D</b>, Desfazer/Refazer e o botão
+                <b>Exportar</b>); embaixo dela, a <b>barra de contexto</b> com as opções da
+                ferramenta ativa; à esquerda, a <b>coluna de ferramentas</b>; e embaixo, a
+                <b>barra de status</b> (cursor em mm, Encaixe, Guias dinâmicas, ponte com o
+                CorelDRAW, Ajustar à tela e zoom).</p>
+                <p><b>Início</b>: digite C × L × A, escolha o estilo e clique em <b>Criar
+                faca</b>; ou comece pelo FEFCO 0201/0427, faca em branco ou construtor de
+                dieline; à direita, os projetos recentes com miniatura.</p>
+                <p><b>Exportar</b> (botão da barra de título): um diálogo só com PDF, SVG,
+                JPG, folha de aprovação, imagem do 3D, salvar tudo e enviar pro CorelDRAW —
+                cada um faz exatamente o que fazia antes.</p>
                 <p>A disposição segue o CorelDRAW: a <b>caixa de ferramentas</b> fica
                 na borda esquerda (botões com triângulo no canto agrupam ferramentas
                 irmãs: segure o clique ou clique no triângulo pra escolher), a
