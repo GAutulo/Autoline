@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .marca import fonte_marca
+from .marca import TituloTela
 
 
 @dataclass
@@ -55,9 +55,7 @@ class DialogoExportar(QDialog):
         raiz.setContentsMargins(0, 0, 0, 0)
         raiz.setSpacing(0)
 
-        titulo = QLabel("Exportar")
-        titulo.setObjectName("tituloTela")
-        titulo.setFont(fonte_marca(20))
+        titulo = TituloTela("Exportar", 20)
         cabecalho = QWidget()
         cabecalho.setObjectName("cabecalhoDialogo")
         linha_cab = QHBoxLayout(cabecalho)
