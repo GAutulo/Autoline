@@ -44,7 +44,10 @@ def test_meia_caixa_so_tem_aba_l_c(tipo):
     # faca fechada: aba de cola, lateral, frente e as 4 abas de cima/baixo
     assert len(achar_faces(layout.linhas).faces) == 3 + 4
     paineis = calcular_paineis(tipo, layout.segmentos_impressora, layout.segmentos_riscador)
-    assert [p.id for p in paineis] == ["aba_cola", "lateral1", "frente"]
+    # as 3 da faixa do meio + as abas de tampa e de fundo da lateral e da frente
+    assert [p.id for p in paineis] == [
+        "aba_cola", "lateral1", "frente", "tampa_lateral1", "fundo_lateral1", "tampa_frente", "fundo_frente",
+    ]
 
 
 def test_meia_caixa_no_3d_aparece_inteira():
@@ -124,3 +127,23 @@ def test_tela_mostra_tres_trechos_e_lista_inteira():
     QApplication.processEvents()
     assert j.visualizacao_3d.vista._modelo.descricao == "Envoltório capa (bandeja)"
     j.close()
+
+
+@pytest.mark.parametrize("tipo", [TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE, TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE])
+def test_envoltorio_tampa_cantos_e_abas_sao_faces(tipo):
+    """A tampa/fechamento, os cantos e as abas também são caixa: a malha e
+    as medidas até a borda da face apareciam só na cruz do meio."""
+    layout = _layout(tipo, comprimento=300, largura=200, altura=150)
+    paineis = {p.id: p for p in calcular_paineis(tipo, layout.segmentos_impressora, layout.segmentos_riscador)}
+    assert {"frente", "tampa", "fundo", "lateral1", "lateral2", "fechamento_sup", "fechamento_inf"} <= set(paineis)
+    assert paineis["fechamento_sup"].y1 == pytest.approx(0) and paineis["fechamento_inf"].y2 == pytest.approx(layout.altura_total)
+    assert sum(p.id.startswith("canto_") for p in paineis.values()) == 8
+    abas = [p for p in paineis.values() if p.id.startswith("aba_lateral")]
+    assert len(abas) == (2 if tipo == TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE else 10)
+    # nada fica fora da chapa e nenhuma face se sobrepõe
+    for p in paineis.values():
+        assert 0 <= p.x1 < p.x2 <= layout.largura_total + 1e-6 and 0 <= p.y1 < p.y2 <= layout.altura_total + 1e-6
+    lista = list(paineis.values())
+    for i, a in enumerate(lista):
+        for b in lista[i + 1:]:
+            assert min(a.x2, b.x2) - max(a.x1, b.x1) <= 1e-6 or min(a.y2, b.y2) - max(a.y1, b.y1) <= 1e-6
