@@ -129,15 +129,16 @@ def test_barra_de_propriedades_nao_alarga_a_janela_e_cor_embaixo():
     painel = j.painel_propriedades_mockup
     altura = painel.height()
     x_largura = painel._spins_geometria["largura"].mapTo(painel, painel._spins_geometria["largura"].rect().topLeft()).x()
-    assert [painel._abas.tabText(i) for i in range(painel._abas.count())] == ["Letra", "Espaçamento", "Quadro", "Posição"]
-    painel.mostrar_aba("Quadro")
+    # Letra na linha de contexto; o resto em seções do inspetor (à direita)
+    assert painel.nomes_secoes() == ["Espaçamento", "Quadro", "Posição"]
+    assert painel.mostrar_aba("Quadro") and j._docks["propriedades"].isVisible()
     j.canvas.cena.clearSelection()
     QApplication.processEvents()
     assert painel.height() == altura and not painel._spins_geometria["largura"].isEnabled()
     assert painel._spins_geometria["largura"].mapTo(painel, painel._spins_geometria["largura"].rect().topLeft()).x() == x_largura
     el.setSelected(True)
     QApplication.processEvents()
-    assert painel._abas.tabText(painel._abas.currentIndex()) == "Quadro"  # a aba escolhida é lembrada
+    assert painel.nomes_secoes() == ["Espaçamento", "Quadro", "Posição"]
     assert barra.height() <= altura + 12
     # cor embaixo: amostras clicáveis com a lista de tintas, e o conta-gotas
     status = j.painel_status
