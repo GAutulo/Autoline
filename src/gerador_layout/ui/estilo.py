@@ -869,6 +869,20 @@ QPushButton#cartaoEstilo:checked {{
     border-color: {Cor.PRIMARIA};
     color: {Cor.TEXTO};
 }}
+QPushButton#cartaoEstilo QLabel {{
+    background: transparent;
+}}
+QLabel#tituloCartao, QLabel#siglaCartao {{
+    color: {Cor.TEXTO};
+    font-weight: 700;
+}}
+QLabel#siglaCartao {{
+    font-family: "{FONTE_MONO}";
+}}
+QLabel#detalheCartao {{
+    color: {Cor.TEXTO_SECUNDARIO};
+    font-weight: 500;
+}}
 /* Variantes do estilo no Início (inteira/meia, com/sem corte): segmentado. */
 QPushButton#opcaoVariante {{
     background: {Cor.CAMPO};
