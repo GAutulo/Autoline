@@ -539,6 +539,14 @@ QLabel#rotuloMarca {{
     padding-right: 6px;
 }}
 
+/* Traços verticais da linha de contexto (`_linha_vertical`). */
+QFrame[traco="true"] {{
+    background: {Cor.BORDA};
+    max-width: 1px;
+    min-width: 1px;
+    border: none;
+}}
+
 /* Fronteira entre campos universais e campos do tipo selecionado na barra
    de propriedades horizontal (ver `PainelPropriedadesMockup._separador`,
    achado numa revisão de UI/UX) — mais grosso que o traço nativo do Qt

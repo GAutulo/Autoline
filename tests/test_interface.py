@@ -370,3 +370,23 @@ def test_conta_gotas_dentro_de_grupo_e_sem_selecao():
     j.canvas.pilha_desfazer.undo()
     assert a.cor_tinta.nome == "PRETO" and b.cor_tinta.nome == "PRETO"
     j.close()
+
+
+def test_mensagem_longa_da_barra_de_status_corta_com_reticencias():
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = JanelaPrincipal()
+    j.resize(1800, 700)
+    j.show()
+    QApplication.processEvents()
+    barra = j.statusBar()
+    assert barra._area_mensagem().width() > 100
+    frase = "Envoltório fechamento normal — com corte " * 6
+    barra.showMessage(frase)
+    QApplication.processEvents()
+    visivel = barra._mensagem_visivel()
+    assert visivel.endswith("…") and len(visivel) < len(frase)
+    assert barra.currentMessage() == frase  # a frase inteira continua lá (dica)
+    barra.showMessage("Curta")
+    assert barra._mensagem_visivel() == "Curta"
+    j.close()

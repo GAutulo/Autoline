@@ -230,9 +230,10 @@ class PainelPropriedadesMockup(QWidget):
         return caixa, fluxo
 
     def _linha_vertical(self, forte: bool = False) -> QFrame:
+        # Sem moldura nativa: o traço é só o fundo da folha de estilo (a
+        # "afundada" do Qt saía branca/cinza clara, gritando no tema escuro).
         linha = QFrame()
-        linha.setFrameShape(QFrame.Shape.VLine)
-        linha.setFrameShadow(QFrame.Shadow.Sunken)
+        linha.setProperty("traco", True)
         linha.setFixedHeight(20)  # um traço curto, não a altura toda da barra
         if forte:
             linha.setObjectName("separadorForte")
@@ -255,7 +256,7 @@ class PainelPropriedadesMockup(QWidget):
         # Sem traço sobrando no fim da linha (ficava solto antes do vazio).
         while self._layout_linha.count():
             ultimo = self._layout_linha.itemAt(self._layout_linha.count() - 1)
-            if ultimo.spacerItem() is not None or isinstance(ultimo.widget(), QFrame) and ultimo.widget().frameShape() == QFrame.Shape.VLine:
+            if ultimo.spacerItem() is not None or isinstance(ultimo.widget(), QFrame) and ultimo.widget().property("traco"):
                 item = self._layout_linha.takeAt(self._layout_linha.count() - 1)
                 if item.widget() is not None:
                     item.widget().hide()

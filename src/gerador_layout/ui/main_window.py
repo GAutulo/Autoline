@@ -81,7 +81,7 @@ from .mockup_imagem import ElementoImagem
 from .arquivo_destino import esta_preso, proximo_nome_livre
 from .dialogo_exportar import Destino, DialogoExportar
 from .tela_inicio import Cartao, TelaInicio
-from .moldura import ALTURA_CONTEXTO, ALTURA_STATUS, LARGURA_COLUNA_FERRAMENTAS, BarraTitulo, PonteCorel, divisoria_status
+from .moldura import ALTURA_CONTEXTO, ALTURA_STATUS, LARGURA_COLUNA_FERRAMENTAS, BarraStatus, BarraTitulo, PonteCorel, divisoria_status
 from .mockup_itens import ElementoMockup, GrupoMockup
 from .mockup_logo import ElementoLogoVetorial
 from .mockup_reguas import ReguaHorizontal, ReguaVertical
@@ -161,6 +161,11 @@ class JanelaPrincipal(QMainWindow):
         # main.py) — cabe com folga numa tela de notebook comum de 1366×768
         # (altura útil ~728px descontando a barra de tarefas).
         self.resize(1180, 680)
+        barra_status = BarraStatus()
+        # Como a barra que o QMainWindow cria sozinho: a largura dela não
+        # pode ditar a mínima da janela.
+        barra_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setStatusBar(barra_status)
 
         self._servico = ServicoLayoutCaixa()
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
@@ -173,6 +178,7 @@ class JanelaPrincipal(QMainWindow):
         self._dialogo_manual: DialogoManual | None = None
         # Projeto (.autoline) aberto: caminho e o estado salvo (pra saber se mudou).
         self._caminho_projeto: str | None = None
+        self._largura_antes_de_alargar: int | None = None  # ver `_trocar_tela`
         # Folha de aprovação: cliente, referência, código e as datas (vão no projeto).
         self._aprovacao: dict = {}
         self._assinatura_salva: str | None = None
@@ -364,6 +370,8 @@ class JanelaPrincipal(QMainWindow):
         self.pilha_visualizacao = QStackedWidget()
         self.pilha_visualizacao.addWidget(legenda_e_canvas)
         self.pilha_visualizacao.addWidget(self.visualizacao_3d)
+        # O 3D escondido não pode alargar a janela já ao abrir o app.
+        self._so_pagina_atual_conta(self.pilha_visualizacao)
         vbox.addWidget(self.pilha_visualizacao, 1)
 
         # Trechos (Impressora/Riscador) embaixo da pré-visualização — mais
@@ -892,7 +900,9 @@ class JanelaPrincipal(QMainWindow):
         self.abas_tela.currentChanged.connect(self._trocar_tela)
 
     def _trocar_tela(self, indice: int) -> None:
-        largura_antes = self.width()
+        # Se uma tela já alargou a janela (o 3D numa tela pequena), a volta
+        # mira a largura de ANTES dela, não a alargada.
+        largura_antes = self._largura_antes_de_alargar or self.width()
         modo_layout = indice == 1
         modo_3d = indice == 2
         self.pilha_visualizacao.setCurrentIndex(1 if modo_3d else 0)
@@ -931,7 +941,10 @@ class JanelaPrincipal(QMainWindow):
         # centro e alarga a janela (numa tela de 1366 ela passava da borda e
         # o Exportar e a paleta sumiam); assentado, o mínimo cabe de novo —
         # então a janela volta pra largura em que estava.
-        if self.width() > largura_antes and not (self.isMaximized() or self.isFullScreen()):
+        # O alargamento pode vir só depois (quando o layout assenta), então
+        # a volta é conferida sempre, não só se já alargou aqui.
+        if self.isVisible() and not (self.isMaximized() or self.isFullScreen()):
+            self._largura_antes_de_alargar = largura_antes
             QTimer.singleShot(0, lambda: self._voltar_largura(largura_antes))
         # Mostrar/esconder os painéis ao redor muda o tamanho disponível
         # do canvas — sem reencaixar aqui, a visão que estava centralizada
@@ -952,12 +965,15 @@ class JanelaPrincipal(QMainWindow):
             self.visualizacao_3d.enquadrar()
 
     def _voltar_largura(self, largura: int, tentativas: int = 20) -> None:
-        if self.width() <= largura:
-            return
-        if self.minimumSizeHint().width() <= largura:
+        if self._largura_antes_de_alargar != largura:
+            return  # outra troca de tela já assumiu
+        if self.width() > largura and self.minimumSizeHint().width() <= largura:
             self.resize(largura, self.height())
-        elif tentativas > 0:  # os layouts ainda não assentaram: tenta logo depois
+        if tentativas > 0:  # os layouts podem ainda não ter assentado: confere logo depois
             QTimer.singleShot(30, lambda: self._voltar_largura(largura, tentativas - 1))
+        elif self.width() <= largura:
+            # Voltou. Se não (o 3D não cabe), a próxima troca ainda mira aqui.
+            self._largura_antes_de_alargar = None
 
     def _ao_mudar_angulo_3d(self, linha: int, angulo: float) -> None:
         self._angulos_dobra[linha] = angulo

@@ -1340,6 +1340,10 @@ class Visualizacao3D(QWidget):
         self.campo_angulo.setKeyboardTracking(False)
         self.campo_angulo.setToolTip("Ângulo do vinco escolhido")
         self.campo_angulo.setEnabled(False)
+        # Rótulo visível: sem ele o "0,0 °" solto na barra não diz o que é.
+        self.rotulo_angulo = QLabel("Ângulo:")
+        self.rotulo_angulo.setBuddy(self.campo_angulo)
+        self.rotulo_angulo.setEnabled(False)
         self.campo_angulo.valueChanged.connect(self._ao_digitar_angulo)
         self._dobra_escolhida: int | None = None
 
@@ -1393,6 +1397,8 @@ class Visualizacao3D(QWidget):
         ferramentas.setSpacing(6)
         for chave in ("girar", "dobra", "base"):
             ferramentas.addWidget(self._botoes_modo[chave])
+        ferramentas.addSpacing(6)
+        ferramentas.addWidget(self.rotulo_angulo)
         ferramentas.addWidget(self.campo_angulo)
         ferramentas.addSpacing(12)
         ferramentas.addWidget(QLabel("Papelão:"))
@@ -1408,7 +1414,7 @@ class Visualizacao3D(QWidget):
         # Fechada, a caixinha fica curta (o nome inteiro está na dica e na
         # lista aberta) — senão a barra do 3D alargava a janela toda.
         self.combo_papelao.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.combo_papelao.setMinimumContentsLength(22)
+        self.combo_papelao.setMinimumContentsLength(16)
         self.combo_papelao.view().setMinimumWidth(self.combo_papelao.view().sizeHintForColumn(0) + 24)
         self.combo_papelao.currentTextChanged.connect(self.combo_papelao.setToolTip)
         self.combo_papelao.activated.connect(self._ao_escolher_papelao)
@@ -1422,6 +1428,9 @@ class Visualizacao3D(QWidget):
         self.campo_espessura.setKeyboardTracking(False)
         self.campo_espessura.setToolTip("Espessura do papelão no 3D (0 = folha fina). Fica guardada pra próxima vez.")
         self.campo_espessura.valueChanged.connect(self._ao_digitar_espessura)
+        rotulo_espessura = QLabel("Espessura:")
+        rotulo_espessura.setBuddy(self.campo_espessura)
+        ferramentas.addWidget(rotulo_espessura)
         ferramentas.addWidget(self.campo_espessura)
         self.aviso_dobras = QLabel("Ângulo por vinco e face base: na faca editada à mão ou em branco.")
         self.aviso_dobras.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
@@ -1461,6 +1470,7 @@ class Visualizacao3D(QWidget):
         if self._dobra_escolhida not in self._angulos_atuais:
             self._dobra_escolhida = None
             self.campo_angulo.setEnabled(False)
+            self.rotulo_angulo.setEnabled(False)
         else:
             self._mostrar_angulo(self._dobra_escolhida)
 
@@ -1469,6 +1479,7 @@ class Visualizacao3D(QWidget):
         self.campo_angulo.setValue(self._angulos_atuais.get(linha, 90.0))
         self.campo_angulo.blockSignals(False)
         self.campo_angulo.setEnabled(True)
+        self.rotulo_angulo.setEnabled(True)
         self.vista.destacar_dobra(linha)
 
     def _ao_clicar_dobra(self, linha: int) -> None:
