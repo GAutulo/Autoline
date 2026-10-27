@@ -84,3 +84,15 @@ def test_inicio_ja_escolhe_o_tipo_exato(cartao, opcoes, tipo):
     QApplication.processEvents()
     assert j.combo_tipo.currentData() == tipo
     j.close()
+
+
+def test_clicar_de_novo_no_cartao_escolhido_mantem_a_variante():
+    j = JanelaPrincipal()
+    j.show()
+    j.mostrar_inicio()
+    inicio = j.tela_inicio
+    inicio.cartoes["Maleta normal"].click()
+    inicio.escolher_variante("Meia caixa")
+    inicio.cartoes["Maleta normal"].click()
+    assert inicio.tipo_escolhido == TipoCaixa.MALETA_NORMAL_MEIA
+    j.close()

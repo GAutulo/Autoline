@@ -213,6 +213,37 @@ def test_foto_do_3d_sai_com_a_arte_mesmo_com_a_aba_fechada():
     j.close()
 
 
+def test_foto_do_recorte_termina_pintando_com_as_texturas_que_gerou():
+    """Se a arte ainda pede textura em toda volta, a última coisa antes de
+    devolver a foto é pintar — não gerar uma textura que não entra nela."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    vista = j.visualizacao_3d.vista
+    passos: list[str] = []
+    pintar_original = vista._pintar
+
+    def pintar(*args, **kwargs):
+        resultado = pintar_original(*args, **kwargs)
+        if vista._foto is not None and vista._foto.get("origem") is not None:
+            passos.append("pintar")
+            vista._texturas_pendentes = {"sempre": object()}  # sempre falta uma
+        return resultado
+
+    vista._pintar = pintar
+    vista._gerar_texturas = lambda pendentes, *a: passos.append("gerar") if pendentes else None
+    j._imagem_3d_montada()
+    assert passos and passos[-1] == "pintar"
+    j.close()
+
+
 @pytest.mark.parametrize("tipo", _ENVOLTORIOS_FECHADOS)
 def test_envoltorio_tem_o_prolongamento_dos_cantos_e_ele_fica_dentro_da_caixa(tipo):
     """Na faca, a coluna do canto vai da tampa até a aba de fechamento (vinco
