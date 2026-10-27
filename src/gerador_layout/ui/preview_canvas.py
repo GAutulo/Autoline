@@ -3868,7 +3868,16 @@ class PreviewCanvas(QGraphicsView):
             if referencia == "pagina":
                 return self.retangulo_pagina()
             painel = self._painel_do_elemento(el)
-            return None if painel is None else QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
+            if painel is None:
+                # Sem face escolhida: a face onde está o centro dele (a mesma
+                # regra do "Alinhar ao painel" do inspetor) — e fica nela.
+                centro = el.mapToScene(el.largura / 2, el.altura / 2)
+                dentro = [p for p in self._paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
+                if not dentro:
+                    return None
+                painel = min(dentro, key=lambda p: p.largura * p.altura)
+                el.definir_painel(painel.id)
+            return QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
 
         def aplicar() -> None:
             for el in selecionados:
