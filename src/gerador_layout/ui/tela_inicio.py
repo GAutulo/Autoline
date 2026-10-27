@@ -212,6 +212,8 @@ class TelaInicio(QWidget):
             rotulo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def _escolher_cartao(self, cartao: Cartao) -> None:
+        if cartao is self._cartao_escolhido:
+            return  # clicou de novo no mesmo: as variantes marcadas ficam
         self._cartao_escolhido = cartao
         # Troca a área inteira: as opções do estilo anterior somem na hora
         # (com `deleteLater` sozinho ficavam um instante por baixo das novas).

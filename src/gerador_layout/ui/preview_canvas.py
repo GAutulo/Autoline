@@ -639,6 +639,24 @@ class _ComandoAlterarGeometria(QUndoCommand):
             item.definir_espelho(espelho_h, espelho_v)
 
 
+class _ComandoDefinirFaces(QUndoCommand):
+    """Prende cada elemento numa face (`{elemento: id da face}`) — o "Na
+    face" do Alinhar com quem ainda não tinha face; o desfazer solta."""
+
+    def __init__(self, faces: dict) -> None:
+        super().__init__("Definir face")
+        self._antes = {el: el.painel_id for el in faces}
+        self._depois = dict(faces)
+
+    def redo(self) -> None:  # noqa: N802
+        for el, painel_id in self._depois.items():
+            el.definir_painel(painel_id)
+
+    def undo(self) -> None:  # noqa: N802
+        for el, painel_id in self._antes.items():
+            el.definir_painel(painel_id)
+
+
 class _ComandoEditarTexto(QUndoCommand):
     def __init__(self, texto, antes: tuple, depois: tuple) -> None:
         super().__init__("Editar texto")
@@ -3864,20 +3882,24 @@ class PreviewCanvas(QGraphicsView):
                 self._com_undo_geometria("Alinhar", lambda: self.alinhar_selecionados(alinhamento))
             return
 
+        # Sem face escolhida: a face onde está o centro dele (a mesma regra
+        # do "Alinhar ao painel" do inspetor) — e fica nela, no mesmo passo
+        # de desfazer do alinhamento.
+        faces_novas: dict = {}
+        if referencia == "face":
+            for el in selecionados:
+                if self._painel_do_elemento(el) is not None:
+                    continue
+                centro = el.mapToScene(el.largura / 2, el.altura / 2)
+                dentro = [p for p in self._paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
+                if dentro:
+                    faces_novas[el] = min(dentro, key=lambda p: p.largura * p.altura).id
+
         def alvo_de(el: ElementoMockup) -> QRectF | None:
             if referencia == "pagina":
                 return self.retangulo_pagina()
             painel = self._painel_do_elemento(el)
-            if painel is None:
-                # Sem face escolhida: a face onde está o centro dele (a mesma
-                # regra do "Alinhar ao painel" do inspetor) — e fica nela.
-                centro = el.mapToScene(el.largura / 2, el.altura / 2)
-                dentro = [p for p in self._paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
-                if not dentro:
-                    return None
-                painel = min(dentro, key=lambda p: p.largura * p.altura)
-                el.definir_painel(painel.id)
-            return QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
+            return None if painel is None else QRectF(painel.x1, painel.y1, painel.largura, painel.altura)
 
         def aplicar() -> None:
             for el in selecionados:
@@ -3900,7 +3922,15 @@ class PreviewCanvas(QGraphicsView):
                     dy = alvo.center().y() - r.center().y()
                 el.setPos(el.pos() + QPointF(dx, dy))
 
-        self._com_undo_geometria("Alinhar", aplicar)
+        if not faces_novas:
+            self._com_undo_geometria("Alinhar", aplicar)
+            return
+        self._pilha_desfazer.beginMacro("Alinhar")
+        try:
+            self._pilha_desfazer.push(_ComandoDefinirFaces(faces_novas))
+            self._com_undo_geometria("Alinhar", aplicar)
+        finally:
+            self._pilha_desfazer.endMacro()  # aberta, o Ctrl+Z parava de vez
 
     def distribuir(self, eixo: str, modo: str) -> None:
         """Distribui 3+ objetos no eixo "h" ou "v": `modo` "centros"
