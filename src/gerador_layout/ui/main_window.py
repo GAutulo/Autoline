@@ -1792,6 +1792,7 @@ class JanelaPrincipal(QMainWindow):
         self.statusBar().addPermanentWidget(self.botao_ajustar_tela)
         self.statusBar().addPermanentWidget(self.label_zoom)
         self.canvas.cursor_movido.connect(self.painel_status.definir_posicao)
+        self.painel_status.conteudo_mudou.connect(self.statusBar().update)
         self.painel_status.definir_objeto("", None, None, False)
         # Cor do objeto embaixo, como no CorelDRAW: clicar na amostra abre as
         # tintas; o conta-gotas pega a cor de outro objeto.
