@@ -77,6 +77,7 @@ _ARTE_FOLGA_DENSIDADE = 1.6
 _ARTE_PX_POR_MM_MIN = 1.0
 _ARTE_PX_POR_MM_MAX = 128.0  # só a textura de detalhe (pedaço visível) chega perto disso
 _ARTE_LADO_MAX_PX = 6000
+_FOTO_ESCALA_MAX = 12.0  # foto do recorte: no máximo 12× a vista
 _ARTE_MARGEM_MM = 1.0
 # De perto, a face inteira não cabe na resolução que a tela pede (lado máximo
 # em pixels): ganha uma 2ª textura, de DETALHE, só do pedaço visível (com
@@ -632,10 +633,19 @@ class VistaCaixa3D(QWidget):
         self._ultimo_quadro_ms = float(relogio.elapsed())
 
     # ── Foto da vista (pra mandar pro cliente) ───────────────────────
-    def renderizar_imagem(self, escala: float = 2.0, fundo: QColor | None = None, recortar: bool = True) -> QImage:
+    def renderizar_imagem(
+        self, escala: float = 2.0, fundo: QColor | None = None, recortar: bool = True, lado_caixa_px: int | None = None
+    ) -> QImage:
         """A vista atual como imagem, `escala` vezes o tamanho da tela, sem
         os textos de ajuda nem as marcas de dobra. `fundo` None = transparente
-        (PNG); a arte das faces é gerada na resolução da foto."""
+        (PNG); a arte das faces é gerada na resolução da foto.
+
+        `lado_caixa_px`: a foto recortada sai com esse lado maior, seja qual
+        for o tamanho da caixa na vista — pinta só o recorte, na resolução
+        que precisar (a caixa costuma ocupar um pedaço da vista, e escalar a
+        vista inteira até lá gastaria memória demais)."""
+        if lado_caixa_px is not None and recortar:
+            return self._renderizar_recorte(lado_caixa_px, fundo)
         escala = max(1.0, float(escala))
         self._foto = {"escala": escala, "fundo": fundo}
         try:
@@ -660,14 +670,56 @@ class VistaCaixa3D(QWidget):
             self._foto = None
             self._timer_texturas.start()  # a tela volta pra resolução dela
         if recortar and caixa is not None and not caixa.isEmpty():
-            # Recorta em volta da caixa: margem de 12% (cabe a sombra embaixo).
-            margem = max(caixa.width(), caixa.height()) * 0.06
-            area = caixa.adjusted(-margem, -margem, margem, margem * 1.6).intersected(QRectF(self.rect()))
+            area = self._area_recorte(caixa)
             px = area.toAlignedRect()
             imagem = imagem.copy(
                 int(px.x() * escala), int(px.y() * escala), int(px.width() * escala), int(px.height() * escala)
             )
             imagem.setDevicePixelRatio(1.0)
+        return imagem
+
+    def _area_recorte(self, caixa: QRectF) -> QRectF:
+        # Margem de 6% em volta (e mais embaixo, pra sombra).
+        margem = max(caixa.width(), caixa.height()) * 0.06
+        return caixa.adjusted(-margem, -margem, margem, margem * 1.6).intersected(QRectF(self.rect()))
+
+    def _renderizar_recorte(self, lado_px: int, fundo: QColor | None) -> QImage:
+        # 1º: onde a caixa (e a sombra) caem na vista, numa passada leve.
+        self._foto = {"escala": 1.0, "fundo": fundo}
+        try:
+            self._pintar_em_imagem(1.0, fundo)
+            caixa, sombra = self._foto.get("caixa"), self._foto.get("sombra")
+        finally:
+            self._foto = None
+        if caixa is None or caixa.isEmpty():
+            return self.renderizar_imagem(2.0, fundo)
+        if sombra is not None:
+            caixa = caixa.united(sombra)
+        area = self._area_recorte(caixa)
+        escala = min(_FOTO_ESCALA_MAX, max(1.0, lado_px / max(area.width(), area.height(), 1.0)))
+        # 2º: só o recorte, na resolução do lado pedido.
+        self._foto = {"escala": escala, "fundo": fundo, "origem": area.topLeft()}
+        try:
+            for _ in range(3):  # a arte pode pedir textura maior: gera e pinta de novo
+                imagem = QImage(
+                    max(1, round(area.width() * escala)), max(1, round(area.height() * escala)),
+                    QImage.Format.Format_ARGB32_Premultiplied,
+                )
+                imagem.setDevicePixelRatio(escala)
+                imagem.fill(Qt.GlobalColor.transparent if fundo is None else fundo)
+                antes = {k for k, t in self._texturas.items() if t[0] is not None}
+                self._pintar(None, alvo=imagem)
+                novas = {k for k, t in self._texturas.items() if t[0] is not None} != antes
+                if not (self._texturas_pendentes or self._detalhes_pendentes or novas):
+                    break
+                pendentes, self._texturas_pendentes = self._texturas_pendentes, {}
+                self._gerar_texturas(pendentes)
+                detalhes, self._detalhes_pendentes = self._detalhes_pendentes, {}
+                self._gerar_texturas(detalhes, self._detalhes)
+        finally:
+            self._foto = None
+            self._timer_texturas.start()  # a tela volta pra resolução dela
+        imagem.setDevicePixelRatio(1.0)
         return imagem
 
     def _pintar_em_imagem(self, escala: float, fundo: QColor | None) -> QImage:
@@ -684,6 +736,8 @@ class VistaCaixa3D(QWidget):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         if foto is None:
             p.fillRect(self.rect(), _COR_FUNDO)
+        elif foto.get("origem") is not None:
+            p.translate(-foto["origem"])  # foto só do recorte (ver `_renderizar_recorte`)
 
         if self._modelo.vazio:
             p.setPen(_COR_TEXTO_FUNDO)
@@ -856,15 +910,16 @@ class VistaCaixa3D(QWidget):
                     p.setClipRegion(QRegion(tela.toPolygon()))
                 if tem_arte:
                     detalhe = self._detalhes.get(painel.arte_de or painel.id)
+                    base = p.transform()  # a da foto do recorte (deslocada); senão, identidade
                     for imagem, k, retangulo in (textura, detalhe):
                         if imagem is None:
                             continue
                         da_imagem = QTransform.fromScale(1.0 / k, 1.0 / k) * QTransform.fromTranslate(
                             retangulo.left() + painel.arte_dx, retangulo.top()
                         )
-                        p.setTransform(da_imagem * transformacao)
+                        p.setTransform(da_imagem * transformacao * base)
                         p.drawImage(QPointF(0.0, 0.0), imagem)
-                        p.resetTransform()
+                        p.setTransform(base)
                         if detalhe is None:
                             break
                 if dados["contorno"] is not None:
@@ -1079,7 +1134,7 @@ class VistaCaixa3D(QWidget):
         base = cor_faixa or cores_papelao()[2]
         cor_vao, cor_papel = base.darker(150), base.lighter(140)
         p.save()
-        p.setTransform(transformacao)
+        p.setTransform(transformacao, True)  # sobre a da foto do recorte, se houver
         p.setPen(Qt.PenStyle.NoPen)
         if ondas:
             p.setBrush(cor_vao)
