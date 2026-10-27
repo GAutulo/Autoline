@@ -43,6 +43,11 @@ class Cartao:
     sigla: str = ""
     tipo: TipoCaixa | None = None  # tipo de caixa: escolhe e depois "Criar faca"
     acao: Callable[[], object] | None = None  # os outros: um clique já faz
+    # Variantes da família (ex.: ("Corte", ("Com corte", "Sem corte"))): o
+    # tipo exato já sai do Início, sem ter de trocar depois na Dieline.
+    # `tipos` leva a combinação escolhida (uma opção por eixo) ao tipo.
+    variantes: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    tipos: dict[tuple[str, ...], TipoCaixa] | None = None
 
 
 class TelaInicio(QWidget):
@@ -132,12 +137,18 @@ class TelaInicio(QWidget):
             if cartao.tipo is not None:
                 botao.setCheckable(True)
                 self._grupo_tipo.addButton(botao)
-                botao.clicked.connect(lambda _c=False, t=cartao.tipo: self._escolher_tipo(t))
+                botao.clicked.connect(lambda _c=False, c=cartao: self._escolher_cartao(c))
             elif cartao.acao is not None:
                 botao.clicked.connect(cartao.acao)
             self.cartoes[cartao.titulo] = botao
             grade.addWidget(botao, i // 4, i % 4)
         principal.addLayout(grade)
+
+        # Variantes do estilo escolhido (inteira/meia, com/sem corte...).
+        self._area_variantes = QWidget()
+        principal.addWidget(self._area_variantes)
+        self._escolhas: list[QButtonGroup] = []
+        self._cartao_escolhido: Cartao | None = None
         principal.addStretch(1)
         raiz.addLayout(principal, 3)
 
@@ -166,10 +177,60 @@ class TelaInicio(QWidget):
         primeiro = next((c for c in cartoes if c.tipo is not None), None)
         if primeiro is not None:
             self.cartoes[primeiro.titulo].setChecked(True)
-            self._tipo_escolhido = primeiro.tipo
+            self._escolher_cartao(primeiro)
 
-    def _escolher_tipo(self, tipo: TipoCaixa) -> None:
-        self._tipo_escolhido = tipo
+    def _escolher_cartao(self, cartao: Cartao) -> None:
+        self._cartao_escolhido = cartao
+        # Troca a área inteira: as opções do estilo anterior somem na hora
+        # (com `deleteLater` sozinho ficavam um instante por baixo das novas).
+        antiga = self._area_variantes
+        self._area_variantes = QWidget()
+        self._linha_variantes = QHBoxLayout(self._area_variantes)
+        self._linha_variantes.setContentsMargins(0, 0, 0, 0)
+        self._linha_variantes.setSpacing(18)
+        antiga.parentWidget().layout().replaceWidget(antiga, self._area_variantes)
+        antiga.hide()
+        antiga.deleteLater()
+        self._escolhas = []
+        for nome_eixo, opcoes in cartao.variantes:
+            coluna = QVBoxLayout()
+            coluna.setSpacing(6)
+            rotulo = QLabel(nome_eixo)
+            rotulo.setObjectName("legendaMuted")
+            coluna.addWidget(rotulo)
+            linha = QHBoxLayout()
+            linha.setSpacing(0)
+            grupo = QButtonGroup(self._area_variantes)
+            grupo.setExclusive(True)
+            for i, opcao in enumerate(opcoes):
+                botao = QPushButton(opcao)
+                botao.setObjectName("opcaoVariante")
+                botao.setCheckable(True)
+                botao.setChecked(i == 0)
+                botao.setProperty("posicao", "primeiro" if i == 0 else ("ultimo" if i == len(opcoes) - 1 else "meio"))
+                botao.clicked.connect(self._atualizar_tipo)
+                grupo.addButton(botao)
+                linha.addWidget(botao)
+            coluna.addLayout(linha)
+            self._linha_variantes.addLayout(coluna)
+            self._escolhas.append(grupo)
+        self._linha_variantes.addStretch(1)
+        self._atualizar_tipo()
+
+    def _atualizar_tipo(self) -> None:
+        cartao = self._cartao_escolhido
+        if cartao is None:
+            return
+        escolha = tuple(g.checkedButton().text() for g in self._escolhas if g.checkedButton() is not None)
+        self._tipo_escolhido = (cartao.tipos or {}).get(escolha, cartao.tipo)
+
+    def escolher_variante(self, opcao: str) -> None:
+        """Marca uma opção de variante pelo texto (ex.: "Meia caixa")."""
+        for grupo in self._escolhas:
+            for botao in grupo.buttons():
+                if botao.text() == opcao:
+                    botao.setChecked(True)
+        self._atualizar_tipo()
 
     @property
     def tipo_escolhido(self) -> TipoCaixa | None:

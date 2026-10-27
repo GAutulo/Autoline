@@ -57,3 +57,30 @@ def test_recentes_no_inicio(tmp_path):
     textos = [lista.item(i).text() for i in range(lista.count())]
     assert any("32844 MESA CENTRO" in t for t in textos)
     j.close()
+
+
+@pytest.mark.parametrize(
+    "cartao, opcoes, tipo",
+    [
+        ("Maleta normal", ["Meia caixa"], TipoCaixa.MALETA_NORMAL_MEIA),
+        ("Maleta transpassada", ["Inteira"], TipoCaixa.MALETA_TRANSPASSADA),
+        ("Envoltório", ["No meio", "Sem corte"], TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE),
+        ("Envoltório", ["Com corte"], TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE),
+        ("Envoltório capa", [], TipoCaixa.ENVOLTORIO_CAPA),
+    ],
+)
+def test_inicio_ja_escolhe_o_tipo_exato(cartao, opcoes, tipo):
+    """O tipo exato sai do Início (meia caixa, com/sem corte, fecha no meio):
+    não precisa trocar de novo na Dieline."""
+    j = JanelaPrincipal()
+    j.show()
+    j.mostrar_inicio()
+    inicio = j.tela_inicio
+    inicio.cartoes[cartao].click()
+    for opcao in opcoes:
+        inicio.escolher_variante(opcao)
+    assert inicio.tipo_escolhido == tipo
+    inicio.botao_criar.click()
+    QApplication.processEvents()
+    assert j.combo_tipo.currentData() == tipo
+    j.close()
