@@ -3926,9 +3926,11 @@ class PreviewCanvas(QGraphicsView):
             self._com_undo_geometria("Alinhar", aplicar)
             return
         self._pilha_desfazer.beginMacro("Alinhar")
-        self._pilha_desfazer.push(_ComandoDefinirFaces(faces_novas))
-        self._com_undo_geometria("Alinhar", aplicar)
-        self._pilha_desfazer.endMacro()
+        try:
+            self._pilha_desfazer.push(_ComandoDefinirFaces(faces_novas))
+            self._com_undo_geometria("Alinhar", aplicar)
+        finally:
+            self._pilha_desfazer.endMacro()  # aberta, o Ctrl+Z parava de vez
 
     def distribuir(self, eixo: str, modo: str) -> None:
         """Distribui 3+ objetos no eixo "h" ou "v": `modo` "centros"
