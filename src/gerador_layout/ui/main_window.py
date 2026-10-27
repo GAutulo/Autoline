@@ -638,10 +638,21 @@ class JanelaPrincipal(QMainWindow):
         from .projeto_arquivo import ler_miniatura
 
         cartoes = [
-            Cartao("Maleta normal", "também meia caixa", "caixa_maleta", tipo=TipoCaixa.MALETA_NORMAL),
-            Cartao("Maleta transpassada", "também meia caixa", "caixa_transpassada", tipo=TipoCaixa.MALETA_TRANSPASSADA),
-            Cartao("Envoltório", "normal ou fecha no meio · com/sem corte", "caixa_envoltorio",
-                   tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE),
+            Cartao("Maleta normal", "inteira ou meia caixa", "caixa_maleta", tipo=TipoCaixa.MALETA_NORMAL,
+                   variantes=(("Caixa", ("Inteira", "Meia caixa")),),
+                   tipos={("Inteira",): TipoCaixa.MALETA_NORMAL, ("Meia caixa",): TipoCaixa.MALETA_NORMAL_MEIA}),
+            Cartao("Maleta transpassada", "inteira ou meia caixa", "caixa_transpassada",
+                   tipo=TipoCaixa.MALETA_TRANSPASSADA,
+                   variantes=(("Caixa", ("Inteira", "Meia caixa")),),
+                   tipos={("Inteira",): TipoCaixa.MALETA_TRANSPASSADA,
+                          ("Meia caixa",): TipoCaixa.MALETA_TRANSPASSADA_MEIA}),
+            Cartao("Envoltório", "normal ou fecha no meio", "caixa_envoltorio",
+                   tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE,
+                   variantes=(("Fechamento", ("Normal", "No meio")), ("Corte", ("Com corte", "Sem corte"))),
+                   tipos={("Normal", "Com corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE,
+                          ("Normal", "Sem corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE,
+                          ("No meio", "Com corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE,
+                          ("No meio", "Sem corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE}),
             Cartao("Envoltório capa", "bandeja", "caixa_capa", tipo=TipoCaixa.ENVOLTORIO_CAPA),
             Cartao("FEFCO 0201", "catálogo de estilos", sigla="0201", acao=lambda: self._inicio_estilo("FEFCO 0201")),
             Cartao("FEFCO 0427", "catálogo de estilos", sigla="0427", acao=lambda: self._inicio_estilo("FEFCO 0427")),
@@ -1107,6 +1118,9 @@ class JanelaPrincipal(QMainWindow):
         barra.addWidget(self.painel_propriedades_mockup)
         self.barra_propriedades_mockup = barra
         barra.setFixedHeight(ALTURA_CONTEXTO)
+        # Sem a margem padrão da QToolBar: com ela o painel (da mesma altura
+        # da barra) descia 10 px e a linha ficava torta, cortada embaixo.
+        barra.layout().setContentsMargins(0, 0, 0, 0)
         # Organizar à direita das propriedades, na mesma linha de contexto.
         self.removeToolBar(self.barra_organizar)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.barra_organizar)

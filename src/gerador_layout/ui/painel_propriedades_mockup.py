@@ -136,7 +136,7 @@ class PainelPropriedadesMockup(QWidget):
 
         # ── Linha de contexto (este widget) ─────────────────────────
         raiz = QHBoxLayout(self)
-        raiz.setContentsMargins(4, 2, 4, 2)
+        raiz.setContentsMargins(12, 0, 8, 0)
         raiz.setSpacing(10)
         self._rotulo_tipo = QLabel("Nada selecionado")
         self._rotulo_tipo.setObjectName("rotuloTipoPropriedade")
@@ -248,6 +248,7 @@ class PainelPropriedadesMockup(QWidget):
         linha = QFrame()
         linha.setFrameShape(QFrame.Shape.VLine)
         linha.setFrameShadow(QFrame.Shadow.Sunken)
+        linha.setFixedHeight(20)  # um traço curto, não a altura toda da barra
         if forte:
             linha.setObjectName("separadorForte")
         return linha
@@ -266,6 +267,16 @@ class PainelPropriedadesMockup(QWidget):
         self._layout_campos = fluxo
 
     def _finalizar_abas(self, _chave_tipo: str) -> None:
+        # Sem traço sobrando no fim da linha (ficava solto antes do vazio).
+        while self._layout_linha.count():
+            ultimo = self._layout_linha.itemAt(self._layout_linha.count() - 1)
+            if ultimo.spacerItem() is not None or isinstance(ultimo.widget(), QFrame) and ultimo.widget().frameShape() == QFrame.Shape.VLine:
+                item = self._layout_linha.takeAt(self._layout_linha.count() - 1)
+                if item.widget() is not None:
+                    item.widget().hide()
+                    item.widget().deleteLater()
+                continue
+            break
         self._layout_linha.addStretch(1)
         self._layout_campos = self._layout_linha
 
@@ -327,11 +338,11 @@ class PainelPropriedadesMockup(QWidget):
         dá pra aprender "onde fica cada coisa" com o tempo só de cor)."""
         if forte:
             self._layout_campos.addSpacing(4)
-        linha = QFrame()
-        linha.setFrameShape(QFrame.Shape.VLine)
-        linha.setFrameShadow(QFrame.Shadow.Sunken)
-        if forte:
-            linha.setObjectName("separadorForte")
+        if self._layout_campos is not self._layout_linha:
+            # No inspetor cada seção já tem título; um traço solto no meio
+            # da grade só desorganiza.
+            return QFrame()
+        linha = self._linha_vertical(forte)
         self._layout_campos.addWidget(linha)
         if forte:
             self._layout_campos.addSpacing(4)
