@@ -206,23 +206,6 @@ class JanelaPrincipal(QMainWindow):
         self._timer_recuperacao.timeout.connect(self.salvar_recuperacao)
         self._timer_recuperacao.start()
 
-    def resizeEvent(self, evento) -> None:  # noqa: N802
-        super().resizeEvent(evento)
-        self._dividir_linha_de_contexto()
-
-    def _dividir_linha_de_contexto(self) -> None:
-        """Layout: propriedades e Organizar dividem a mesma linha. O Qt dá a
-        sobra pra última barra (Organizar) e as abas de propriedades ficavam
-        sem espaço; aqui as propriedades ficam com tudo menos o que o
-        Organizar precisa."""
-        barra = getattr(self, "barra_propriedades_mockup", None)
-        organizar = getattr(self, "barra_organizar", None)
-        if barra is None or organizar is None:
-            return
-        # Só a largura PREFERIDA (o mínimo continua o do painel): fixar a
-        # largura impedia a janela de encolher numa tela menor.
-        self.painel_propriedades_mockup.definir_largura_preferida(self.width() - organizar.sizeHint().width() - 40)
-
     def menuBar(self) -> QMenuBar:  # noqa: N802
         """Os menus moram na barra de título do redesign (`BarraTitulo`), não
         na faixa de menu padrão do Qt — mesmos menus, mesmos atalhos."""
@@ -538,7 +521,9 @@ class JanelaPrincipal(QMainWindow):
             # Desmarcado: borda na cor da tinta e o nome na mesma cor, clareada
             # ou escurecida o mínimo pra ler sobre o fundo (azul/magenta/preto
             # sumiam no tema escuro).
-            tr, tg, tb = cor_legivel_sobre(r, g, b)
+            # Texto pequeno sobre o cartão: 4,5:1 (Verde Escuro, Vinho, Marrom
+            # ficavam quase ilegíveis no tema escuro com 3:1 sobre a janela).
+            tr, tg, tb = cor_legivel_sobre(r, g, b, fundo=Cor.CARTAO, minimo=4.5)
             chip.setStyleSheet(
                 f"background: transparent; color: rgb({tr},{tg},{tb}); "
                 f"border: 1px solid rgb({tr},{tg},{tb});"
@@ -907,6 +892,7 @@ class JanelaPrincipal(QMainWindow):
         self.abas_tela.currentChanged.connect(self._trocar_tela)
 
     def _trocar_tela(self, indice: int) -> None:
+        largura_antes = self.width()
         modo_layout = indice == 1
         modo_3d = indice == 2
         self.pilha_visualizacao.setCurrentIndex(1 if modo_3d else 0)
@@ -930,9 +916,7 @@ class JanelaPrincipal(QMainWindow):
         self.barra_paleta.setVisible(modo_layout)
         # Dockers só na tela de Layout: ao sair, lembra quais estavam
         # abertos pra reabrir na volta.
-        if modo_layout:
-            self._abrir_inspetor_layout()
-        else:
+        if not modo_layout:
             if self._estava_no_layout:
                 self._guardar_inspetor_layout()
             self.dock_inspetor.hide()
@@ -941,6 +925,14 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_modo_mockup(modo_layout)
         if not modo_layout:
             self.painel_propriedades_mockup.definir_elemento(None)
+        if modo_layout:
+            self._abrir_inspetor_layout()
+        # Durante a troca o Qt soma as barras e o dock com o mínimo ANTIGO do
+        # centro e alarga a janela (numa tela de 1366 ela passava da borda e
+        # o Exportar e a paleta sumiam); assentado, o mínimo cabe de novo —
+        # então a janela volta pra largura em que estava.
+        if self.width() > largura_antes and not (self.isMaximized() or self.isFullScreen()):
+            QTimer.singleShot(0, lambda: self._voltar_largura(largura_antes))
         # Mostrar/esconder os painéis ao redor muda o tamanho disponível
         # do canvas — sem reencaixar aqui, a visão que estava centralizada
         # antes da troca fica deslocada (às vezes "presa" perto do canto
@@ -958,6 +950,14 @@ class JanelaPrincipal(QMainWindow):
             self._atualizar_modelo_3d()  # a faca pode ter sido editada na Dieline
             self._atualizar_arte_3d()
             self.visualizacao_3d.enquadrar()
+
+    def _voltar_largura(self, largura: int, tentativas: int = 20) -> None:
+        if self.width() <= largura:
+            return
+        if self.minimumSizeHint().width() <= largura:
+            self.resize(largura, self.height())
+        elif tentativas > 0:  # os layouts ainda não assentaram: tenta logo depois
+            QTimer.singleShot(30, lambda: self._voltar_largura(largura, tentativas - 1))
 
     def _ao_mudar_angulo_3d(self, linha: int, angulo: float) -> None:
         self._angulos_dobra[linha] = angulo
