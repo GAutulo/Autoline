@@ -179,6 +179,11 @@ class JanelaPrincipal(QMainWindow):
         # Projeto (.autoline) aberto: caminho e o estado salvo (pra saber se mudou).
         self._caminho_projeto: str | None = None
         self._largura_antes_de_alargar: int | None = None  # ver `_trocar_tela`
+        self._voltando_largura = False
+        self._tentativas_largura = 0
+        self._timer_largura = QTimer(self)
+        self._timer_largura.setSingleShot(True)
+        self._timer_largura.timeout.connect(self._voltar_largura)
         # Folha de aprovação: cliente, referência, código e as datas (vão no projeto).
         self._aprovacao: dict = {}
         self._assinatura_salva: str | None = None
@@ -945,7 +950,9 @@ class JanelaPrincipal(QMainWindow):
         # a volta é conferida sempre, não só se já alargou aqui.
         if self.isVisible() and not (self.isMaximized() or self.isFullScreen()):
             self._largura_antes_de_alargar = largura_antes
-            QTimer.singleShot(0, lambda: self._voltar_largura(largura_antes))
+            self._tentativas_largura = 20
+            self._voltando_largura = True  # o alargamento que vier até lá é desta troca
+            self._timer_largura.start(0)  # um timer só: a troca nova reinicia a conferência
         # Mostrar/esconder os painéis ao redor muda o tamanho disponível
         # do canvas — sem reencaixar aqui, a visão que estava centralizada
         # antes da troca fica deslocada (às vezes "presa" perto do canto
@@ -964,16 +971,31 @@ class JanelaPrincipal(QMainWindow):
             self._atualizar_arte_3d()
             self.visualizacao_3d.enquadrar()
 
-    def _voltar_largura(self, largura: int, tentativas: int = 20) -> None:
-        if self._largura_antes_de_alargar != largura:
-            return  # outra troca de tela já assumiu
-        if self.width() > largura and self.minimumSizeHint().width() <= largura:
-            self.resize(largura, self.height())
-        if tentativas > 0:  # os layouts podem ainda não ter assentado: confere logo depois
-            QTimer.singleShot(30, lambda: self._voltar_largura(largura, tentativas - 1))
-        elif self.width() <= largura:
-            # Voltou. Se não (o 3D não cabe), a próxima troca ainda mira aqui.
+    def resizeEvent(self, evento) -> None:  # noqa: N802
+        super().resizeEvent(evento)
+        # Fora da volta de uma troca de tela, quem mudou a largura foi a
+        # pessoa (ou o sistema): a largura guardada de antes não vale mais —
+        # senão a próxima troca encolhia a janela que ela alargou à mão.
+        if not getattr(self, "_voltando_largura", False):
             self._largura_antes_de_alargar = None
+
+    def _voltar_largura(self) -> None:
+        largura = self._largura_antes_de_alargar
+        if largura is None:
+            self._voltando_largura = False
+            return
+        try:
+            if self.width() > largura and self.minimumSizeHint().width() <= largura:
+                self.resize(largura, self.height())
+        finally:
+            self._tentativas_largura -= 1
+            if self._tentativas_largura > 0:  # os layouts podem ainda não ter assentado: confere logo depois
+                self._timer_largura.start(30)
+            else:
+                self._voltando_largura = False
+                if self.width() <= largura:
+                    # Voltou. Se não (o 3D não cabe), a próxima troca ainda mira aqui.
+                    self._largura_antes_de_alargar = None
 
     def _ao_mudar_angulo_3d(self, linha: int, angulo: float) -> None:
         self._angulos_dobra[linha] = angulo
