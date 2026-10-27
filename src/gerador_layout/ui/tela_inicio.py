@@ -130,10 +130,7 @@ class TelaInicio(QWidget):
             # Ignored: o texto do cartão não dita a largura mínima da janela.
             botao.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             botao.setMinimumWidth(110)
-            botao.setText(f"{cartao.sigla + '   ' if cartao.sigla else ''}{cartao.titulo}\n{cartao.detalhe}")
-            if cartao.icone:
-                botao.setIcon(construir_icone(cartao.icone))
-                botao.setIconSize(QSize(24, 24))
+            self._montar_conteudo_cartao(botao, cartao)
             if cartao.tipo is not None:
                 botao.setCheckable(True)
                 self._grupo_tipo.addButton(botao)
@@ -178,6 +175,41 @@ class TelaInicio(QWidget):
         if primeiro is not None:
             self.cartoes[primeiro.titulo].setChecked(True)
             self._escolher_cartao(primeiro)
+
+    @staticmethod
+    def _montar_conteudo_cartao(botao: QPushButton, cartao: Cartao) -> None:
+        """Ícone, título e detalhe em rótulos que QUEBRAM a linha: o texto do
+        próprio botão não quebra e cortava ("inteira ou meia ca") numa
+        janela estreita. Os rótulos deixam o clique passar pro botão."""
+        botao.setAccessibleName(f"{cartao.titulo} — {cartao.detalhe}")
+        botao.setToolTip(f"{cartao.titulo} — {cartao.detalhe}")
+        linha = QHBoxLayout(botao)
+        linha.setContentsMargins(14, 10, 14, 10)
+        linha.setSpacing(10)
+        if cartao.icone:
+            icone = QLabel()
+            icone.setPixmap(construir_icone(cartao.icone).pixmap(QSize(24, 24)))
+            linha.addWidget(icone, 0, Qt.AlignmentFlag.AlignVCenter)
+        elif cartao.sigla:
+            sigla = QLabel(cartao.sigla)
+            sigla.setObjectName("siglaCartao")
+            linha.addWidget(sigla, 0, Qt.AlignmentFlag.AlignVCenter)
+        textos = QVBoxLayout()
+        textos.setSpacing(2)
+        titulo = QLabel(cartao.titulo)
+        titulo.setObjectName("tituloCartao")
+        detalhe = QLabel(cartao.detalhe)
+        detalhe.setObjectName("detalheCartao")
+        textos.addStretch(1)
+        for rotulo in (titulo, detalhe):
+            rotulo.setWordWrap(True)
+            # Ignored: o texto quebra na largura do cartão em vez de ditá-la.
+            rotulo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            textos.addWidget(rotulo)
+        textos.addStretch(1)
+        linha.addLayout(textos, 1)
+        for rotulo in botao.findChildren(QLabel):
+            rotulo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def _escolher_cartao(self, cartao: Cartao) -> None:
         self._cartao_escolhido = cartao
