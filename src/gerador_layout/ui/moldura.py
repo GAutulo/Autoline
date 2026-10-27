@@ -11,7 +11,8 @@ liga as ações é a `JanelaPrincipal`; nada aqui muda o que o programa faz.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QRect, Qt
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -20,8 +21,12 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QPushButton,
     QSizePolicy,
+    QStatusBar,
+    QStyle,
+    QStyleOption,
     QTabBar,
     QToolButton,
+    QToolTip,
     QWidget,
 )
 
@@ -131,6 +136,51 @@ class PonteCorel(QWidget):
             "Ponte com o CorelDRAW: Exportar → Enviar para o CorelDRAW" if conectado
             else "Ponte com o CorelDRAW desligada — conecta sozinha ao enviar (Exportar → Enviar para o CorelDRAW)"
         )
+
+
+class BarraStatus(QStatusBar):
+    """Barra de status que corta a mensagem com "…" quando não cabe (a do
+    Qt só decepa a frase, ex. "Envoltório fechamento r") e mostra a frase
+    inteira na dica ao passar o mouse."""
+
+    def _area_mensagem(self) -> QRect:
+        # Como o Qt: da margem esquerda até o 1º item permanente visível.
+        direita = self.width() - 12
+        for filho in self.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            if filho.isVisible() and not filho.isWindow():
+                direita = min(direita, filho.x() - 2)
+        return QRect(6, 0, max(0, direita - 6), self.height())
+
+    def _mensagem_visivel(self) -> str:
+        area = self._area_mensagem()
+        return self.fontMetrics().elidedText(self.currentMessage(), Qt.TextElideMode.ElideRight, area.width())
+
+    def paintEvent(self, evento) -> None:  # noqa: N802 - API do Qt
+        pintor = QPainter(self)
+        opcao = QStyleOption()
+        opcao.initFrom(self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_PanelStatusBar, opcao, pintor, self)
+        if self.currentMessage():
+            pintor.setPen(self.palette().windowText().color())
+            pintor.drawText(
+                self._area_mensagem(),
+                Qt.AlignmentFlag.AlignLeading | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
+                self._mensagem_visivel(),
+            )
+
+    def event(self, evento) -> bool:  # noqa: N802 - API do Qt
+        if evento.type() == QEvent.Type.ToolTip:
+            mensagem = self.currentMessage()
+            if (
+                mensagem
+                and self._area_mensagem().contains(evento.pos())
+                and self._mensagem_visivel() != mensagem
+            ):
+                QToolTip.showText(evento.globalPos(), mensagem, self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(evento)
 
 
 def divisoria_status() -> QFrame:
