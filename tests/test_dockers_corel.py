@@ -162,3 +162,9 @@ def test_alinhar_um_objeto_na_face_sem_face_escolhida(janela):
     centro_h.click()
     assert el.painel_id == painel.id
     assert el.pos().x() + 5 == pytest.approx((painel.x1 + painel.x2) / 2)
+    # Ctrl+Z desfaz o alinhamento inteiro: a posição e a face que ele ganhou.
+    janela.canvas.pilha_desfazer.undo()
+    assert el.pos().x() == pytest.approx(painel.x1 + 2)
+    assert el.painel_id is None
+    janela.canvas.pilha_desfazer.redo()
+    assert el.painel_id == painel.id
