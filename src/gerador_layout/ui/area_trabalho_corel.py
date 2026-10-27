@@ -185,6 +185,10 @@ class PainelStatus(QWidget):
     """Lado permanente da barra de status: posição do cursor em mm, o que
     está selecionado e as amostras de preenchimento/contorno."""
 
+    # O espaço reservado (vazio) à esquerda cresceu ou encolheu: a mensagem
+    # da barra de status pode ocupá-lo (ver `inicio_do_conteudo`).
+    conteudo_mudou = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.rotulo_posicao = QLabel("")
@@ -213,14 +217,29 @@ class PainelStatus(QWidget):
         hbox.addWidget(self.amostra_contorno)
         hbox.addWidget(self.botao_conta_gotas)
 
+    def inicio_do_conteudo(self) -> int:
+        """x (no painel) onde começa o que está escrito. Antes disso só há
+        lugar reservado em branco — fica reservado pra o desenho não pular
+        quando o texto aparece."""
+        for w in (self.rotulo_posicao, self.rotulo_objeto, self.rotulo_cor, self.amostra_preenchimento):
+            if w.isVisible() and not (isinstance(w, QLabel) and not w.text()):
+                return w.x()
+        return self.width()
+
+    def _trocar_texto(self, rotulo: QLabel, texto: str) -> None:
+        vazio_antes = not rotulo.text()
+        rotulo.setText(texto)
+        if vazio_antes != (not texto):
+            self.conteudo_mudou.emit()
+
     def definir_posicao(self, ponto: QPointF | None) -> None:
         if ponto is None:
-            self.rotulo_posicao.setText("")
+            self._trocar_texto(self.rotulo_posicao, "")
             return
-        self.rotulo_posicao.setText(f"X {ponto.x():8.1f}   Y {ponto.y():8.1f} mm".replace(".", ","))
+        self._trocar_texto(self.rotulo_posicao, f"X {ponto.x():8.1f}   Y {ponto.y():8.1f} mm".replace(".", ","))
 
     def definir_objeto(self, descricao: str, preenchimento: QColor | None, contorno: QColor | None, mostrar_amostras: bool) -> None:
-        self.rotulo_objeto.setText(descricao)
+        self._trocar_texto(self.rotulo_objeto, descricao)
         self.amostra_preenchimento.definir_cor(preenchimento if mostrar_amostras else None)
         self.amostra_contorno.definir_cor(contorno if mostrar_amostras else None)
 
@@ -228,3 +247,4 @@ class PainelStatus(QWidget):
         """Só na tela de Layout (onde tem objeto pra pintar)."""
         for w in (self.rotulo_cor, self.amostra_preenchimento, self.amostra_contorno, self.botao_conta_gotas):
             w.setVisible(visiveis)
+        self.conteudo_mudou.emit()
