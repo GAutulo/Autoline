@@ -700,7 +700,10 @@ class VistaCaixa3D(QWidget):
         # 2º: só o recorte, na resolução do lado pedido.
         self._foto = {"escala": escala, "fundo": fundo, "origem": area.topLeft()}
         try:
-            for _ in range(3):  # a arte pode pedir textura maior: gera e pinta de novo
+            # A arte pode pedir textura maior: gera e pinta de novo (até 3
+            # vezes) — a última coisa é sempre pintar, com o que foi gerado.
+            for tentativa in range(4):
+                imagem = None  # solta a foto anterior antes de alocar a próxima
                 imagem = QImage(
                     max(1, round(area.width() * escala)), max(1, round(area.height() * escala)),
                     QImage.Format.Format_ARGB32_Premultiplied,
@@ -710,7 +713,7 @@ class VistaCaixa3D(QWidget):
                 antes = {k for k, t in self._texturas.items() if t[0] is not None}
                 self._pintar(None, alvo=imagem)
                 novas = {k for k, t in self._texturas.items() if t[0] is not None} != antes
-                if not (self._texturas_pendentes or self._detalhes_pendentes or novas):
+                if tentativa == 3 or not (self._texturas_pendentes or self._detalhes_pendentes or novas):
                     break
                 pendentes, self._texturas_pendentes = self._texturas_pendentes, {}
                 self._gerar_texturas(pendentes)
