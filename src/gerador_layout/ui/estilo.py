@@ -869,6 +869,32 @@ QPushButton#cartaoEstilo:checked {{
     border-color: {Cor.PRIMARIA};
     color: {Cor.TEXTO};
 }}
+/* Variantes do estilo no Início (inteira/meia, com/sem corte): segmentado. */
+QPushButton#opcaoVariante {{
+    background: {Cor.CAMPO};
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: 1px solid {Cor.BORDA};
+    border-radius: 0;
+    padding: 7px 16px;
+    font-weight: 600;
+}}
+QPushButton#opcaoVariante[posicao="primeiro"] {{
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+}}
+QPushButton#opcaoVariante[posicao="ultimo"] {{
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-left: none;
+}}
+QPushButton#opcaoVariante[posicao="meio"] {{
+    border-left: none;
+}}
+QPushButton#opcaoVariante:checked {{
+    background: {Cor.PRIMARIA_CLARA};
+    color: {Cor.TEXTO};
+    border-color: {Cor.PRIMARIA};
+}}
 QListWidget#listaRecentes {{
     background: {Cor.CARTAO};
     border: 1px solid {Cor.BORDA};
