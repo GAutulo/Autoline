@@ -373,6 +373,8 @@ def test_conta_gotas_dentro_de_grupo_e_sem_selecao():
 
 
 def test_mensagem_longa_da_barra_de_status_corta_com_reticencias():
+    from PySide6.QtCore import QPointF
+
     from gerador_layout.ui.main_window import JanelaPrincipal
 
     j = JanelaPrincipal()
@@ -389,4 +391,15 @@ def test_mensagem_longa_da_barra_de_status_corta_com_reticencias():
     assert barra.currentMessage() == frase  # a frase inteira continua lá (dica)
     barra.showMessage("Curta")
     assert barra._mensagem_visivel() == "Curta"
+    # O lugar reservado em branco do painel (cursor fora do desenho) também
+    # serve pra mensagem; com a posição escrita, ela para antes.
+    painel = j.painel_status
+    painel.definir_posicao(None)
+    painel.definir_objeto("", None, None, False)
+    QApplication.processEvents()
+    livre = barra._area_mensagem().right()
+    assert livre > painel.x()
+    painel.definir_posicao(QPointF(10, 20))
+    QApplication.processEvents()
+    assert barra._area_mensagem().right() < painel.x()
     j.close()
