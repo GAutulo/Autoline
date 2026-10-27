@@ -4218,6 +4218,9 @@ class PainelLegendaCores(QWidget):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Esconde antes: fora do layout, até o `deleteLater` rodar ele
+                # aparecia solto (640 × 480) por cima da linha da legenda.
+                widget.hide()
                 widget.deleteLater()
 
         if not cores:

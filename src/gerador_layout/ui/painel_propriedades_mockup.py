@@ -229,21 +229,6 @@ class PainelPropriedadesMockup(QWidget):
         vertical.addWidget(corpo)
         return caixa, fluxo
 
-    _largura_preferida = 0
-
-    def definir_largura_preferida(self, largura: int) -> None:
-        """A janela diz quanto sobra na linha de contexto (descontado o
-        Organizar à direita) — ver `JanelaPrincipal._dividir_linha_de_contexto`."""
-        if largura != self._largura_preferida:
-            self._largura_preferida = largura
-            self.updateGeometry()
-
-    def sizeHint(self):  # noqa: N802
-        """O que sobra na linha (nunca menos que o mínimo; as abas rolam)."""
-        dica = super().sizeHint()
-        dica.setWidth(max(self.minimumSizeHint().width(), self._largura_preferida))
-        return dica
-
     def _linha_vertical(self, forte: bool = False) -> QFrame:
         linha = QFrame()
         linha.setFrameShape(QFrame.Shape.VLine)
@@ -881,13 +866,16 @@ class PainelPropriedadesMockup(QWidget):
         centralizado_h = abs(esq - dir_) <= self._TOLERANCIA_CENTRALIZADO_MM
         centralizado_v = abs(topo - base) <= self._TOLERANCIA_CENTRALIZADO_MM
 
+        def mm(valor: float) -> str:  # vírgula decimal, como os campos
+            return f"{valor:.1f}".replace(".", ",")
+
         partes = [
-            f"Esq. {esq:.1f} / Dir. {dir_:.1f} mm" + (" (centralizado H)" if centralizado_h else ""),
-            f"Topo {topo:.1f} / Base {base:.1f} mm" + (" (centralizado V)" if centralizado_v else ""),
+            f"Esq. {mm(esq)} / Dir. {mm(dir_)} mm" + (" (centralizado H)" if centralizado_h else ""),
+            f"Topo {mm(topo)} / Base {mm(base)} mm" + (" (centralizado V)" if centralizado_v else ""),
         ]
         rotulo.setToolTip("\n".join(partes))
         menor = min(esq, dir_, topo, base)
-        rotulo.setText(f"Na face {painel.nome}: {menor:.1f} mm da borda mais próxima.\n" + "\n".join(partes))
+        rotulo.setText(f"Na face {painel.nome}: {mm(menor)} mm da borda mais próxima.\n" + "\n".join(partes))
 
     def _alinhar_ao_painel(self, alinhamento: str) -> None:
         elemento = self._elemento
