@@ -1025,6 +1025,12 @@ QToolButton#botaoAlinharFace:hover {{
     background: {Cor.PRIMARIA_CLARA};
     border-color: {Cor.PRIMARIA};
 }}
+/* Desligado (ex.: "Entre os selecionados" com 1 objeto): some o fundo,
+   pra ficar claro de relance o que dá pra usar agora. */
+QToolButton#botaoAlinharFace:disabled {{
+    background: transparent;
+    border: 1px dashed {Cor.BORDA};
+}}
 QToolButton#botaoTextoInspetor {{
     background: transparent;
     color: {Cor.TEXTO_SECUNDARIO};
