@@ -146,3 +146,19 @@ def test_menu_objeto_e_janelas_de_encaixe_abrem_de_qualquer_tela(janela):
     combinar = next(a for a in janela._menu_objeto.actions() if a.text().startswith("Combinar"))
     combinar.trigger()  # sem seleção: vai pro Layout e só avisa
     assert janela.abas_tela.currentIndex() == 1
+
+
+def test_alinhar_um_objeto_na_face_sem_face_escolhida(janela):
+    """Com um objeto só: "Entre os selecionados" fica desligado (com a dica)
+    e "Na face" acha a face onde ele está, sem ter escolhido antes."""
+    painel = next(p for p in janela._paineis_disponiveis() if p.largura > 50)
+    el = _ret(janela, painel.x1 + 2, painel.y1 + 2, largura=10)
+    el.definir_painel(None)
+    _selecionar(janela, el)
+    docker = janela.docker_alinhar
+    assert not any(b.isEnabled() for b in docker._botoes["selecao"])
+    assert all(b.isEnabled() for b in docker._botoes["face"])
+    centro_h = next(b for b in docker._botoes["face"] if "Centros na vertical" in b.toolTip())
+    centro_h.click()
+    assert el.painel_id == painel.id
+    assert el.pos().x() + 5 == pytest.approx((painel.x1 + painel.x2) / 2)

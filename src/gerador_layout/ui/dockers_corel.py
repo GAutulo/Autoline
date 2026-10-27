@@ -3,8 +3,8 @@ REFERENCIA_CORELDRAW.md, plano etapa 5:
 
 - **Objetos**: as "camadas" (Arte e Faca) e cada elemento, com
   visibilidade; clicar na lista seleciona no desenho e vice-versa.
-- **Alinhar e distribuir**: alinhar com a seleção, a página (chapa) ou a
-  face; distribuir centros ou espaços.
+- **Alinhar e distribuir**: alinhar entre os selecionados, na face de
+  cada um ou na página (chapa); distribuir centros ou espaços.
 - **Transformações**: posição, rotação, escala/espelho e tamanho, com o
   campo **Cópias** do CorelDRAW (aplica numa cópia, cumulativamente).
 
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QRadioButton,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QToolButton,
@@ -178,58 +178,104 @@ _ALINHAMENTOS = (
 
 
 class DockerAlinhar(QWidget):
-    """Alinhar e distribuir (Ctrl+Shift+A no CorelDRAW)."""
+    """Alinhar e distribuir (Ctrl+Shift+A no CorelDRAW). Uma linha de
+    botões por referência — entre os selecionados, na face de cada um, na
+    página — em vez de escolher a referência num rádio e depois o botão
+    (com um objeto só e "Seleção" marcada, nada acontecia, sem aviso)."""
+
+    REFERENCIAS = (
+        ("selecao", "Entre os selecionados", "Selecione 2 ou mais objetos."),
+        ("face", "Na face", "Cada objeto na face da caixa em que está."),
+        ("pagina", "Na página", "Na chapa inteira."),
+    )
 
     def __init__(self, canvas, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._canvas = canvas
+        self._referencia = "selecao"
+        self.setObjectName("conteudoInspetor")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         vbox = QVBoxLayout(self)
-        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setContentsMargins(16, 16, 16, 16)
+        vbox.setSpacing(8)
 
-        vbox.addWidget(QLabel("<b>Alinhar com</b>"))
-        self._referencias = QButtonGroup(self)
-        linha_ref = QHBoxLayout()
-        for chave, rotulo in (("selecao", "Seleção"), ("pagina", "Página"), ("face", "Face")):
-            botao = QRadioButton(rotulo)
-            botao.setProperty("referencia", chave)
-            self._referencias.addButton(botao)
-            linha_ref.addWidget(botao)
-            if chave == "selecao":
-                botao.setChecked(True)
-        vbox.addLayout(linha_ref)
+        self._botoes: dict[str, list[QToolButton]] = {}
+        self._dicas: dict[str, QLabel] = {}
+        for chave, titulo, dica in self.REFERENCIAS:
+            rotulo = QLabel(titulo.upper())
+            rotulo.setObjectName("tituloSecaoInspetor")
+            vbox.addWidget(rotulo)
+            linha = QHBoxLayout()
+            linha.setSpacing(4)
+            botoes = []
+            for icone, alinhamento, texto in _ALINHAMENTOS:
+                botao = QToolButton()
+                botao.setObjectName("botaoAlinharFace")
+                botao.setIcon(construir_icone(icone))
+                botao.setToolTip(f"{texto} — {titulo.lower()}")
+                botao.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                botao.clicked.connect(lambda _c=False, r=chave, a=alinhamento: self._alinhar_com(r, a))
+                linha.addWidget(botao)
+                botoes.append(botao)
+            vbox.addLayout(linha)
+            self._botoes[chave] = botoes
+            texto_dica = QLabel(dica)
+            texto_dica.setObjectName("legendaMuted")
+            texto_dica.setWordWrap(True)
+            vbox.addWidget(texto_dica)
+            self._dicas[chave] = texto_dica
+            vbox.addSpacing(10)
 
-        grade = QGridLayout()
-        for i, (icone, alinhamento, dica) in enumerate(_ALINHAMENTOS):
-            botao = QToolButton()
-            botao.setIcon(construir_icone(icone))
-            botao.setToolTip(dica)
-            botao.setObjectName(f"alinhar_{alinhamento}")
-            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar(a))
-            grade.addWidget(botao, i // 3, i % 3)
-        vbox.addLayout(grade)
-
-        vbox.addSpacing(10)
-        vbox.addWidget(QLabel("<b>Distribuir</b> (3 ou mais objetos)"))
+        rotulo = QLabel("DISTRIBUIR")
+        rotulo.setObjectName("tituloSecaoInspetor")
+        vbox.addWidget(rotulo)
         grade_dist = QGridLayout()
-        for linha, (eixo, rotulo_eixo) in enumerate((("h", "Horizontal"), ("v", "Vertical"))):
-            grade_dist.addWidget(QLabel(rotulo_eixo), linha, 0)
-            for coluna, (modo, rotulo) in enumerate((("centros", "Centros"), ("espacos", "Espaços")), start=1):
-                botao = QPushButton(rotulo)
+        grade_dist.setHorizontalSpacing(6)
+        grade_dist.setVerticalSpacing(6)
+        self._botoes_distribuir: list[QPushButton] = []
+        for linha_g, (eixo, rotulo_eixo) in enumerate((("h", "Horizontal"), ("v", "Vertical"))):
+            grade_dist.addWidget(QLabel(rotulo_eixo), linha_g, 0)
+            for coluna, (modo, texto) in enumerate((("centros", "Centros"), ("espacos", "Espaços")), start=1):
+                botao = QPushButton(texto)
                 botao.setObjectName(f"distribuir_{eixo}_{modo}")
                 botao.clicked.connect(lambda _c=False, e=eixo, m=modo: self._canvas.distribuir(e, m))
-                grade_dist.addWidget(botao, linha, coluna)
+                grade_dist.addWidget(botao, linha_g, coluna)
+                self._botoes_distribuir.append(botao)
         vbox.addLayout(grade_dist)
+        self._dica_distribuir = QLabel("Selecione 3 ou mais objetos.")
+        self._dica_distribuir.setObjectName("legendaMuted")
+        vbox.addWidget(self._dica_distribuir)
         vbox.addStretch(1)
 
+        canvas.cena.selectionChanged.connect(self._atualizar_estado)
+        self._atualizar_estado()
+
+    def _atualizar_estado(self) -> None:
+        try:
+            n = len([it for it in self._canvas.cena.selectedItems() if isinstance(it, ElementoMockup)])
+        except RuntimeError:  # cena já destruída ao fechar
+            return
+        for chave, botoes in self._botoes.items():
+            ativo = n >= 2 if chave == "selecao" else n >= 1
+            for botao in botoes:
+                botao.setEnabled(ativo)
+        self._dicas["selecao"].setVisible(n < 2)
+        for botao in self._botoes_distribuir:
+            botao.setEnabled(n >= 3)
+        self._dica_distribuir.setVisible(n < 3)
+
     def referencia(self) -> str:
-        return self._referencias.checkedButton().property("referencia")
+        return self._referencia
 
     def definir_referencia(self, chave: str) -> None:
-        for botao in self._referencias.buttons():
-            botao.setChecked(botao.property("referencia") == chave)
+        self._referencia = chave
 
     def _alinhar(self, alinhamento: str) -> None:
-        self._canvas.alinhar_a(self.referencia(), alinhamento)
+        self._alinhar_com(self._referencia, alinhamento)
+
+    def _alinhar_com(self, referencia: str, alinhamento: str) -> None:
+        self._referencia = referencia
+        self._canvas.alinhar_a(referencia, alinhamento)
 
 
 def _spin(minimo: float, maximo: float, valor: float, sufixo: str, decimais: int = 2) -> QDoubleSpinBox:
