@@ -207,6 +207,9 @@ def test_foto_do_3d_sai_com_a_arte_mesmo_com_a_aba_fechada():
         if (c := imagem.pixelColor(x, y)).red() > 200 and c.green() < 60 and c.blue() < 60
     )
     assert vermelhos > 50
+    # A folha: o recorte da caixa sai sempre com 4000 px no lado maior (antes
+    # escalava a vista inteira e a caixa, que ocupa um pedaço dela, saía borrada).
+    assert max(imagem.width(), imagem.height()) == 4000
     j.close()
 
 
