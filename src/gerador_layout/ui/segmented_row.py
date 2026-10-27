@@ -112,7 +112,7 @@ class LinhaTrechos(QWidget):
         return spin
 
     def _criar_coluna_total(self) -> QWidget:
-        self.campo_total = QLabel("0.0")
+        self.campo_total = QLabel("0,0")
         self.campo_total.setFixedSize(80, 24)  # cabe "1004.0" com folga
         self.campo_total.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.campo_total.setToolTip("Total")
@@ -187,4 +187,4 @@ class LinhaTrechos(QWidget):
                 spin.blockSignals(False)
 
     def definir_total(self, valor: float) -> None:
-        self.campo_total.setText(f"{valor:.1f}")
+        self.campo_total.setText(f"{valor:.1f}".replace(".", ","))  # vírgula, como os campos ao lado

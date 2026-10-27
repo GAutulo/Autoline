@@ -116,7 +116,9 @@ class Cor:
     exige reiniciar o app."""
 
 
-def cor_legivel_sobre(r: int, g: int, b: int, fundo: str | None = None) -> tuple[int, int, int]:
+def cor_legivel_sobre(
+    r: int, g: int, b: int, fundo: str | None = None, minimo: float = 3.0
+) -> tuple[int, int, int]:
     """A própria cor (vermelho escrito em vermelho), clareada ou escurecida
     o mínimo pra ter contraste de leitura (≥ 3:1) sobre o fundo do tema —
     "Preto" sobre o fundo escuro, "Amarelo" sobre o claro."""
@@ -137,7 +139,7 @@ def cor_legivel_sobre(r: int, g: int, b: int, fundo: str | None = None) -> tuple
         t = passo / 10
         c = tuple(round(cor[i] + (alvo[i] - cor[i]) * t) for i in range(3))
         lc = luminancia(c)
-        if (max(lc, lf) + 0.05) / (min(lc, lf) + 0.05) >= 3.0:
+        if (max(lc, lf) + 0.05) / (min(lc, lf) + 0.05) >= minimo:
             return c
     return alvo
 
@@ -436,6 +438,10 @@ QStatusBar {{
     background: {Cor.CARTAO};
     border-top: 1px solid {Cor.BORDA};
     color: {Cor.TEXTO_SECUNDARIO};
+}}
+/* Sem a moldura nativa de cada item: com ela as divisórias saíam dobradas. */
+QStatusBar::item {{
+    border: none;
 }}
 
 /* ── Abas de tela (Dieline / Layout, ver main_window.py) ────────────
