@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from gerador_layout.models import CorImpressao  # noqa: E402
@@ -97,6 +98,9 @@ def test_guia_nao_estraga_o_ajustar_a_tela(janela):
     for aba in (2, 0):  # o caso relatado: ir pro 3D e voltar
         janela.abas_tela.setCurrentIndex(aba)
         _processar()
+    # Se o 3D alargou a janela, ela volta à largura de antes logo depois.
+    QTest.qWait(800)
+    assert janela.width() == 1400
     canvas.ajustar_a_tela()
     assert canvas.transform().m11() == pytest.approx(zoom, rel=0.05)
 
