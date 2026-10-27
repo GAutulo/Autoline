@@ -105,6 +105,20 @@ def test_guia_nao_estraga_o_ajustar_a_tela(janela):
     assert canvas.transform().m11() == pytest.approx(zoom, rel=0.05)
 
 
+def test_largura_que_o_usuario_escolheu_nao_e_desfeita_na_troca_de_tela(janela):
+    """Sobrou guardada a largura de antes do 3D (ele não coube) e depois a
+    pessoa alargou a janela à mão: trocar de tela não pode encolhê-la."""
+    janela.abas_tela.setCurrentIndex(1)
+    QTest.qWait(800)
+    janela._largura_antes_de_alargar = 1000  # o 3D não coube e a volta não aconteceu
+    janela.resize(1500, 900)  # a pessoa alarga à mão
+    _processar()
+    janela.abas_tela.setCurrentIndex(0)
+    _processar()
+    QTest.qWait(800)
+    assert janela.width() == 1500
+
+
 def test_zoom_nao_prende_o_desenho_no_canto(janela):
     canvas = janela.canvas
     janela.spin_comprimento.setValue(80)
