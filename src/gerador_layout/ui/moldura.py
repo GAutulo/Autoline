@@ -144,11 +144,14 @@ class BarraStatus(QStatusBar):
     inteira na dica ao passar o mouse."""
 
     def _area_mensagem(self) -> QRect:
-        # Como o Qt: da margem esquerda até o 1º item permanente visível.
+        # Como o Qt: da margem esquerda até o 1º item permanente visível —
+        # ou até onde ele começa a ter texto, se a frente dele é lugar
+        # reservado em branco (`inicio_do_conteudo`, ex. o `PainelStatus`).
         direita = self.width() - 12
         for filho in self.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
             if filho.isVisible() and not filho.isWindow():
-                direita = min(direita, filho.x() - 2)
+                inicio = getattr(filho, "inicio_do_conteudo", None)
+                direita = min(direita, filho.x() + (inicio() if inicio else 0) - 2)
         return QRect(6, 0, max(0, direita - 6), self.height())
 
     def _mensagem_visivel(self) -> str:
