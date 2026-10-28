@@ -77,6 +77,42 @@ Autoline. O CorelDRAW virou opcional.
 As caixas são desenhadas em **escala 1:10**: uma caixa de 605 mm é
 desenhada com 60,5 mm. A folha de aprovação mostra a medida real.
 
+## Telas
+
+Prints em 1366 px com um projeto de demonstração: maleta normal
+605 × 400 × 320 mm, desenhada em 1:10.
+
+**Início.** Estilo, variantes e C × L × A, mais os recentes com miniatura.
+
+![Tela de Início](capturas/escuro_01_inicio.png)
+
+**Dieline.** A faca, a legenda de cores e os trechos da impressora e do
+riscador.
+
+![Dieline](capturas/escuro_02_dieline.png)
+
+**Layout.** A arte por face, com o inspetor à direita: geometria,
+alinhar ao painel, tinta e espaçamento.
+
+![Layout no tema escuro](capturas/escuro_04_layout_propriedades.png)
+
+![Layout no tema claro](capturas/claro_04_layout_propriedades.png)
+
+**3D.** A caixa montada com a arte e o papelão na escala 1:10.
+
+![3D](capturas/escuro_08_3d_montada.png)
+
+**Exportar.** Arquivos de produção, saídas para o cliente e "Salvar tudo".
+
+![Exportar](capturas/escuro_10_exportar.png)
+
+**Folha de aprovação** (PDF A4). Na página 1, a faca com a arte; na
+página 2, o 3D.
+
+![Folha de aprovação, página 1](capturas/folha_aprovacao_p1.png)
+
+![Folha de aprovação, página 2](capturas/folha_aprovacao_p2.png)
+
 ## Rodando localmente
 
 <!-- AUTO-GENERATED: requirements*.txt, app.py, Autoline.spec -->
@@ -127,6 +163,7 @@ src/gerador_layout/
     ├── estilo.py          # temas (tokens) e folha de estilo QSS
     └── dialogo_*.py       # Configurações, Exportar, estilos, construtor, manual...
 tests/                     # pytest, um arquivo por área
+capturas/                  # prints das telas usados neste README
 miniatura_explorer/        # miniatura do .autoline no Explorer (C#)
 assets/                    # ícone e fontes (Archivo, IBM Plex)
 ```
@@ -153,8 +190,12 @@ assets/                    # ícone e fontes (Archivo, IBM Plex)
 - `REFERENCIA_CORELDRAW.md`, `REFERENCIA_ARTIOSCAD_ESTRUTURA.md` e
   `REFERENCIA_FERRAMENTAS_ARTIOSCAD.md`: estudos de sala limpa e o plano de
   cada etapa.
-- Notas de trabalho (funcionalidades, bugs, decisões e mapa do código)
-  ficam no cofre Obsidian local, em `docs/`, que não vai para o repositório.
+- O cofre Obsidian local, em `docs/`, não vai para o repositório. Ele
+  guarda:
+  - o **Guia do Autoline**, tela por tela, com todos os prints, inclusive
+    diálogos, Configurações, catálogo de estilos e construtor;
+  - as notas de funcionalidades, bugs e decisões;
+  - o mapa do código.
 
 ## Licença
 
