@@ -112,6 +112,6 @@ cotas persistentes, camadas Corte/Vinco/Arte, e edição de nós na faca.
 - Modelar preservando curvas Bézier (hoje o resultado é achatado em segmentos curtos) e **Simplificar**.
 - **Clique duplo pra girar/inclinar** (no Autoline a rotação é pela alça redonda).
 - **Zoom (Z) e Mão (H)** como ferramentas; hoje é roda do mouse e botão do meio.
-- **Cores CMYK/Pantone** e separação: a paleta usa as tintas da legenda.
+- **Cores CMYK/Pantone** e separação: a paleta usa as tintas da legenda (19 comuns e tintas próprias com nome, como "Pantone 286", desde o PR #48), sem valores CMYK.
 - O envio ao CorelDRAW de **curvas, cotas e espelho** foi escrito pela API documentada e testado
   com um objeto COM falso; falta conferir com o CorelDRAW aberto.
