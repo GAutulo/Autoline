@@ -85,4 +85,4 @@ Escopo: só as ferramentas já relevantes pro Autoline (ver conversa anterior de
 1. Ctrl durante o arrasto (não só Ctrl+D) pra duplicar.
 2. Shift durante o arrasto pra restringir a um eixo.
 3. Medida: confirmar troca de modo por Tab e "clique fixa o popup".
-4. Não confundir "construction lines" (apoio de desenho, descartável) com "zonas seguras" (feature de segurança de impressão, ainda pendente) na hora de nomear/implementar.
+4. Não confundir "construction lines" (apoio de desenho, descartável) com "zonas seguras" (feature de segurança de impressão, hoje em Exibir > Zonas seguras) na hora de nomear/implementar.

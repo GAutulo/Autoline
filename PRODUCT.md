@@ -10,11 +10,16 @@ desktop (Windows, Qt/PySide6)
 
 ## Users
 
-Uso interno/pessoal: o próprio usuário (ou sua equipe) usa o Autoline para gerar layouts de caixas de papel para produção própria — não é, hoje, um produto vendido a terceiros.
+Hoje, uso interno: eu e a equipe da Bacaro usamos o Autoline para gerar os layouts das caixas, mandar a folha de aprovação ao cliente e levar o trabalho à produção. O plano comercial é licenciá-lo para gráficas de embalagem de papelão ondulado quando o produto estiver completo; até lá, não é vendido a terceiros.
 
 ## Product Purpose
 
-Gera layouts de faca (dieline) para caixas de papel/embalagem e permite montar um mockup visual sobre esse layout (texto, imagens, logotipo vetorial com separação de cor, formas, checklist de cores de impressão). Exporta o resultado para SVG/PDF/JPG e, atualmente, automatiza o CorelDRAW via COM para levar o layout completo (estrutura + mockup) direto para dentro do CorelDRAW.
+Gera a faca (dieline) de caixas de papelão ondulado: 9 tipos prontos, estilos paramétricos FEFCO, construtor por trechos e faca editável. Sobre ela, monta a arte: texto, checklist e tabela no padrão da máquina, formas, curvas, cotas, imagens, logotipo vetorial com separação de cor e banco de simbologias. Mostra a caixa montada em 3D com a arte e o papelão. Gera as saídas:
+- JPG, SVG e PDF;
+- a folha de aprovação em PDF, que vai para o cliente;
+- o arquivo de projeto `.autoline`.
+
+A ponte COM com o CorelDRAW continua disponível, mas não é mais necessária para fechar um trabalho.
 
 ## Positioning
 
@@ -22,22 +27,33 @@ Alternativa mais acessível e barata que o ArtiosCAD (citado pelo usuário como 
 
 ## Operating Context
 
-Fluxo de produção gráfica de embalagens no Brasil: cálculo de painéis/faces da caixa (`paineis.py`), montagem de mockup sobre o layout, legenda/checklist de cores de tinta para impressão, exportação para arquivos de produção (SVG/PDF/JPG) e, hoje, para o CorelDRAW via automação COM (Windows).
+Fluxo de produção gráfica de embalagens no Brasil. O fluxo é este:
+1. Tipo e medidas (em escala 1:10).
+2. Faca.
+3. Arte por face, com as tintas do trabalho.
+4. Conferência no 3D.
+5. Folha de aprovação para o cliente.
+6. A cada alteração pedida pelo cliente, "Salvar e exportar tudo": projeto, JPG do layout e foto 3D nas pastas da empresa.
+
+Telas usadas numa tela de notebook comum (1366 px), nos temas claro e escuro.
 
 ## Capabilities and Constraints
 
 - Requer Windows (constraint de plataforma).
 - Não requer CorelDRAW instalado como dependência obrigatória de longo prazo — a automação COM existente é um recurso de ponte; a intenção explícita é que o Autoline não dependa dele no futuro.
 - Mercado-alvo: Brasil, interface e nomenclatura em português (PT-BR).
-- Motor de mockup (Fase 2) já implementado: seleção/edição de elementos, painéis, texto, formas, imagem PNG, logotipo vetorial com separação de cor, checklist de cores — com propriedades avançadas inspiradas em ArtiosCAD (campos universais de posição/tamanho/rotação, alinhar ao painel, ordem de empilhamento, travar proporção); pendentes: zonas seguras/copy-free, biblioteca de símbolos, desfazer/refazer.
+- Caixas desenhadas em escala 1:10. Padrões e mínimos novos têm que caber nessa escala; só a folha de aprovação mostra a medida real.
+- Texto novo no padrão da máquina da fábrica: Arial Black, letra de 2 mm, 66,7% de largura.
+- O que já foi pendente e hoje existe: zonas seguras (recuo do vinco), banco de simbologias, desfazer/refazer completo, 3D com qualquer faca, arquivo de projeto com recuperação automática.
+- Ainda não coberto: cores CMYK/Pantone com separação (hoje são tintas com nome) e mais estilos FEFCO/ECMA.
 
 ## Brand Commitments
 
-Nome do produto: **Autoline** (rebranding já aplicado nesta sessão anterior). Paleta de marca: Carvão / Kraft / Tinta / Osso, com cor primária assimétrica por tema (kraft puro no tema escuro, kraft escuro no tema claro, ajustada para contraste WCAG). Tipografia: Big Shoulders Stencil (exibição) + IBM Plex (corpo/UI). Ícone e nome do executável já atualizados; repositório no GitHub já renomeado e privado.
+Nome do produto: **Autoline**. Logotipo "Dobra": o A de duas faces de uma caixa dobrada, com a travessa tracejada como um vinco. Paleta do redesign: grafite em degraus com um único acento âmbar, que é também a face kraft do logotipo; o âmbar muda de tom entre os temas para manter o contraste WCAG. Tipografia: Archivo 700 semi-expandida só na marca e nos títulos de tela, IBM Plex Sans na interface e IBM Plex Mono nas medidas. Detalhes em `DESIGN.md`. O repositório no GitHub é privado.
 
 ## Evidence on Hand
 
-Aplicativo funcional com motor de mockup completo (Fase 2), exportação SVG/PDF/JPG e automação CorelDRAW verificados ao vivo nesta sessão. Não há clientes, depoimentos ou material de imprensa — uso é interno, sem histórico de comercialização até o momento.
+Em uso na produção da Bacaro. As folhas de aprovação já saem do Autoline em vez de serem montadas à mão no Corel. Até 27/10/2026 foram 80 PRs e há 344 testes automatizados. Não há clientes externos, depoimentos nem material de imprensa: o uso é interno, sem histórico de comercialização.
 
 ## Product Principles
 
