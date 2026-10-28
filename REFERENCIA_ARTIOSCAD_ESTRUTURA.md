@@ -72,6 +72,6 @@ instalado nesta máquina). Texto resumido com palavras próprias.
 | E | **Estilos paramétricos**: faca definida por variáveis/expressões (C, L, A, espessura), validações, diagrama cotado, ângulo e ordem de dobra por vinco, salvar a própria faca como estilo, catálogo FEFCO 0201 e 0427 | Feito — PR #24 (mais estilos FEFCO/ECMA: próximas rodadas) |
 | F | Espessura do papelão no 3D: escolha do papelão (cartão, E, B, C, BC), lado de dentro deslocado e borda cortada visível; estilo do catálogo já escolhe o papelão | Feito — PR #25 (folga de vinco e sentido da onda: próximas rodadas) |
 
-Os 6 tipos atuais continuam com a dobra própria deles (sequência de
+Os tipos prontos (hoje 9, contando meia caixa e envoltório capa) continuam com a dobra própria deles (sequência de
 montagem e abas por baixo), que é melhor que a genérica pra eles; a dobra
 genérica entra quando a faca é editada à mão ou desenhada livre.

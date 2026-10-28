@@ -166,7 +166,28 @@ A personalidade é **densa mas organizada**: o Autoline assume bastante informa�
 
 ## Layout
 
-Layout de duas colunas fixas (`painelEsquerdo` / `painelDireito`, ambos no tom `FUNDO_JANELA`) ladeando um canvas central, com abas (`QTabBar`) separando os fluxos Dieline e Layout. Painéis flutuantes/docáveis (propriedades do mockup) usam `QScrollArea` com fundo transparente para herdar o tema em vez do chrome nativo cinza do Qt. Densidade de espaçamento é média-alta de propósito (ver `## Overview`): cartões com padding 16/12/12/12px, campos com padding 4px/8px, mas uma exceção documentada existe (`grupoMedidasGeradas`, padding reduzido 6px/8px) para tabelas densas de números onde o padding padrão desperdiçaria altura útil sem ganho de legibilidade.
+A moldura (`ui/moldura.py`) tem duas partes:
+- **Barra de título** de 48 px: símbolo, menus, nome do projeto (● âmbar se há alteração não salva), seletor central Dieline | Layout | 3D, desfazer/refazer e o botão primário Exportar.
+- **Barra de status** embaixo: mensagem com reticências e a frase inteira na dica, posição do cursor, objeto, amostras de cor, Encaixe, Guias dinâmicas, tintas, CorelDRAW e zoom.
+
+Abaixo da barra de título, cada tela tem a sua **linha de contexto** de 44 px:
+- Dieline: barra Faca.
+- Layout: tipo do objeto e opções principais, mais Organizar.
+- 3D: os controles ficam na própria vista.
+
+A área de trabalho:
+- O painel esquerdo (tipo, medidas e trechos) aparece na Dieline e no 3D.
+- O canvas fica ao centro, com a legenda de cores (chips) e as réguas.
+- No Layout, o **inspetor** fica à direita, entre o desenho e a paleta de tintas.
+- A tela de **Início** substitui a área de trabalho inteira.
+
+Restrição de tamanho: tudo cabe numa tela de **1366 px**. Página escondida de pilha não conta na largura mínima, e a janela volta à largura de antes depois de uma troca de tela.
+
+Densidade de espaçamento média-alta de propósito (ver `## Overview`):
+- Cartões com padding 16/12/12/12 px.
+- Campos com padding 4/8 px.
+- Seções do inspetor com 16 px de margem e 18 px entre seções.
+- Exceção documentada: `grupoMedidasGeradas` com padding 6/8 px, para tabelas densas de números.
 
 ## Elevation & Depth
 
@@ -177,7 +198,18 @@ Sistema inteiramente chapado — nenhum `box-shadow`/sombra em lugar nenhum do Q
 
 ## Shapes
 
-Escala de raio consistente por categoria de elemento, nunca arbitrária por widget: `3px` para indicadores pequenos (checkbox), `4px` para elementos utilitários (tooltip, item de menu), `6px` para campos de entrada, `7px` para botões e abas, `10px` para cartões (`QGroupBox`), e uma exceção deliberada de `13px` (quase pílula) só para o chip de cor da legenda de tinta — a única forma verdadeiramente arredondada do sistema, reservada para representar uma amostra de cor física, não um botão comum.
+Escala de raio consistente por categoria de elemento, nunca arbitrária por widget:
+- `3px`: indicadores pequenos (checkbox, amostra de 12 px da legenda).
+- `4px`: elementos utilitários (tooltip, item de menu).
+- `5px`: botões discretos (botão flat em hover, botões da barra de status).
+- `6px`: campos de entrada, abas, botões do inspetor e segmentados, painel flutuante do canvas.
+- `7px`: botões e botões de barra de ferramentas.
+- `8px`: contêineres (seletor Dieline | Layout | 3D, caixa de posição na face).
+- `10px`: cartões (`QGroupBox`, cartões do Início).
+
+As abas do inspetor não têm raio: só o sublinhado.
+
+As formas de pílula (`11px` no chip da legenda, `13px` no chip de cor e `14px` nos chips de tinta do inspetor) ficam reservadas para o que representa uma **tinta física**, nunca um botão comum.
 
 ## Components
 
@@ -188,8 +220,10 @@ Escala de raio consistente por categoria de elemento, nunca arbitrária por widg
 - **Hover / Pressed:** hover clareia para `{colors.primaria-clara}` (secundário) ou `{colors.primaria-hover}` (primário); pressed aprofunda para `{colors.primaria-pressionada}` / `{colors.primaria-ativa}`. Sem transição de sombra ou elevação, só troca de cor.
 - **Flat (`QPushButton:flat`):** sem borda nem fundo em repouso, usado para ações terciárias dentro de linhas densas.
 
-### Chips (chip de cor)
-- **Style:** raio 13px, cor de fundo/texto vem da própria tinta representada (não é um token do sistema) — só o raio e o peso de fonte (600) são do design system.
+### Chips (tintas)
+- **Legenda de cores** (acima do desenho, `chipLegenda`): fundo `{colors.elevado}`, borda `{colors.borda}`, raio 11px, amostra de 12 px da tinta e nome na cor do texto do tema. Antes o nome era escrito na cor da tinta, e "Preto" sumia no tema escuro.
+- **Chip de tinta do inspetor** (`chipTinta`, raio 14px): amostra + nome; marcado ganha borda 2px `{colors.primaria}`. "+ Nova tinta" é o mesmo chip com borda tracejada.
+- **Chip de cor do painel esquerdo** (`chipCor`, raio 13px): desmarcado, borda e nome na cor da tinta, clareada ou escurecida o mínimo para 4,5:1 sobre o cartão (`estilo.cor_legivel_sobre(..., minimo=4.5)`; o padrão da função é 3:1).
 
 ### Cards / Containers
 - **Corner Style:** 10px
@@ -202,11 +236,24 @@ Escala de raio consistente por categoria de elemento, nunca arbitrária por widg
 - **Focus:** borda muda de cor para `{colors.primaria}`, mantendo a mesma espessura — sem glow nem sombra
 - **Disabled:** fundo cai para `{colors.fundo-janela}`, texto para `{colors.texto-terciario}`
 
-### Navigation (abas Dieline/Layout)
-- **Style:** aba inativa transparente com texto `{colors.texto-secundario}`; aba ativa ganha fundo `{colors.cartao}` e borda mais forte; hover em aba inativa só muda a cor do texto para `{colors.primaria}`, sem fundo.
+### Navigation (seletor Dieline | Layout | 3D)
+- **Style:** segmentado e centralizado na barra de título. A tela atual tem fundo `{colors.campo}` e texto `{colors.texto}`; nas outras, o hover só clareia o texto para `{colors.texto}`. O símbolo do logotipo leva ao Início.
 
-### Dock de Propriedades do Mockup (componente assinatura)
-Painel lateral docável e rolável usado para editar qualquer elemento de mockup selecionado — é a tela mais densa do sistema (campos de geometria, alinhamento a painel, cor de tinta, propriedades específicas por tipo de elemento) e por isso a que mais se apoia nas regras de Layout/Elevation acima para não virar ruído visual.
+### Inspetor (componente assinatura)
+Dock à direita no Layout, com as abas **Propriedades | Objetos | Alinhar | ···**. Transformações e Simbologias aparecem quando são escolhidas no "···".
+- **Abas:** sublinhado de 2 px `{colors.primaria}` na aba atual, sem caixa.
+- **Seções:** título em caixa alta 11 px, peso 700, espaçamento 1 px e cor `{colors.texto-terciario}`.
+- **Propriedades:** título do objeto e face, Geometria · mm em grade (X, Y, L, A, giro, travar proporção, espelhar), Alinhar ao painel, Tinta e as seções do tipo do objeto, que quebram linha (`LayoutFluxo`).
+- **Botões de alinhar:** fundo `{colors.elevado}`. Quando não se aplicam (por exemplo, "Entre os selecionados" com um objeto), ficam sem fundo e com borda tracejada, e uma dica diz o que fazer.
+
+É a tela mais densa do sistema e a que mais se apoia nas regras de Layout e Elevation acima.
+
+### Tela de Início
+- **Título:** "Nova caixa" em Archivo.
+- **Medidas:** campos C × L × A e o botão primário Criar faca.
+- **Cartões de estilo:** grade 4 × 2, com ícone ou sigla FEFCO em mono, título em negrito e detalhe que quebra a linha.
+- **Variantes:** do estilo escolhido, em botões segmentados (`opcaoVariante`).
+- **Recentes:** com miniatura, à direita.
 
 ## Do's and Don'ts
 
@@ -221,4 +268,5 @@ Painel lateral docável e rolável usado para editar qualquer elemento de mockup
 - **Don't** adicionar `box-shadow` ou qualquer efeito de elevação — quebra a regra Flat-By-Default.
 - **Don't** usar a mesma cor de acento em ambos os temas — o par claro/escuro do âmbar existe porque o contraste WCAG exige valores diferentes; copiar o hex de um tema para o outro quebra a legibilidade.
 - **Don't** introduzir gradiente em nenhum componente — o sistema é inteiramente chapado, de propósito, como anti-referência a SaaS genérico.
-- **Don't** usar raio de canto fora da escala documentada (3/4/6/7/10/13px) sem justificar por que o elemento é excepcional (como o chip de cor).
+- **Don't** usar raio de canto fora da escala documentada (3/4/5/6/7/8/10 px, e pílula só para tinta) sem justificar por que o elemento é excepcional.
+- **Don't** deixar uma tela alargar a janela além de 1366 px; o texto longo quebra a linha ou termina em "…" com a frase inteira na dica.
