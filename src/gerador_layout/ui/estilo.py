@@ -641,6 +641,30 @@ QAbstractItemView {{
     selection-background-color: {Cor.SELECAO};
     selection-color: {Cor.TEXTO};
 }}
+/* Tabelas e listas dos diálogos (Construtor de dieline, Catálogo de
+   estilos) no tom do tema: sem isso ficavam no branco padrão do Qt, com o
+   texto claro do tema escuro por cima (quase invisível). A lista aberta
+   das caixas de seleção é um QListView e segue com a regra própria. */
+QDialog QTableView, QDialog QListWidget {{
+    background: {Cor.CAMPO};
+    color: {Cor.TEXTO};
+    alternate-background-color: {Cor.CARTAO};
+    border: 1px solid {Cor.BORDA};
+    gridline-color: {Cor.BORDA};
+}}
+QDialog QHeaderView::section {{
+    background: {Cor.ELEVADO};
+    color: {Cor.TEXTO_SECUNDARIO};
+    border: none;
+    border-right: 1px solid {Cor.BORDA};
+    border-bottom: 1px solid {Cor.BORDA};
+    padding: 4px 6px;
+    font-weight: 600;
+}}
+QDialog QTableCornerButton::section {{
+    background: {Cor.ELEVADO};
+    border: none;
+}}
 
 /* Divisória entre o painel da esquerda e o desenho: discreta no tema
    (o padrão do Qt era uma faixa clara no tema escuro). */
