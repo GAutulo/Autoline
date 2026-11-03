@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import math
 
+from .geometria_faca import bojo_por_tres_pontos
 from .models import (
     TIPOS_MEIA_CAIXA,
     TIPOS_TRANSPASSADA,
     CorImpressao,
+    FuroCinta,
     LayoutCaixa,
     LinhaDesenho,
     MedidasCaixa,
@@ -52,6 +54,28 @@ def _adicionar_segmentos_horizontais_com_serra(
     linhas.append(LinhaDesenho(cursor, y, x_final, y, tipo))
 
 
+def _adicionar_furo_cinta(linhas: list[LinhaDesenho], furo: FuroCinta, largura: float, y_meio: float) -> None:
+    """Furo de pega centralizado em `y_meio`: o topo (lado curvo) fica a
+    `furo.distancia` da borda; o vinco, `furo.largura` mais perto dela."""
+    sentido = 1.0 if furo.borda == "direita" else -1.0  # do topo pro vinco
+    x_topo = largura - furo.distancia if sentido > 0 else furo.distancia
+    x_vinco = x_topo + sentido * furo.largura
+    y1, y2 = y_meio - furo.altura / 2.0, y_meio + furo.altura / 2.0
+    r = min(max(0.0, furo.raio), furo.largura, furo.altura / 2.0)
+    linhas.append(LinhaDesenho(x_vinco, y1, x_vinco, y2, TipoLinha.VINCO))
+    linhas.append(LinhaDesenho(x_topo + sentido * r, y1, x_vinco, y1, TipoLinha.CORTE))
+    linhas.append(LinhaDesenho(x_topo + sentido * r, y2, x_vinco, y2, TipoLinha.CORTE))
+    if furo.altura > 2 * r:
+        linhas.append(LinhaDesenho(x_topo, y1 + r, x_topo, y2 - r, TipoLinha.CORTE))
+    if r > 0:
+        diagonal = r / math.sqrt(2.0)
+        for y_canto, y_reta, vertical in ((y1, y1 + r, -1.0), (y2, y2 - r, 1.0)):
+            centro = (x_topo + sentido * r, y_reta)
+            meio = (centro[0] - sentido * diagonal, centro[1] + vertical * diagonal)
+            a, b = (x_topo + sentido * r, y_canto), (x_topo, y_reta)
+            linhas.append(LinhaDesenho(a[0], a[1], b[0], b[1], TipoLinha.CORTE, bojo_por_tres_pontos(a, meio, b)))
+
+
 class ServicoLayoutCaixa:
     """Calcula as linhas técnicas de cada tipo de caixa suportado."""
 
@@ -72,6 +96,8 @@ class ServicoLayoutCaixa:
             return self._calc_maleta_normal(m)
         if m.tipo == TipoCaixa.ENVOLTORIO_CAPA:
             return self._calc_envoltorio_capa(m)
+        if m.tipo == TipoCaixa.CINTA:
+            return self._calc_cinta(m)
         raise NotImplementedError(f"Tipo {m.tipo} não implementado.")
 
     # ════════════════════════════════════════════════════════════════
@@ -341,6 +367,60 @@ class ServicoLayoutCaixa:
             linhas.append(LinhaDesenho(xa, y2, xa, y3, TipoLinha.CORTE_SERRA))
             linhas.append(LinhaDesenho(xb, y2, xb, y3, TipoLinha.CORTE_SERRA))
             linhas.append(LinhaDesenho(xv, y1, xv, y2, TipoLinha.VINCO))
+
+        _copiar_cores_legenda(m, layout)
+        return layout
+
+    # ════════════════════════════════════════════════════════════════
+    # CINTA
+    #
+    #  IMPRESSORA (X): uma medida só (largura total) | recuo dos lados
+    #  RISCADOR   (Y): as faixas digitadas, de cima pra baixo (vincos)
+    #    - faixa recuada: entra `recuo` mm dos dois lados (degrau = corte)
+    #    - furo de pega: 3 lados de corte + vinco voltado pra borda
+    # ════════════════════════════════════════════════════════════════
+    def _calc_cinta(self, m: MedidasCaixa) -> LayoutCaixa:
+        layout = LayoutCaixa()
+        linhas = layout.linhas
+        largura = _valor_ou_padrao(m.impressora_aba, m.comprimento)
+        riscador = [m.riscador_superior, m.riscador_centro, m.riscador_inferior, m.riscador_parte_4, m.riscador_parte_5]
+        faixas = [v for v in riscador if v > 0] or [m.altura]
+        recuo = min(max(0.0, m.impressora_largura_1), largura / 2.0)
+        recuadas = tuple(sorted({i for i in m.faixas_recuadas if 1 <= i <= len(faixas)})) if recuo > 0 else ()
+
+        ys = [0.0]
+        for f in faixas:
+            ys.append(ys[-1] + f)
+        bordas = [(recuo, largura - recuo) if i + 1 in recuadas else (0.0, largura) for i in range(len(faixas))]
+        layout.largura_total = largura
+        layout.altura_total = ys[-1]
+        layout.segmentos_impressora = [largura, max(0.0, m.impressora_largura_1)]
+        layout.segmentos_riscador = list(faixas)
+        layout.faixas_recuadas = recuadas
+        layout.descricao = "Cinta — faixas no riscador"
+
+        linhas.append(LinhaDesenho(bordas[0][0], 0.0, bordas[0][1], 0.0, TipoLinha.CORTE))
+        linhas.append(LinhaDesenho(bordas[-1][0], ys[-1], bordas[-1][1], ys[-1], TipoLinha.CORTE))
+        # Laterais: um corte só enquanto as faixas seguidas têm a mesma borda.
+        for lado in (0, 1):
+            inicio = 0
+            for i in range(1, len(faixas) + 1):
+                if i == len(faixas) or bordas[i][lado] != bordas[inicio][lado]:
+                    x = bordas[inicio][lado]
+                    linhas.append(LinhaDesenho(x, ys[inicio], x, ys[i], TipoLinha.CORTE))
+                    inicio = i
+        # Entre faixas: vinco na parte em comum; o degrau do recuo é corte.
+        for i in range(1, len(faixas)):
+            (ea, da), (eb, db) = bordas[i - 1], bordas[i]
+            y = ys[i]
+            linhas.append(LinhaDesenho(max(ea, eb), y, min(da, db), y, TipoLinha.VINCO))
+            if ea != eb:
+                linhas.append(LinhaDesenho(min(ea, eb), y, max(ea, eb), y, TipoLinha.CORTE))
+                linhas.append(LinhaDesenho(min(da, db), y, max(da, db), y, TipoLinha.CORTE))
+
+        for furo in m.furos:
+            if 1 <= furo.faixa <= len(faixas) and furo.largura > 0 and furo.altura > 0:
+                _adicionar_furo_cinta(linhas, furo, largura, (ys[furo.faixa - 1] + ys[furo.faixa]) / 2.0)
 
         _copiar_cores_legenda(m, layout)
         return layout

@@ -40,6 +40,9 @@ class TipoCaixa(Enum):
     # Capa / bandeja: envoltório só com A | C | A na impressora e A | L | A
     # no riscador (fundo, 4 paredes e cantos, sem tampa).
     ENVOLTORIO_CAPA = auto()
+    # Cinta: uma medida só na impressora (largura total), faixas só no
+    # riscador; recuo dos dois lados e furos de pega opcionais.
+    CINTA = auto()
 
 
 # Nomes curtos (cabem na lista sem cortar) e agrupados por família.
@@ -53,6 +56,7 @@ NOME_EXIBICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Envoltório fecha no meio · sem corte",
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Envoltório fecha no meio · com corte",
     TipoCaixa.ENVOLTORIO_CAPA: "Envoltório capa (bandeja)",
+    TipoCaixa.CINTA: "Cinta",
 }
 
 # Ordem da lista de tipos na tela (a do dicionário acima).
@@ -69,6 +73,7 @@ DESCRICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Duas meias tampas (L/2) que se encontram no meio; chapa inteira.",
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Duas meias tampas (L/2); cantos externos recortados.",
     TipoCaixa.ENVOLTORIO_CAPA: "Bandeja: A | C | A na impressora e A | L | A no riscador — fundo, 4 paredes e cantos, sem tampa.",
+    TipoCaixa.CINTA: "Largura total (C) na impressora e até 5 faixas no riscador; recuo dos dois lados e furos de pega opcionais.",
 }
 
 TIPOS_MALETA = {
@@ -82,6 +87,22 @@ TIPOS_TRANSPASSADA = {TipoCaixa.MALETA_TRANSPASSADA, TipoCaixa.MALETA_TRANSPASSA
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class FuroCinta:
+    """Furo de pega da cinta: retângulo com 3 lados de corte e 1 de vinco
+    (vira uma aba que empurra pra dentro). `distancia` vai da `borda` da
+    chapa ("direita" ou "esquerda") até o topo do furo, o lado oposto ao
+    vinco; o vinco fica voltado para a borda. Centralizado na altura da
+    `faixa` (1 = a de cima). `raio` arredonda os dois cantos do topo."""
+
+    faixa: int
+    borda: str
+    distancia: float
+    largura: float
+    altura: float
+    raio: float = 0.0
 
 
 @dataclass
@@ -147,6 +168,12 @@ class MedidasCaixa:
     # ── Legenda de cores de impressão ────────────────────────────────
     cores_legenda: list[CorImpressao] = field(default_factory=list)
 
+    # ── Cinta ─────────────────────────────────────────────────────────
+    # Faixas do riscador (1 = a de cima) que entram `impressora_largura_1`
+    # mm de cada lado, e os furos de pega.
+    faixas_recuadas: tuple[int, ...] = ()
+    furos: list[FuroCinta] = field(default_factory=list)
+
     # ── Geral ─────────────────────────────────────────────────────────
     espessura_papelao: float = 3.0
 
@@ -166,3 +193,5 @@ class LayoutCaixa:
     # mesmo quando o campo foi deixado em "automático".
     segmentos_impressora: list[float] = field(default_factory=list)
     segmentos_riscador: list[float] = field(default_factory=list)
+    # Cinta: faixas que ficaram recuadas (as faces acompanham o recuo).
+    faixas_recuadas: tuple[int, ...] = ()
