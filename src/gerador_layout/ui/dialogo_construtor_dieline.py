@@ -255,7 +255,12 @@ class DialogoConstrutorDieline(QDialog):
         col.setContentsMargins(0, 0, 6, 0)
         linha_inicio = QHBoxLayout()
         self.combo_inicio = QComboBox()
+        # Fechada, a caixinha fica curta (o nome inteiro está na lista aberta):
+        # alargando até o texto mais comprido, ela cortava o "Começar deste".
+        self.combo_inicio.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_inicio.setMinimumContentsLength(14)
         self._preencher_inicios()
+        self.combo_inicio.view().setMinimumWidth(self.combo_inicio.view().sizeHintForColumn(0) + 24)
         self.combo_inicio.setCurrentIndex(max(0, self.combo_inicio.findData(("modelo", "Maleta (Aba | L | C | L | C)"))))
         botao_inicio = QPushButton("Começar deste")
         botao_inicio.clicked.connect(self._comecar_de)
