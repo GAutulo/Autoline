@@ -135,3 +135,81 @@ def test_faces_sao_as_faixas_com_o_recuo():
 def test_3d_da_cinta_fica_vazio_por_enquanto():
     layout = _cinta()
     assert montar_modelo(TipoCaixa.CINTA, layout.segmentos_impressora, layout.segmentos_riscador).vazio
+
+
+# ── Tela ──────────────────────────────────────────────────────────────
+def _janela_cinta():
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.CINTA))
+    j.spin_comprimento.setValue(120)
+    j.linha_riscador.definir_valores_manuais([30, 2, 25, 30, 0])
+    j.linha_impressora.definir_valores_manuais([0, 10])
+    j.checks_faixa_recuada[1].setChecked(True)  # faixa 2
+    j.adicionar_furo_cinta(FuroCinta(faixa=3, borda="direita", distancia=45, largura=8, altura=9, raio=1))
+    j._recalcular()
+    return j
+
+
+def test_cinta_na_tela_usa_as_faixas_o_recuo_e_os_furos():
+    j = _janela_cinta()
+    assert not j.grupo_cinta.isHidden()
+    assert not j.spin_largura.isEnabled()  # L não vale na cinta
+    medidas = j._obter_medidas()
+    assert medidas.faixas_recuadas == (2,)
+    assert medidas.furos == [FuroCinta(3, "direita", 45, 8, 9, 1)]
+    paineis = j._paineis_disponiveis()
+    assert [p.nome for p in paineis] == ["Faixa 1", "Faixa 2", "Faixa 3", "Faixa 4"]
+    assert paineis[1].x1 == 10
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+    assert j.grupo_cinta.isHidden() and j.spin_largura.isEnabled()
+    j.close()
+
+
+def test_cinta_volta_igual_do_projeto(tmp_path):
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = _janela_cinta()
+    assert j._gravar_projeto(str(tmp_path / "riobras"))
+    caminho = tmp_path / "riobras.autoline"
+    j.close()
+    outra = JanelaPrincipal()
+    assert outra.abrir_projeto(str(caminho))
+    medidas = outra._obter_medidas()
+    assert medidas.tipo == TipoCaixa.CINTA
+    assert medidas.faixas_recuadas == (2,)
+    assert medidas.furos == [FuroCinta(3, "direita", 45, 8, 9, 1)]
+    assert outra.canvas.layout_atual.segmentos_riscador == [30, 2, 25, 30]
+    outra.close()
+
+
+def test_cinta_no_inicio():
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.mostrar_inicio()
+    j.tela_inicio.cartoes["Cinta"].click()
+    assert j.tela_inicio.tipo_escolhido == TipoCaixa.CINTA
+    j.close()
+
+
+def test_folha_de_aprovacao_da_cinta_mostra_largura_por_altura(tmp_path):
+    j = _janela_cinta()
+    vistos = {}
+
+    def preencher(janela):
+        vistos["medidas"] = janela.campo_medidas.text()
+        vistos["tipo"] = janela.campo_tipo.text()
+        janela.check_3d.setChecked(False)  # a cinta ainda não tem 3D
+        return True
+
+    assert j.gerar_folha_aprovacao(str(tmp_path / "folha.pdf"), dialogo=preencher, abrir=False)
+    assert vistos == {"medidas": "1200X870", "tipo": "CINTA"}  # medida real (× 10)
+    j.close()

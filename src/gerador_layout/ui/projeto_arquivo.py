@@ -366,6 +366,12 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
             "altura": janela.spin_altura.value(),
             "impressora": trechos(janela.linha_impressora),
             "riscador": trechos(janela.linha_riscador),
+            "cinta": {
+                "faixas_recuadas": [i for i, c in enumerate(janela.checks_faixa_recuada, start=1) if c.isChecked()],
+                "furos": [
+                    [f.faixa, f.borda, f.distancia, f.largura, f.altura, f.raio] for f in janela._furos_cinta()
+                ],
+            },
         },
         "cores": [nome for nome, (chip, _rgb) in janela._chips_cor.items() if chip.isChecked()],
         # Tom de cada tinta marcada: uma tinta criada noutro computador volta junto.
@@ -557,6 +563,14 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
     finally:
         for c in controles:
             c.blockSignals(False)
+    # Cinta (projeto antigo não tem: volta sem recuo e sem furos).
+    from ..models import FuroCinta as _Furo
+
+    cinta = caixa.get("cinta") or {}
+    janela.definir_cinta(
+        tuple(int(i) for i in cinta.get("faixas_recuadas", [])),
+        [_Furo(int(f[0]), str(f[1]), *map(float, f[2:6])) for f in cinta.get("furos", [])],
+    )
     janela._ao_trocar_tipo()  # rótulos/trechos do tipo + recalcula
     for linha, valores in ((janela.linha_impressora, caixa["impressora"]), (janela.linha_riscador, caixa["riscador"])):
         linha.definir_valores_manuais(valores)

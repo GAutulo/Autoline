@@ -71,6 +71,8 @@ CORPOS: dict[str, str] = {
                           '<path d="M8 6 L16 10" stroke-dasharray="2 2"/>',
     "caixa_envoltorio": '<rect x="3" y="7" width="18" height="10" rx="1"/><path d="M8 7 V17 M16 7 V17" stroke-dasharray="2 2"/>',
     "caixa_capa": '<path d="M3 9 H21 L19 17 H5 Z"/><path d="M3 9 L5 7 H19 L21 9"/>',
+    "caixa_cinta": '<path d="M3 5 H21 V9 H19 V15 H21 V19 H3 V15 H5 V9 H3 Z"/><path d="M5 9 H19 M5 15 H19" stroke-dasharray="2 2"/>'
+                   '<path d="M15 10.5 H12.5 A1 1 0 0 0 11.5 11.5 V12.5 A1 1 0 0 0 12.5 13.5 H15"/>',
     # ── Organizar ───────────────────────────────────────────────────
     "agrupar": '<path d="M3 7 V3 H7 M17 3 H21 V7 M21 17 V21 H17 M7 21 H3 V17"/>'
                '<rect x="7" y="7" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
