@@ -29,7 +29,11 @@ def _dimensoes(posicionados, ids):
     return sorted(round(mx[i] - mn[i], 6) for i in range(3))
 
 
-@pytest.mark.parametrize("tipo", list(TipoCaixa))
+# A cinta ainda não tem 3D (só faca e Layout).
+_TIPOS_COM_3D = [t for t in TipoCaixa if t != TipoCaixa.CINTA]
+
+
+@pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
 def test_planificada_e_a_propria_dieline(tipo):
     modelo, layout = _modelo(tipo)
     assert not modelo.vazio
@@ -70,7 +74,7 @@ def test_envoltorio_fechado_tem_as_medidas_da_caixa(tipo):
     assert _dimensoes(fechada, {"base", "lateral1", "lateral2", "parede_sup", "parede_inf"}) == sorted([C, L, A])
 
 
-@pytest.mark.parametrize("tipo", list(TipoCaixa))
+@pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
 def test_caixa_fechada_tem_faces_impressas_para_fora(tipo):
     """Toda parede termina com o lado impresso apontando pra longe do centro."""
     modelo, _ = _modelo(tipo)

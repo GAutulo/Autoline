@@ -35,7 +35,11 @@ def _cruz_de_cubo(lado=100.0):
     return [LinhaDesenho(a[0], a[1], b[0], b[1], V if n > 1 else C) for (a, b), n in contagem.items()]
 
 
-@pytest.mark.parametrize("tipo", list(TipoCaixa))
+# A cinta ainda não tem 3D (só faca e Layout).
+_TIPOS_COM_3D = [t for t in TipoCaixa if t != TipoCaixa.CINTA]
+
+
+@pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
 def test_tipos_prontos_dobram_na_caixa_certa(tipo):
     layout = ServicoLayoutCaixa().calcular(MedidasCaixa(tipo=tipo, comprimento=300, largura=200, altura=150))
     modelo = montar_modelo_generico(layout.linhas)
@@ -188,7 +192,7 @@ def _posicoes(modelo, t=1.0):
     )
 
 
-@pytest.mark.parametrize("tipo", list(TipoCaixa))
+@pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
 def test_faca_editada_herda_o_fechamento_do_tipo(tipo):
     """Mexer no corte de uma aba não pode mudar como a caixa fecha: cada
     dobra herda o ângulo e a ordem de montagem do modelo calculado."""

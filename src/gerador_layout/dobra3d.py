@@ -279,6 +279,8 @@ def montar_modelo(
 ) -> ModeloCaixa3D:
     """Recebe os segmentos efetivos de `LayoutCaixa` (com os padrões já
     aplicados) — os mesmos que desenham a faca."""
+    if tipo == TipoCaixa.CINTA:  # 3D da cinta: ainda não (a faca e o Layout já valem)
+        return ModeloCaixa3D()
     if any(s <= 0 for s in segmentos_impressora + segmentos_riscador):
         return ModeloCaixa3D()
     if tipo == TipoCaixa.ENVOLTORIO_CAPA:

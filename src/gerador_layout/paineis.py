@@ -55,11 +55,17 @@ class Painel:
 
 
 def calcular_paineis(
-    tipo: TipoCaixa, segmentos_impressora: list[float], segmentos_riscador: list[float]
+    tipo: TipoCaixa,
+    segmentos_impressora: list[float],
+    segmentos_riscador: list[float],
+    faixas_recuadas: tuple[int, ...] = (),
 ) -> list[Painel]:
     """Recebe os `segmentos_impressora`/`segmentos_riscador` já efetivos
     (ver `LayoutCaixa.segmentos_impressora/segmentos_riscador`, valores
-    reais usados no desenho, já com os padrões aplicados)."""
+    reais usados no desenho, já com os padrões aplicados). Na cinta,
+    `faixas_recuadas` diz quais faixas entram o recuo dos lados."""
+    if tipo == TipoCaixa.CINTA:
+        return _paineis_cinta(segmentos_impressora, segmentos_riscador, faixas_recuadas)
     if tipo in _TIPOS_MALETA:
         return _paineis_maleta(segmentos_impressora, segmentos_riscador)
     if tipo == TipoCaixa.ENVOLTORIO_CAPA:
@@ -84,6 +90,24 @@ def _paineis_capa(segmentos_impressora: list[float], segmentos_riscador: list[fl
         Painel(id_, nome, xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=False)
         for id_, nome, col, linha in definicoes
     ]
+
+
+def _paineis_cinta(
+    segmentos_impressora: list[float], segmentos_riscador: list[float], faixas_recuadas: tuple[int, ...]
+) -> list[Painel]:
+    # Impressora: largura total | recuo. Cada faixa do riscador é uma face.
+    if not segmentos_impressora or not segmentos_riscador:
+        return []
+    largura = segmentos_impressora[0]
+    recuo = segmentos_impressora[1] if len(segmentos_impressora) > 1 else 0.0
+    ys = _bordas_cumulativas(segmentos_riscador)
+    paineis = []
+    for i, altura in enumerate(segmentos_riscador):
+        if altura <= 0:  # campo vazio no meio: as outras faixas mantêm o número
+            continue
+        x1 = recuo if i + 1 in faixas_recuadas else 0.0
+        paineis.append(Painel(f"faixa{i + 1}", f"Faixa {i + 1}", x1, ys[i], largura - x1, ys[i + 1], eh_aba=False))
+    return paineis
 
 
 def _bordas_cumulativas(segmentos: list[float]) -> list[float]:

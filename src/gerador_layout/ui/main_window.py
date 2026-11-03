@@ -10,6 +10,7 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDockWidget,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -49,6 +51,7 @@ from ..models import (
     TIPOS_MALETA,
     TIPOS_MEIA_CAIXA,
     CorImpressao,
+    FuroCinta,
     MedidasCaixa,
     TipoCaixa,
     TipoLinha,
@@ -135,6 +138,8 @@ _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
 _ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
 _ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
 _ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
+_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "Recuo dos lados (0 = sem corte)", "", "", ""]
+_ROTULOS_RISCADOR_CINTA = [f"Faixa {i}" for i in range(1, 6)]
 
 
 
@@ -309,6 +314,7 @@ class JanelaPrincipal(QMainWindow):
         form_medidas.addRow("Largura (L):", self.spin_largura)
         form_medidas.addRow("Altura (A):", self.spin_altura)
         vbox.addWidget(grupo_medidas)
+        self._montar_grupo_cinta(vbox)
 
         grupo_cores = QGroupBox("Legenda de cores")
         self._grid_cores = QGridLayout(grupo_cores)
@@ -420,6 +426,139 @@ class JanelaPrincipal(QMainWindow):
         self.linha_impressora.valor_alterado.connect(self._recalcular)
         self.linha_riscador.valor_alterado.connect(self._recalcular)
         self.canvas.cena.selectionChanged.connect(self._ao_selecao_mockup_mudar)
+
+    # ── Cinta: faixas recuadas e furos de pega ───────────────────────
+    def _montar_grupo_cinta(self, vbox: QVBoxLayout) -> None:
+        """Só na cinta: quais faixas entram o recuo (o 2º campo da
+        Impressora) e os furos de pega (ver `FuroCinta`)."""
+        self.grupo_cinta = QGroupBox("Cinta")
+        coluna = QVBoxLayout(self.grupo_cinta)
+        coluna.setSpacing(8)
+        coluna.addWidget(QLabel("Recuar dos dois lados as faixas:"))
+        linha = QHBoxLayout()
+        self.checks_faixa_recuada: list[QCheckBox] = []
+        for i in range(1, 6):
+            check = QCheckBox(str(i))
+            check.setToolTip(f"A faixa {i} entra o recuo dos lados (2º campo da Impressora)")
+            check.toggled.connect(self._recalcular)
+            linha.addWidget(check)
+            self.checks_faixa_recuada.append(check)
+        linha.addStretch(1)
+        coluna.addLayout(linha)
+        coluna.addWidget(QLabel("Furos de pega:"))
+        # Um bloco por furo (a lateral é estreita demais pra uma tabela).
+        self._lista_furos = QVBoxLayout()
+        self._lista_furos.setSpacing(6)
+        coluna.addLayout(self._lista_furos)
+        self._furos: list[dict] = []
+        mais = QPushButton("+ Furo")
+        mais.clicked.connect(lambda: self.adicionar_furo_cinta())
+        botoes = QHBoxLayout()
+        botoes.addWidget(mais)
+        botoes.addStretch(1)
+        coluna.addLayout(botoes)
+        dica = QLabel("Distância: da borda da chapa até o topo do furo (o lado curvo); o vinco fica voltado para a borda. Medidas em mm.")
+        dica.setObjectName("legendaMuted")
+        dica.setWordWrap(True)
+        coluna.addWidget(dica)
+        self.grupo_cinta.hide()
+        vbox.addWidget(self.grupo_cinta)
+
+    def adicionar_furo_cinta(self, furo: FuroCinta | None = None) -> None:
+        if furo is None:  # o novo nasce igual ao último (ou um padrão)
+            furos = self._furos_cinta()
+            furo = furos[-1] if furos else FuroCinta(faixa=1, borda="direita", distancia=45.0, largura=8.0, altura=9.0, raio=1.0)
+        self._inserir_furo(furo)
+        self._recalcular()
+
+    def _inserir_furo(self, furo: FuroCinta) -> None:
+        bloco = QFrame()
+        bloco.setObjectName("blocoFuro")
+        grade = QGridLayout(bloco)
+        grade.setContentsMargins(0, 4, 0, 4)
+        grade.setHorizontalSpacing(6)
+        grade.setVerticalSpacing(4)
+        campos: dict = {"bloco": bloco}
+        titulo = QLabel(f"Furo {len(self._furos) + 1}")
+        titulo.setStyleSheet("font-weight: 600;")
+        campos["titulo"] = titulo
+        tirar = QToolButton()
+        tirar.setObjectName("botaoMaisInspetor")  # discreto, legível nos dois temas
+        tirar.setText("×")
+        tirar.setToolTip("Tirar este furo")
+        tirar.clicked.connect(lambda: self._tirar_furo_cinta(campos))
+        faixa = QSpinBox()
+        faixa.setRange(1, 5)
+        faixa.setPrefix("Faixa ")
+        faixa.setValue(furo.faixa)
+        faixa.valueChanged.connect(self._recalcular)
+        borda = QComboBox()
+        borda.addItem("Da direita", "direita")
+        borda.addItem("Da esquerda", "esquerda")
+        borda.setCurrentIndex(max(0, borda.findData(furo.borda)))
+        borda.currentIndexChanged.connect(self._recalcular)
+        grade.addWidget(titulo, 0, 0)
+        grade.addWidget(tirar, 0, 1, Qt.AlignmentFlag.AlignRight)
+        grade.addWidget(faixa, 1, 0)
+        grade.addWidget(borda, 1, 1)
+        campos.update(faixa=faixa, borda=borda)
+        for i, (chave, rotulo, valor) in enumerate(
+            (("distancia", "Distância", furo.distancia), ("largura", "Largura", furo.largura),
+             ("altura", "Altura", furo.altura), ("raio", "Raio", furo.raio))
+        ):
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 100000)
+            spin.setDecimals(2)
+            spin.setSuffix(" mm")
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            spin.setKeyboardTracking(False)
+            spin.setValue(valor)
+            spin.setToolTip(rotulo)
+            spin.valueChanged.connect(self._recalcular)
+            par = QVBoxLayout()
+            par.setSpacing(2)
+            legenda = QLabel(rotulo)
+            legenda.setObjectName("legendaMuted")
+            par.addWidget(legenda)
+            par.addWidget(spin)
+            grade.addLayout(par, 2 + i // 2, i % 2)
+            campos[chave] = spin
+        self._furos.append(campos)
+        self._lista_furos.addWidget(bloco)
+
+    def _tirar_furo_cinta(self, campos: dict) -> None:
+        self._furos.remove(campos)
+        campos["bloco"].hide()
+        campos["bloco"].deleteLater()
+        for n, outro in enumerate(self._furos, start=1):
+            outro["titulo"].setText(f"Furo {n}")
+        self._recalcular()
+
+    def _furos_cinta(self) -> list[FuroCinta]:
+        return [
+            FuroCinta(
+                faixa=c["faixa"].value(),
+                borda=c["borda"].currentData(),
+                distancia=c["distancia"].value(),
+                largura=c["largura"].value(),
+                altura=c["altura"].value(),
+                raio=c["raio"].value(),
+            )
+            for c in getattr(self, "_furos", [])
+        ]
+
+    def definir_cinta(self, faixas_recuadas, furos) -> None:
+        """Estado da cinta vindo de um projeto salvo (não recalcula)."""
+        for i, check in enumerate(self.checks_faixa_recuada, start=1):
+            check.blockSignals(True)
+            check.setChecked(i in faixas_recuadas)
+            check.blockSignals(False)
+        for campos in self._furos:
+            campos["bloco"].hide()
+            campos["bloco"].deleteLater()
+        self._furos = []
+        for furo in furos:
+            self._inserir_furo(furo)
 
     def _criar_spin(self, valor_padrao: float) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -547,7 +686,15 @@ class JanelaPrincipal(QMainWindow):
         tipo = self.combo_tipo.currentData()
         self.combo_tipo.setToolTip(DESCRICAO_TIPO_CAIXA.get(tipo, ""))
         self.linha_impressora.definir_visiveis(5)
-        if tipo in TIPOS_MEIA_CAIXA:
+        cinta = tipo == TipoCaixa.CINTA
+        self.grupo_cinta.setVisible(cinta)
+        self.spin_largura.setEnabled(not cinta)  # na cinta, C = largura total; A = faixa única até digitar as faixas
+        if cinta:
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA)
+            self.linha_impressora.definir_visiveis(2)
+            self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_CINTA)
+            self.linha_riscador.definir_visiveis(5)
+        elif tipo in TIPOS_MEIA_CAIXA:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_MEIA)
             self.linha_impressora.definir_visiveis(3)
             self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_MALETA)
@@ -599,6 +746,8 @@ class JanelaPrincipal(QMainWindow):
             riscador_parte_4=ris[3],
             riscador_parte_5=ris[4],
             cores_legenda=cores,
+            faixas_recuadas=tuple(i for i, c in enumerate(self.checks_faixa_recuada, start=1) if c.isChecked()),
+            furos=self._furos_cinta(),
         )
 
     # ── Menu / Exportação ───────────────────────────────────────────
@@ -652,6 +801,7 @@ class JanelaPrincipal(QMainWindow):
                           ("No meio", "Com corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE,
                           ("No meio", "Sem corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE}),
             Cartao("Envoltório capa", "bandeja", "caixa_capa", tipo=TipoCaixa.ENVOLTORIO_CAPA),
+            Cartao("Cinta", "faixas, recuo e furos", "caixa_cinta", tipo=TipoCaixa.CINTA),
             Cartao("FEFCO 0201", "catálogo de estilos", sigla="0201", acao=lambda: self._inicio_estilo("FEFCO 0201")),
             Cartao("FEFCO 0427", "catálogo de estilos", sigla="0427", acao=lambda: self._inicio_estilo("FEFCO 0427")),
             Cartao("Faca em branco", "desenho livre", "mais", acao=lambda: self._inicio_e(self._nova_faca_em_branco)),
@@ -2602,6 +2752,13 @@ class JanelaPrincipal(QMainWindow):
         nome = f"{self._nome_projeto()}{extensao}" if self._caminho_projeto else nome_padrao
         return str(Path(pasta) / nome) if pasta else nome
 
+    def _texto_medidas_folha(self, medidas: MedidasCaixa, texto_medidas) -> str:
+        """C × L × A; na cinta (sem L nem A), largura × altura total."""
+        layout = self.canvas.layout_atual
+        if medidas.tipo == TipoCaixa.CINTA and layout is not None:
+            return texto_medidas(layout.largura_total, layout.altura_total)
+        return texto_medidas(medidas.comprimento, medidas.largura, medidas.altura)
+
     def gerar_folha_aprovacao(self, caminho: str | None = None, dialogo=None, abrir: bool = True) -> Path | None:
         """Folha de aprovação em PDF (ver `folha_aprovacao.py`). `dialogo`
         (testes) recebe a janela já montada e devolve True pra seguir."""
@@ -2620,7 +2777,7 @@ class JanelaPrincipal(QMainWindow):
             cliente=dados_antes.get("cliente", ""),
             referencia=dados_antes.get("referencia", ""),
             codigo=dados_antes.get("codigo", ""),
-            medidas=texto_medidas(medidas.comprimento, medidas.largura, medidas.altura),  # desenho em 1:10
+            medidas=self._texto_medidas_folha(medidas, texto_medidas),  # desenho em 1:10
             tipo=NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper(),
             cores=self._cores_impressao_ativas(),
             criado_em=_dt.date.fromisoformat(criado) if criado else None,
@@ -2799,7 +2956,9 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._atualizar_tintas_status()
-        self._paineis_atuais = calcular_paineis(medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador)
+        self._paineis_atuais = calcular_paineis(
+            medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
+        )
         self.canvas.definir_paineis(self._paineis_atuais)
         self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
@@ -2814,7 +2973,11 @@ class JanelaPrincipal(QMainWindow):
         )
         self.linha_riscador.definir_total(layout.altura_total)
 
-        self.statusBar().showMessage(layout.descricao)
+        if layout.furos_ignorados:
+            nums = ", ".join(str(n) for n in layout.furos_ignorados)
+            self.statusBar().showMessage(f"Furo {nums} não cabe no material da faixa (fora da chapa, no recuo ou mais alto que a faixa) e não foi desenhado.")
+        else:
+            self.statusBar().showMessage(layout.descricao)
         if hasattr(self, "_timer_titulo"):
             self._timer_titulo.start()  # medidas/cores não passam pelo desfazer
 
