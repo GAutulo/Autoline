@@ -41,7 +41,13 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 inteira</b>, com a outra metade igual e a mesma arte, sem mudar a faca —; os envoltórios
                 (fechamento normal ou no meio, com ou sem corte); e o <b>envoltório
                 capa (bandeja)</b>: A × C × A na impressora e A × L × A no riscador,
-                fundo com 4 paredes e os cantos do envoltório, sem tampa. Em
+                fundo com 4 paredes e os cantos do envoltório, sem tampa; e a
+                <b>cinta</b>: uma medida só na impressora (a largura total) e até 5
+                faixas no riscador, com vinco entre elas — no grupo <b>Cinta</b> do
+                painel esquerdo se marca quais faixas recuam dos dois lados (o recuo
+                é o 2º campo da impressora) e se põem os <b>furos de pega</b> (3 lados
+                de corte e 1 de vinco; a distância vai da borda da chapa até o lado
+                curvo do furo). Em
                 "Medidas geradas / ajustáveis" aparecem só os trechos que o tipo usa;
                 um trecho em <b>0</b> volta pro valor automático.</p>
                 <p><b>Layout</b> — o mesmo desenho da faca, agora como referência pra
