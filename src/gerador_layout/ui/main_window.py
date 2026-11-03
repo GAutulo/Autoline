@@ -483,6 +483,7 @@ class JanelaPrincipal(QMainWindow):
         titulo.setStyleSheet("font-weight: 600;")
         campos["titulo"] = titulo
         tirar = QToolButton()
+        tirar.setObjectName("botaoMaisInspetor")  # discreto, legível nos dois temas
         tirar.setText("×")
         tirar.setToolTip("Tirar este furo")
         tirar.clicked.connect(lambda: self._tirar_furo_cinta(campos))
