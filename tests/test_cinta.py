@@ -213,3 +213,61 @@ def test_folha_de_aprovacao_da_cinta_mostra_largura_por_altura(tmp_path):
     assert j.gerar_folha_aprovacao(str(tmp_path / "folha.pdf"), dialogo=preencher, abrir=False)
     assert vistos == {"medidas": "1200X870", "tipo": "CINTA"}  # medida real (× 10)
     j.close()
+
+
+# ── Casos de borda (revisão do ECC) ───────────────────────────────────
+def test_recuo_impossivel_e_ignorado_na_faca_e_nas_faces():
+    layout = _cinta(largura=4.0, recuo=70.0, recuadas=(1,))
+    assert layout.segmentos_impressora == [4.0, 0.0] and layout.faixas_recuadas == ()
+    paineis = calcular_paineis(TipoCaixa.CINTA, layout.segmentos_impressora, layout.segmentos_riscador)
+    assert all(p.largura > 0 for p in paineis)
+
+
+def test_furo_fora_do_material_nao_e_desenhado():
+    sem = len(_cinta(recuo=10.0, recuadas=(1,)).linhas)
+    fora = [
+        FuroCinta(faixa=1, borda="esquerda", distancia=3.0, largura=8.0, altura=9.0),  # sai da chapa
+        FuroCinta(faixa=1, borda="direita", distancia=5.0, largura=2.0, altura=9.0),  # cai no recuo
+        FuroCinta(faixa=1, borda="direita", distancia=45.0, largura=8.0, altura=40.0),  # mais alto que a faixa
+    ]
+    layout = _cinta(recuo=10.0, recuadas=(1,), furos=fora)
+    assert len(layout.linhas) == sem
+    assert layout.furos_ignorados == (1, 2, 3)
+
+
+def test_faixa_vazia_no_meio_mantem_o_numero_das_outras():
+    furo = FuroCinta(faixa=3, borda="direita", distancia=45.0, largura=8.0, altura=10.0)
+    layout = _cinta(faixas=(10.0, 0.0, 20.0), recuo=5.0, recuadas=(3,), furos=[furo])
+    assert layout.segmentos_riscador == [10.0, 0.0, 20.0]
+    assert layout.altura_total == 30
+    assert _verticais(layout, TipoLinha.CORTE, 5) == [(10, 30)]  # a "Faixa 3" é a recuada
+    assert _verticais(layout, TipoLinha.VINCO, 120 - 45 + 8) == [(15, 25)]  # furo na faixa 3
+    paineis = calcular_paineis(
+        TipoCaixa.CINTA, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
+    )
+    assert [p.nome for p in paineis] == ["Faixa 1", "Faixa 3"]
+
+
+def test_raio_igual_a_largura_nao_gera_linha_vazia():
+    furo = FuroCinta(faixa=1, borda="direita", distancia=45.0, largura=4.0, altura=10.0, raio=4.0)
+    linhas = _cinta(furos=[furo]).linhas
+    assert all(abs(l.x1 - l.x2) + abs(l.y1 - l.y2) > 1e-9 for l in linhas)
+
+
+def test_projeto_com_furo_corrompido_abre_e_avisa(tmp_path):
+    import json
+
+    from gerador_layout.ui import projeto_arquivo
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    j = _janela_cinta()
+    assert j._gravar_projeto(str(tmp_path / "x"))
+    j.close()
+    dados = projeto_arquivo.ler(str(tmp_path / "x.autoline"))
+    dados["caixa"]["cinta"]["furos"].append([2, "direita"])  # incompleto
+    dados["caixa"]["cinta"]["faixas_recuadas"].append("dois")
+    outra = JanelaPrincipal()
+    avisos = projeto_arquivo.aplicar_na_janela(outra, json.loads(json.dumps(dados)))
+    assert outra._obter_medidas().furos == [FuroCinta(3, "direita", 45, 8, 9, 1)]
+    assert any("furo" in a.lower() for a in avisos)
+    outra.close()

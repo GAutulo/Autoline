@@ -28,7 +28,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, QPointF, QStandardPaths
 
-from ..models import CorImpressao, LinhaDesenho, TipoCaixa, TipoLinha
+from ..models import CorImpressao, FuroCinta, LinhaDesenho, TipoCaixa, TipoLinha
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import ElementoChecklistCores
@@ -538,6 +538,19 @@ def ler(caminho: str | Path) -> dict:
     return dados
 
 
+def _cinta_de(cinta: dict, avisos: list[str]) -> tuple[tuple[int, ...], list[FuroCinta]]:
+    """Faixas recuadas e furos da cinta; o que vier estragado fica de fora
+    (com aviso) em vez de interromper a abertura do projeto."""
+    recuadas = tuple(i for i in cinta.get("faixas_recuadas", []) if isinstance(i, int) and 1 <= i <= 5)
+    furos = []
+    for numero, f in enumerate(cinta.get("furos", []), start=1):
+        try:
+            furos.append(FuroCinta(int(f[0]), "esquerda" if f[1] == "esquerda" else "direita", *map(float, f[2:6])))
+        except (TypeError, ValueError, IndexError):
+            avisos.append(f"Cinta: o furo {numero} veio incompleto no arquivo e ficou de fora.")
+    return recuadas, furos
+
+
 def aplicar_na_janela(janela, dados: dict) -> list[str]:
     """Troca o projeto aberto pelo do arquivo. Devolve avisos (ex.: objeto
     de tipo desconhecido, pulado)."""
@@ -564,13 +577,8 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
         for c in controles:
             c.blockSignals(False)
     # Cinta (projeto antigo não tem: volta sem recuo e sem furos).
-    from ..models import FuroCinta as _Furo
-
-    cinta = caixa.get("cinta") or {}
-    janela.definir_cinta(
-        tuple(int(i) for i in cinta.get("faixas_recuadas", [])),
-        [_Furo(int(f[0]), str(f[1]), *map(float, f[2:6])) for f in cinta.get("furos", [])],
-    )
+    recuadas, furos = _cinta_de(caixa.get("cinta") or {}, avisos)
+    janela.definir_cinta(recuadas, furos)
     janela._ao_trocar_tipo()  # rótulos/trechos do tipo + recalcula
     for linha, valores in ((janela.linha_impressora, caixa["impressora"]), (janela.linha_riscador, caixa["riscador"])):
         linha.definir_valores_manuais(valores)

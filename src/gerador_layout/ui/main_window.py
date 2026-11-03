@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -34,7 +33,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
-    QTableWidget,
     QTabWidget,
     QTabBar,
     QToolBar,
@@ -430,8 +428,6 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.cena.selectionChanged.connect(self._ao_selecao_mockup_mudar)
 
     # ── Cinta: faixas recuadas e furos de pega ───────────────────────
-    _COLUNAS_FURO = ("Faixa", "Borda", "Distância", "Largura", "Altura", "Raio")
-
     def _montar_grupo_cinta(self, vbox: QVBoxLayout) -> None:
         """Só na cinta: quais faixas entram o recuo (o 2º campo da
         Impressora) e os furos de pega (ver `FuroCinta`)."""
@@ -450,20 +446,15 @@ class JanelaPrincipal(QMainWindow):
         linha.addStretch(1)
         coluna.addLayout(linha)
         coluna.addWidget(QLabel("Furos de pega:"))
-        self.tabela_furos = QTableWidget(0, len(self._COLUNAS_FURO))
-        self.tabela_furos.setHorizontalHeaderLabels(self._COLUNAS_FURO)
-        self.tabela_furos.verticalHeader().hide()
-        self.tabela_furos.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.tabela_furos.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.tabela_furos.setMinimumHeight(110)
-        coluna.addWidget(self.tabela_furos)
-        botoes = QHBoxLayout()
+        # Um bloco por furo (a lateral é estreita demais pra uma tabela).
+        self._lista_furos = QVBoxLayout()
+        self._lista_furos.setSpacing(6)
+        coluna.addLayout(self._lista_furos)
+        self._furos: list[dict] = []
         mais = QPushButton("+ Furo")
         mais.clicked.connect(lambda: self.adicionar_furo_cinta())
-        menos = QPushButton("− Furo")
-        menos.clicked.connect(self._tirar_furo_cinta)
+        botoes = QHBoxLayout()
         botoes.addWidget(mais)
-        botoes.addWidget(menos)
         botoes.addStretch(1)
         coluna.addLayout(botoes)
         dica = QLabel("Distância: da borda da chapa até o topo do furo (o lado curvo); o vinco fica voltado para a borda. Medidas em mm.")
@@ -481,52 +472,79 @@ class JanelaPrincipal(QMainWindow):
         self._recalcular()
 
     def _inserir_furo(self, furo: FuroCinta) -> None:
-        linha = self.tabela_furos.rowCount()
-        self.tabela_furos.insertRow(linha)
+        bloco = QFrame()
+        bloco.setObjectName("blocoFuro")
+        grade = QGridLayout(bloco)
+        grade.setContentsMargins(0, 4, 0, 4)
+        grade.setHorizontalSpacing(6)
+        grade.setVerticalSpacing(4)
+        campos: dict = {"bloco": bloco}
+        titulo = QLabel(f"Furo {len(self._furos) + 1}")
+        titulo.setStyleSheet("font-weight: 600;")
+        campos["titulo"] = titulo
+        tirar = QToolButton()
+        tirar.setText("×")
+        tirar.setToolTip("Tirar este furo")
+        tirar.clicked.connect(lambda: self._tirar_furo_cinta(campos))
         faixa = QSpinBox()
         faixa.setRange(1, 5)
+        faixa.setPrefix("Faixa ")
         faixa.setValue(furo.faixa)
         faixa.valueChanged.connect(self._recalcular)
-        self.tabela_furos.setCellWidget(linha, 0, faixa)
         borda = QComboBox()
-        borda.addItem("Direita", "direita")
-        borda.addItem("Esquerda", "esquerda")
+        borda.addItem("Da direita", "direita")
+        borda.addItem("Da esquerda", "esquerda")
         borda.setCurrentIndex(max(0, borda.findData(furo.borda)))
         borda.currentIndexChanged.connect(self._recalcular)
-        self.tabela_furos.setCellWidget(linha, 1, borda)
-        for coluna, valor in enumerate((furo.distancia, furo.largura, furo.altura, furo.raio), start=2):
+        grade.addWidget(titulo, 0, 0)
+        grade.addWidget(tirar, 0, 1, Qt.AlignmentFlag.AlignRight)
+        grade.addWidget(faixa, 1, 0)
+        grade.addWidget(borda, 1, 1)
+        campos.update(faixa=faixa, borda=borda)
+        for i, (chave, rotulo, valor) in enumerate(
+            (("distancia", "Distância", furo.distancia), ("largura", "Largura", furo.largura),
+             ("altura", "Altura", furo.altura), ("raio", "Raio", furo.raio))
+        ):
             spin = QDoubleSpinBox()
             spin.setRange(0, 100000)
             spin.setDecimals(2)
+            spin.setSuffix(" mm")
             spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             spin.setKeyboardTracking(False)
             spin.setValue(valor)
+            spin.setToolTip(rotulo)
             spin.valueChanged.connect(self._recalcular)
-            self.tabela_furos.setCellWidget(linha, coluna, spin)
+            par = QVBoxLayout()
+            par.setSpacing(2)
+            legenda = QLabel(rotulo)
+            legenda.setObjectName("legendaMuted")
+            par.addWidget(legenda)
+            par.addWidget(spin)
+            grade.addLayout(par, 2 + i // 2, i % 2)
+            campos[chave] = spin
+        self._furos.append(campos)
+        self._lista_furos.addWidget(bloco)
 
-    def _tirar_furo_cinta(self) -> None:
-        linha = self.tabela_furos.currentRow()
-        if linha < 0:
-            linha = self.tabela_furos.rowCount() - 1
-        if linha >= 0:
-            self.tabela_furos.removeRow(linha)
-            self._recalcular()
+    def _tirar_furo_cinta(self, campos: dict) -> None:
+        self._furos.remove(campos)
+        campos["bloco"].hide()
+        campos["bloco"].deleteLater()
+        for n, outro in enumerate(self._furos, start=1):
+            outro["titulo"].setText(f"Furo {n}")
+        self._recalcular()
 
     def _furos_cinta(self) -> list[FuroCinta]:
-        furos = []
-        for linha in range(self.tabela_furos.rowCount()):
-            celula = self.tabela_furos.cellWidget
-            furos.append(
-                FuroCinta(
-                    faixa=celula(linha, 0).value(),
-                    borda=celula(linha, 1).currentData(),
-                    distancia=celula(linha, 2).value(),
-                    largura=celula(linha, 3).value(),
-                    altura=celula(linha, 4).value(),
-                    raio=celula(linha, 5).value(),
-                )
+        return [
+            FuroCinta(
+                faixa=c["faixa"].value(),
+                borda=c["borda"].currentData(),
+                distancia=c["distancia"].value(),
+                largura=c["largura"].value(),
+                altura=c["altura"].value(),
+                raio=c["raio"].value(),
             )
-        return furos
+            for c in getattr(self, "_furos", [])
+        ]
 
     def definir_cinta(self, faixas_recuadas, furos) -> None:
         """Estado da cinta vindo de um projeto salvo (não recalcula)."""
@@ -534,7 +552,10 @@ class JanelaPrincipal(QMainWindow):
             check.blockSignals(True)
             check.setChecked(i in faixas_recuadas)
             check.blockSignals(False)
-        self.tabela_furos.setRowCount(0)
+        for campos in self._furos:
+            campos["bloco"].hide()
+            campos["bloco"].deleteLater()
+        self._furos = []
         for furo in furos:
             self._inserir_furo(furo)
 
@@ -2951,7 +2972,11 @@ class JanelaPrincipal(QMainWindow):
         )
         self.linha_riscador.definir_total(layout.altura_total)
 
-        self.statusBar().showMessage(layout.descricao)
+        if layout.furos_ignorados:
+            nums = ", ".join(str(n) for n in layout.furos_ignorados)
+            self.statusBar().showMessage(f"Furo {nums} não cabe no material da faixa (fora da chapa, no recuo ou mais alto que a faixa) e não foi desenhado.")
+        else:
+            self.statusBar().showMessage(layout.descricao)
         if hasattr(self, "_timer_titulo"):
             self._timer_titulo.start()  # medidas/cores não passam pelo desfazer
 

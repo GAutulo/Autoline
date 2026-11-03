@@ -193,5 +193,7 @@ class LayoutCaixa:
     # mesmo quando o campo foi deixado em "automático".
     segmentos_impressora: list[float] = field(default_factory=list)
     segmentos_riscador: list[float] = field(default_factory=list)
-    # Cinta: faixas que ficaram recuadas (as faces acompanham o recuo).
+    # Cinta: faixas que ficaram recuadas (as faces acompanham o recuo) e os
+    # furos (nº na lista, 1 = o primeiro) que não couberam no material.
     faixas_recuadas: tuple[int, ...] = ()
+    furos_ignorados: tuple[int, ...] = ()

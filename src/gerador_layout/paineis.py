@@ -102,7 +102,9 @@ def _paineis_cinta(
     recuo = segmentos_impressora[1] if len(segmentos_impressora) > 1 else 0.0
     ys = _bordas_cumulativas(segmentos_riscador)
     paineis = []
-    for i in range(len(segmentos_riscador)):
+    for i, altura in enumerate(segmentos_riscador):
+        if altura <= 0:  # campo vazio no meio: as outras faixas mantêm o número
+            continue
         x1 = recuo if i + 1 in faixas_recuadas else 0.0
         paineis.append(Painel(f"faixa{i + 1}", f"Faixa {i + 1}", x1, ys[i], largura - x1, ys[i + 1], eh_aba=False))
     return paineis
