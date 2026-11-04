@@ -33,6 +33,7 @@ def _cinta(largura=120.0, faixas=(30.0, 2.0, 25.0, 30.0), recuo=0.0, recuadas=()
         riscador_parte_5=riscador[4],
         faixas_recuadas=tuple(recuadas),
         furos=list(furos),
+        faixas_zeradas=tuple(n for n, v in enumerate(riscador, start=1) if v <= 0 and faixas),
     )
     return ServicoLayoutCaixa().calcular(medidas)
 
@@ -57,7 +58,7 @@ def test_uma_medida_na_impressora_e_faixas_no_riscador():
     layout = _cinta()
     assert layout.largura_total == 120
     assert layout.altura_total == 30 + 2 + 25 + 30
-    assert layout.segmentos_impressora == [120.0, 0.0]  # total | recuo
+    assert layout.segmentos_impressora == [120.0]  # sem recuo, uma medida só
     assert layout.segmentos_riscador == [30.0, 2.0, 25.0, 30.0]
     # Vincos só no riscador: horizontais, de lado a lado, entre as faixas.
     for y in (30, 32, 57):
@@ -70,15 +71,15 @@ def test_uma_medida_na_impressora_e_faixas_no_riscador():
     assert _verticais(layout, TipoLinha.CORTE, 120) == [(0, 87)]
 
 
-def test_sem_faixas_digitadas_usa_a_altura_como_uma_faixa():
+def test_sem_faixas_digitadas_e_sem_l_fica_so_o_a():
     layout = _cinta(faixas=())
-    assert layout.segmentos_riscador == [40.0]
+    assert layout.segmentos_riscador == [0.0, 40.0]
     assert layout.altura_total == 40
 
 
 def test_recuo_dos_dois_lados_nas_faixas_escolhidas():
     layout = _cinta(recuo=10.0, recuadas=(2, 3))
-    assert layout.segmentos_impressora == [120.0, 10.0]
+    assert layout.segmentos_impressora == [10.0, 100.0, 10.0]
     # Faixas 2 e 3 (y 30 → 57) entram 10 mm de cada lado.
     assert _verticais(layout, TipoLinha.CORTE, 10) == [(30, 57)]
     assert _verticais(layout, TipoLinha.CORTE, 110) == [(30, 57)]
@@ -147,6 +148,8 @@ def _janela_cinta():
     j = JanelaPrincipal()
     j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.CINTA))
     j.spin_comprimento.setValue(120)
+    j.spin_largura.setValue(30)
+    j.spin_altura.setValue(27)
     j.linha_riscador.definir_valores_manuais([30, 2, 25, 30, 0])
     j.spin_recuo.setValue(10)
     j.checks_faixa_recuada[1].setChecked(True)  # faixa 2
@@ -158,7 +161,7 @@ def _janela_cinta():
 def test_cinta_na_tela_usa_as_faixas_o_recuo_e_os_furos():
     j = _janela_cinta()
     assert not j.grupo_cinta.isHidden()
-    assert not j.spin_largura.isEnabled()  # L não vale na cinta
+    assert j.spin_largura.isEnabled()  # C × L × A como a ficha
     medidas = j._obter_medidas()
     assert medidas.faixas_recuadas == (2,)
     assert medidas.furos == [FuroCinta(3, "direita", 45, 8, 9, 1)]
@@ -219,7 +222,7 @@ def test_cinta_no_inicio():
     j.close()
 
 
-def test_folha_de_aprovacao_da_cinta_mostra_largura_por_altura(tmp_path):
+def test_folha_de_aprovacao_da_cinta_mostra_c_l_a(tmp_path):
     j = _janela_cinta()
     vistos = {}
 
@@ -230,14 +233,14 @@ def test_folha_de_aprovacao_da_cinta_mostra_largura_por_altura(tmp_path):
         return True
 
     assert j.gerar_folha_aprovacao(str(tmp_path / "folha.pdf"), dialogo=preencher, abrir=False)
-    assert vistos == {"medidas": "1200X870", "tipo": "CINTA"}  # medida real (× 10)
+    assert vistos == {"medidas": "1200X300X270", "tipo": "CINTA"}  # medida real (× 10)
     j.close()
 
 
 # ── Casos de borda (revisão do ECC) ───────────────────────────────────
 def test_recuo_impossivel_e_ignorado_na_faca_e_nas_faces():
     layout = _cinta(largura=4.0, recuo=70.0, recuadas=(1,))
-    assert layout.segmentos_impressora == [4.0, 0.0] and layout.faixas_recuadas == ()
+    assert layout.segmentos_impressora == [4.0] and layout.faixas_recuadas == ()
     paineis = calcular_paineis(TipoCaixa.CINTA, layout.segmentos_impressora, layout.segmentos_riscador)
     assert all(p.largura > 0 for p in paineis)
 

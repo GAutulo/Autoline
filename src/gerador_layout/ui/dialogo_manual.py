@@ -42,10 +42,11 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 (fechamento normal ou no meio, com ou sem corte); e o <b>envoltório
                 capa (bandeja)</b>: A × C × A na impressora e A × L × A no riscador,
                 fundo com 4 paredes e os cantos do envoltório, sem tampa; e a
-                <b>cinta</b>: uma medida só na impressora (a largura total) e até 5
-                faixas no riscador, com vinco entre elas — no grupo <b>Cinta</b> do
-                painel esquerdo se marca quais faixas recuam dos dois lados (o recuo
-                é o 2º campo da impressora) e se põem os <b>furos de pega</b> (3 lados
+                <b>cinta</b>: C × L × A como a ficha (600X90X128 risca 90 × 128 × 90 e
+                imprime 600). O riscador aceita até 5 medidas: digite nos campos 4 e 5
+                para somar faixas ou 0 para tirar uma. No grupo <b>Cinta</b> do painel
+                esquerdo se digita o recuo e se marca quais faixas recuam dos dois lados
+                (a impressora passa a mostrar recuo, miolo e recuo) e se põem os <b>furos de pega</b> (3 lados
                 de corte e 1 de vinco; a distância vai da borda da chapa até o lado
                 curvo do furo). Em
                 "Medidas geradas / ajustáveis" aparecem só os trechos que o tipo usa;

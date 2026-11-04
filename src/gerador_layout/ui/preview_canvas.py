@@ -48,8 +48,9 @@ from PySide6.QtWidgets import (
 
 from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
-from ..paineis import Painel, deslocamento_na_face, face_no_ponto
+from ..paineis import Painel, deslocamento_na_face, distancias_dos_objetos, face_no_ponto
 from .mockup_cota import ElementoCota, criar_cota
+from .mockup_cota_angular import ElementoCotaAngular
 from . import configuracoes
 from .estilo import FONTE_MONO, Cor
 from .mockup_curva import (
@@ -742,6 +743,9 @@ def _mesmo_ponto(ax: float, ay: float, bx: float, by: float) -> bool:
 
 
 class PreviewCanvas(QGraphicsView):
+    _altura_cotas: float | None = None  # o que se escolheu; sem isso, conforme a chapa
+    altura_cotas_usada = 0.0
+
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
     zoom_alterado = Signal(float)
@@ -2355,6 +2359,16 @@ class PreviewCanvas(QGraphicsView):
             if dx or dy:
                 el.setPos(el.pos() + QPointF(dx, dy))
 
+    def levar_objetos_com_a_faca(self, dx: float, dy: float, faces: list[Painel]) -> None:
+        """A faca virou outra: os objetos andam junto com ela (`dx`, `dy`) e
+        quem apontava pra uma face que não existe mais volta pra Automática."""
+        ids = {p.id for p in faces}
+        for el in self._elementos_mockup:
+            if dx or dy:
+                el.setPos(el.pos() + QPointF(dx, dy))
+            if el.painel_id is not None and el.painel_id not in ids:
+                el.definir_painel(None)
+
     def _pontos_de_cota(self, valores: list[float], tolerancia: float = 1.5) -> list[float]:
         """Os pontos de referência num eixo, sem os quase iguais (serra)."""
         pontos: list[float] = []
@@ -2374,7 +2388,9 @@ class PreviewCanvas(QGraphicsView):
         xs = self._pontos_de_cota([pagina.left(), pagina.right()] + [v for p in self._paineis for v in (p.x1, p.x2)])
         ys = self._pontos_de_cota([pagina.top(), pagina.bottom()] + [v for p in self._paineis for v in (p.y1, p.y2)])
         lado = max(pagina.width(), pagina.height())
-        letra = max(2.0, lado / 90.0)  # cabe em 1:10 e na chapa grande
+        automatica = max(2.0, lado / 150.0)  # cabe em 1:10 e na chapa grande
+        letra = automatica if self._altura_cotas is None else self._altura_cotas
+        self.altura_cotas_usada = letra
         afastamento = letra * 2.5
         centro = pagina.center()
         pares = []
@@ -2386,6 +2402,8 @@ class PreviewCanvas(QGraphicsView):
             pares.append((pagina.topLeft(), pagina.topRight(), "horizontal", afastamento * 2.4))
         if len(ys) > 2:
             pares.append((pagina.topLeft(), pagina.bottomLeft(), "vertical", afastamento * 2.4))
+        for x1, y1, x2, y2 in self._distancias_dos_objetos(pagina):
+            pares.append((QPointF(x1, y1), QPointF(x2, y2), "horizontal" if y1 == y2 else "vertical", 0.0))
         antigas = [el for el in self._elementos_mockup if getattr(el, "cota_automatica", False)]
         feitas = 0
         self._pilha_desfazer.beginMacro("Cotas automáticas")
@@ -2393,7 +2411,8 @@ class PreviewCanvas(QGraphicsView):
             if antigas:
                 self._pilha_desfazer.push(_ComandoRemoverElementos(self, antigas))
             for p1, p2, tipo, afast in pares:
-                cota = criar_cota(p1, p2, tipo, afast, centro_referencia=centro)
+                # Afastamento 0 é cota de objeto: fica junto dele, não por fora da chapa.
+                cota = criar_cota(p1, p2, tipo, afast, centro_referencia=centro if afast else None)
                 if cota is None:
                     continue
                 cota.definir_altura_texto(letra)
@@ -2403,6 +2422,23 @@ class PreviewCanvas(QGraphicsView):
         finally:
             self._pilha_desfazer.endMacro()
         return feitas
+
+    def _distancias_dos_objetos(self, pagina: QRectF) -> list[tuple[float, float, float, float]]:
+        objetos = []
+        for el in self._elementos_mockup:
+            if el.isVisible() and not isinstance(el, (ElementoCota, ElementoCotaAngular)):
+                r = el.retangulo_conteudo_cena()
+                objetos.append((r.left(), r.top(), r.right(), r.bottom()))
+        chapa = (pagina.left(), pagina.top(), pagina.right(), pagina.bottom())
+        return distancias_dos_objetos(objetos, self._paineis, chapa)
+
+    def definir_altura_cotas(self, mm: float) -> None:
+        """Tamanho do texto de todas as cotas, e das que forem geradas depois."""
+        self._altura_cotas = mm
+        self.altura_cotas_usada = mm
+        for el in self._elementos_mockup:
+            if isinstance(el, (ElementoCota, ElementoCotaAngular)):
+                el.definir_altura_texto(mm)
 
     def retangulo_com_cotas(self) -> QRectF | None:
         """A chapa mais as cotas à mostra: o que a folha de aprovação mostra."""

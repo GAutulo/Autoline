@@ -87,7 +87,7 @@ class LinhaTrechos(QWidget):
         # continua acessível, só não ocupa uma linha inteira o tempo todo.
         spin = QDoubleSpinBox()
         spin.setRange(0, 100000)
-        spin.setDecimals(1)
+        spin.setDecimals(2)
         # Sem as setinhas de incrementar/decrementar (ninguém usa clique
         # pra ajustar essa tabela — digita o número ou deixa automático):
         # sem elas, a largura toda vai pro texto.
@@ -160,6 +160,26 @@ class LinhaTrechos(QWidget):
                 self._tocados[i] = False
                 spin.setStyleSheet(_ESTILO_AUTOMATICO)
             spin.blockSignals(False)
+
+    def zerados(self) -> list[int]:
+        """Campos (a partir de 1) em que se digitou 0."""
+        return [i for i, (spin, tocado) in enumerate(zip(self._spins, self._tocados), start=1) if tocado and spin.value() <= 0]
+
+    def definir_zerados(self, campos: list[int]) -> None:
+        """Marca campos (a partir de 1) como digitados com 0. Não avisa ninguém."""
+        for n in campos:
+            spin = self._spins[n - 1]
+            spin.blockSignals(True)
+            spin.setValue(0.0)
+            spin.setStyleSheet(_ESTILO_MANUAL)
+            spin.blockSignals(False)
+            self._tocados[n - 1] = True
+
+    def definir_somente_leitura(self, ativo: bool) -> None:
+        """A linha só mostra os trechos: o valor vem de outros campos."""
+        for spin in self._spins:
+            spin.setReadOnly(ativo)
+        self.botao_recalcular.setVisible(not ativo)
 
     def definir_visiveis(self, quantidade: int) -> None:
         """Mostra só os primeiros `quantidade` trechos (o resto do tipo

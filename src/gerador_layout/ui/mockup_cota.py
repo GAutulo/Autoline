@@ -126,7 +126,7 @@ class ElementoCota(ElementoMockup):
 
     def setas_locais(self) -> list[QPolygonF]:
         linha = self._margem_texto()
-        s = min(_SETA_MM, self._largura / 3)
+        s = min(_SETA_MM * self._altura_texto / _ALTURA_TEXTO_PADRAO_MM, self._largura / 3)
         meia = s * 0.35
         return [
             QPolygonF([QPointF(0.0, linha), QPointF(s, linha - meia), QPointF(s, linha + meia)]),
