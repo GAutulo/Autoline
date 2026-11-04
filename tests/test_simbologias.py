@@ -299,7 +299,6 @@ def test_logotipo_entra_no_tamanho_do_arquivo(tmp_path):
     from gerador_layout.ui.main_window import JanelaPrincipal
 
     j = JanelaPrincipal()
-    j._remapear_cores_logo = lambda _el: None  # a janela de separar cores é modal
     j.abas_tela.setCurrentIndex(1)
     svg = tmp_path / "logo.svg"
     svg.write_text(

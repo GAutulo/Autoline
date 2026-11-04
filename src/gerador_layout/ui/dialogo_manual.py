@@ -70,10 +70,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 na borda esquerda (botões com triângulo no canto agrupam ferramentas
                 irmãs: segure o clique ou clique no triângulo pra escolher), a
                 <b>barra de propriedades</b> logo abaixo do topo (altura fixa: à
-                esquerda, sempre no mesmo lugar, posição, tamanho, giro, proporção,
-                espelhar e alinhar na face; à direita, abas com o que é do objeto —
-                Letra, Espaçamento, Quadro, Posição...; a aba escolhida fica lembrada
-                por tipo de objeto), a <b>paleta de
+                esquerda, o tipo do objeto; ao lado, as opções principais dele; o
+                resto fica no <b>inspetor</b> à direita, abas Propriedades, Objetos e
+                Alinhar), a <b>paleta de
                 cores</b> na borda direita (clique = preenchimento, botão direito =
                 contorno, X = sem preenchimento; a tinta usada entra na legenda) e a
                 <b>barra de status</b> embaixo mostra a posição do cursor em mm e o
@@ -276,9 +275,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 objeto (o grupo se ajusta em volta se ele andar). Com o grupo
                 selecionado, a barra tem <b>Desagrupar</b> (Ctrl+U) e <b>Desagrupar
                 tudo</b>; com vários selecionados, <b>Agrupar</b> (Ctrl+G).</p>
-                <p><b>Alinhar vários</b>: a referência é o <b>primeiro</b> que você
-                selecionou — ele fica parado e os outros vão até ele (vale pros botões
-                da barra, pro docker Alinhar e pras teclas L/R/T/B/C/E).</p>
+                <p><b>Alinhar vários</b>: na aba <b>Alinhar</b>, a lista <b>Alinhar a</b>
+                escolhe o objeto que fica parado (ou a área da seleção). Nas teclas
+                L/R/T/B/C/E, a referência é o <b>primeiro</b> que você selecionou.</p>
                 <p><b>Ctrl+C / Ctrl+V</b> cola no mesmo lugar e no mesmo giro do original
                 (Ctrl+D é que duplica deslocado).</p>
                 <p><b>Cor</b>: paleta da direita, a barra de propriedades, ou embaixo à
@@ -331,8 +330,8 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Ctrl/Shift + clique</b> — adiciona/remove elementos individuais da
                 seleção atual (seleção múltipla). <b>Arrastar numa área vazia</b> — abre
                 uma seleção retangular, seleciona tudo que estiver dentro. Com 2 ou
-                mais selecionados, a barra de propriedades mostra os botões de
-                <b>alinhar entre si</b> (bordas, centros, topos, bases).</p>
+                mais selecionados, a aba <b>Alinhar</b> alinha entre si (bordas,
+                centros, topos, bases).</p>
                 <p><b>Setas do teclado</b> — move o(s) elemento(s) selecionado(s) aos
                 poucos (o passo é uma preferência, ver Configurações > Ferramentas);
                 Shift + seta usa o passo maior.</p>
@@ -508,10 +507,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Imagem</b> — importa PNG/JPG, nasce numa largura padrão mantendo
                 a proporção real do arquivo; redimensionar depois estica livre (sem
                 travar proporção).</p>
-                <p><b>Logotipo vetorial</b> — importa SVG, com separação de cor
-                automática: detecta as cores usadas no arquivo e deixa mapear cada uma
-                pra uma das tintas de impressão do trabalho (ou manter a cor original),
-                pra gráfica não receber um logo com cor fora da paleta acordada.</p>
+                <p><b>Logotipo vetorial</b> — importa SVG e detecta as cores usadas no
+                arquivo. Em <b>Cores do arquivo</b>, no inspetor, cada cor tem a sua
+                linha: escolha a tinta do trabalho (ou mantenha a cor original) e troque
+                quando quiser, uma cor sem mexer nas outras.</p>
                 """,
             ),
             (
@@ -706,9 +705,9 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 selecionado: posição X/Y, largura/altura, ângulo, <b>escala em %</b>
                 (digite 150 e confirme pra aumentar 50% em torno do centro; o campo
                 volta pra 100), trava de proporção e <b>espelhar</b> na horizontal/
-                vertical. Depois vem a face da caixa (com o menu de alinhar na face — sem
-                face escolhida, ele usa a face onde o objeto está) e
-                os campos do tipo do objeto (fonte, tinta, espessura...).</p>
+                vertical. Depois vêm a face da caixa (em <b>Automática</b>, vale a face
+                onde o objeto está) e os campos do tipo do objeto (fonte, tinta,
+                espessura...).</p>
                 <p><b>Sem nada selecionado</b>, a barra mostra o tamanho da chapa, a
                 unidade e as distâncias de deslocamento (setas e Shift+setas) e de
                 duplicação (Ctrl+D e colar) — as mesmas de Configurações &gt;
@@ -724,9 +723,10 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 baixo, na ordem da frente pra trás) e a camada Faca, travada. Clicar
                 na lista seleciona no desenho e vice-versa; desmarcar oculta o
                 elemento, e o oculto não sai na exportação nem vai pro CorelDRAW.</p>
-                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — alinhar com a
-                seleção, com a página (chapa) ou com a face de cada elemento;
-                distribuir 3 ou mais objetos por centros ou por espaços iguais.</p>
+                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — alinhar entre os
+                selecionados (escolha em <b>Alinhar a</b> qual fica parado), com a face de
+                cada elemento ou com a página (chapa); distribuir 3 ou mais objetos por
+                centros ou por espaços iguais.</p>
                 <p><b>Transformações</b> (<b>Alt+F7</b> posição, <b>Alt+F8</b>
                 rotação, <b>Alt+F9</b> escala e espelho, <b>Alt+F10</b> tamanho) —
                 o campo <b>Cópias</b> funciona como no CorelDRAW: com 0, transforma

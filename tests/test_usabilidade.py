@@ -183,3 +183,7 @@ def test_cores_do_logo_editaveis_depois_de_pronto(janela, tmp_path):
     assert logo.mapa_cores == {"#0000ff": "#000000", "#ff0000": "#ff0000"}
     janela.canvas.pilha_desfazer.undo()  # trocas seguidas: um passo só, como nas outras propriedades
     assert logo.mapa_cores == {}
+
+
+def test_abas_do_inspetor_sem_setinhas(janela):
+    assert not janela.abas_inspetor.usesScrollButtons()

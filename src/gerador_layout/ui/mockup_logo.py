@@ -3,7 +3,7 @@ automática: detecta as cores usadas no arquivo (`svg_cores.py`) e deixa
 mapear cada uma pra uma das tintas do trabalho — o resultado final só
 usa as cores mapeadas, seguindo a mesma regra de no máximo poucas
 tintas por caixa que o resto do app já assume (ver `PainelPropriedadesMockup._montar_cores_do_logo`
-em `dialogo_logo.py` pra UI desse mapeamento). Sem mapeamento nenhum,
+no inspetor pra UI desse mapeamento). Sem mapeamento nenhum,
 mostra o SVG com as cores originais do arquivo.
 """
 

@@ -137,7 +137,7 @@ _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
 _ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
 _ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
 _ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
-_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "Recuo dos lados (0 = sem corte)", "", "", ""]
+_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "", "", "", ""]
 _ROTULOS_RISCADOR_CINTA = [f"Faixa {i}" for i in range(1, 6)]
 
 
@@ -437,12 +437,25 @@ class JanelaPrincipal(QMainWindow):
         self.grupo_cinta = QGroupBox("Cinta")
         coluna = QVBoxLayout(self.grupo_cinta)
         coluna.setSpacing(8)
-        coluna.addWidget(QLabel("Recuar dos dois lados as faixas:"))
+        linha_recuo = QHBoxLayout()
+        linha_recuo.addWidget(QLabel("Recuo dos lados:"))
+        self.spin_recuo = QDoubleSpinBox()
+        self.spin_recuo.setRange(0, 100000)
+        self.spin_recuo.setDecimals(2)
+        self.spin_recuo.setSuffix(" mm")
+        self.spin_recuo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.spin_recuo.setKeyboardTracking(False)
+        self.spin_recuo.setToolTip("Quanto as faixas marcadas entram de cada lado (0 = sem corte)")
+        self.spin_recuo.valueChanged.connect(self._recalcular)
+        linha_recuo.addWidget(self.spin_recuo, 1)
+        coluna.addLayout(linha_recuo)
+        coluna.addWidget(QLabel("Recuar as faixas:"))
         linha = QHBoxLayout()
         self.checks_faixa_recuada: list[QCheckBox] = []
         for i in range(1, 6):
             check = QCheckBox(str(i))
-            check.setToolTip(f"A faixa {i} entra o recuo dos lados (2º campo da Impressora)")
+            check.setToolTip(f"A faixa {i} entra o recuo dos dois lados (digite o recuo acima)")
+            check.setEnabled(False)
             check.toggled.connect(self._recalcular)
             linha.addWidget(check)
             self.checks_faixa_recuada.append(check)
@@ -460,7 +473,10 @@ class JanelaPrincipal(QMainWindow):
         botoes.addWidget(mais)
         botoes.addStretch(1)
         coluna.addLayout(botoes)
-        dica = QLabel("Distância: da borda da chapa até o topo do furo (o lado curvo); o vinco fica voltado para a borda. Medidas em mm.")
+        dica = QLabel(
+            "As faixas são os campos do Riscador, embaixo do desenho. Distância do furo: da borda da chapa "
+            "até o topo (o lado curvo); o vinco fica voltado para a borda."
+        )
         dica.setObjectName("legendaMuted")
         dica.setWordWrap(True)
         coluna.addWidget(dica)
@@ -550,8 +566,17 @@ class JanelaPrincipal(QMainWindow):
             for c in getattr(self, "_furos", [])
         ]
 
-    def definir_cinta(self, faixas_recuadas, furos) -> None:
+    def _atualizar_checks_cinta(self, layout) -> None:
+        """Recuar só faz sentido com recuo digitado e em faixa que existe."""
+        faixas = layout.segmentos_riscador
+        for i, check in enumerate(self.checks_faixa_recuada):
+            check.setEnabled(self.spin_recuo.value() > 0 and i < len(faixas) and faixas[i] > 0)
+
+    def definir_cinta(self, faixas_recuadas, furos, recuo: float = 0.0) -> None:
         """Estado da cinta vindo de um projeto salvo (não recalcula)."""
+        self.spin_recuo.blockSignals(True)
+        self.spin_recuo.setValue(recuo)
+        self.spin_recuo.blockSignals(False)
         for i, check in enumerate(self.checks_faixa_recuada, start=1):
             check.blockSignals(True)
             check.setChecked(i in faixas_recuadas)
@@ -699,7 +724,7 @@ class JanelaPrincipal(QMainWindow):
         self._grupo_medidas_cla.setTitle("Medidas (mm)" if cinta else "Medidas C × L × A (mm)")
         if cinta:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA)
-            self.linha_impressora.definir_visiveis(2)
+            self.linha_impressora.definir_visiveis(1)
             self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_CINTA)
             self.linha_riscador.definir_visiveis(5)
         elif tipo in TIPOS_MEIA_CAIXA:
@@ -744,7 +769,7 @@ class JanelaPrincipal(QMainWindow):
             largura=self.spin_largura.value(),
             altura=self.spin_altura.value(),
             impressora_aba=imp[0],
-            impressora_largura_1=imp[1],
+            impressora_largura_1=self.spin_recuo.value() if self.combo_tipo.currentData() == TipoCaixa.CINTA else imp[1],
             impressora_comprimento_1=imp[2],
             impressora_largura_2=imp[3],
             impressora_comprimento_2=imp[4],
@@ -1693,7 +1718,7 @@ class JanelaPrincipal(QMainWindow):
             self._dobras_estilo, self._base_estilo, self._estilo_atual = None, None, None
         for widget in (self._grupo_tipo, self._grupo_medidas_cla, self._grupo_medidas):
             widget.setEnabled(not editada)
-        if editada:
+        if editada and not self._faca_propria:
             self.statusBar().showMessage("Faca editada à mão — medidas travadas até descartar as edições.", 6000)
 
     _TEXTO_FACA_EDITADA = "Faca editada à mão. As medidas estão travadas pra não desfazer a edição."
@@ -1730,8 +1755,11 @@ class JanelaPrincipal(QMainWindow):
         self._grupo_medidas_cla.setVisible(not propria)
         self._grupo_medidas.setVisible(not propria and self.abas_tela.currentIndex() == 0)
         self._aplicar_faces()
-        if not self.canvas.cena.selectedItems():
-            self.painel_propriedades_mockup.definir_elemento(None)  # a chapa pode ter mudado
+        self._ao_selecao_mockup_mudar()  # a chapa e a lista de faces do inspetor mudaram
+        pagina = self.canvas.retangulo_pagina()
+        if propria and pagina is not None:
+            medida = f"{pagina.width():.1f} × {pagina.height():.1f} mm".replace(".", ",")
+            self.statusBar().showMessage(f"{nome or 'Faca desenhada do zero'} — {medida}", 6000)
 
     def _montar_barra_organizar(self) -> None:
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
@@ -1785,6 +1813,9 @@ class JanelaPrincipal(QMainWindow):
         self.abas_inspetor.setObjectName("abasInspetor")
         self.abas_inspetor.setDocumentMode(True)
         self.abas_inspetor.setMinimumWidth(300)
+        # Sem as setinhas: as abas sempre cabem (encolhem com "..." se precisar).
+        self.abas_inspetor.setUsesScrollButtons(False)
+        self.abas_inspetor.setElideMode(Qt.TextElideMode.ElideRight)
         self.dock_inspetor.setWidget(self.abas_inspetor)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_inspetor)
         self.resizeDocks([self.dock_inspetor], [320], Qt.Orientation.Horizontal)
@@ -3005,6 +3036,8 @@ class JanelaPrincipal(QMainWindow):
             medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
         )
         self._aplicar_faces()
+        if medidas.tipo == TipoCaixa.CINTA:
+            self._atualizar_checks_cinta(layout)
         self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
             self._atualizar_arte_3d()
