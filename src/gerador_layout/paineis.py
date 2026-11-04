@@ -81,6 +81,22 @@ def face_no_ponto(paineis: list[Painel], x: float, y: float) -> Painel | None:
     return min(dentro, key=lambda p: p.largura * p.altura) if dentro else None
 
 
+def deslocamento_na_face(
+    x1: float, y1: float, x2: float, y2: float, velha: Painel, nova: Painel, tolerancia: float = 0.5
+) -> tuple[float, float]:
+    """Quanto mover um objeto (a caixa x1..x2, y1..y2) quando a face muda de
+    tamanho: mantém a distância da borda mais próxima, e o que está
+    centralizado continua centralizado. O tamanho do objeto não muda."""
+
+    def eixo(a: float, b: float, v1: float, v2: float, n1: float, n2: float) -> float:
+        antes, depois = a - v1, v2 - b
+        if abs(antes - depois) <= tolerancia:
+            return (n1 + n2) / 2 - (v1 + v2) / 2
+        return n1 - v1 if antes < depois else n2 - v2
+
+    return eixo(x1, x2, velha.x1, velha.x2, nova.x1, nova.x2), eixo(y1, y2, velha.y1, velha.y2, nova.y1, nova.y2)
+
+
 def faces_da_faca(linhas: list[LinhaDesenho]) -> list[Painel]:
     """Faca que não vem de um tipo de caixa (Construtor, catálogo, em
     branco): as faces são as regiões que as próprias linhas fecham, numeradas
