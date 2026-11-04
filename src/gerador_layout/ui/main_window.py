@@ -65,7 +65,6 @@ from . import projeto_arquivo
 from .dialogo_construtor_dieline import DialogoConstrutorDieline
 from .docker_simbologias import DockerSimbologias
 from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
-from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
 from .dialogo_tabela import DialogoTabela
 from .estilo import cor_legivel_sobre
@@ -309,6 +308,7 @@ class JanelaPrincipal(QMainWindow):
         grupo_medidas = QGroupBox("Medidas C × L × A (mm)")
         self._grupo_medidas_cla = grupo_medidas
         form_medidas = QFormLayout(grupo_medidas)
+        self._form_medidas = form_medidas
         form_medidas.setVerticalSpacing(12)
         self.spin_comprimento = self._criar_spin(300)
         self.spin_largura = self._criar_spin(200)
@@ -691,7 +691,12 @@ class JanelaPrincipal(QMainWindow):
         self.linha_impressora.definir_visiveis(5)
         cinta = tipo == TipoCaixa.CINTA
         self.grupo_cinta.setVisible(cinta)
-        self.spin_largura.setEnabled(not cinta)  # na cinta, C = largura total; A = faixa única até digitar as faixas
+        # Na cinta só vale a largura total (C): o resto são as faixas.
+        self.spin_largura.setEnabled(not cinta)
+        self._form_medidas.setRowVisible(self.spin_largura, not cinta)
+        self._form_medidas.setRowVisible(self.spin_altura, not cinta)
+        self._form_medidas.labelForField(self.spin_comprimento).setText("Largura total (C):" if cinta else "Comprimento (C):")
+        self._grupo_medidas_cla.setTitle("Medidas (mm)" if cinta else "Medidas C × L × A (mm)")
         if cinta:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA)
             self.linha_impressora.definir_visiveis(2)
@@ -721,7 +726,7 @@ class JanelaPrincipal(QMainWindow):
         """As tintas marcadas na legenda agora — mesma fonte usada tanto
         pra calcular o layout (`_obter_medidas`) quanto pra escolher a
         cor de um elemento de mockup (ver `painel_propriedades_mockup.py`
-        e `dialogo_logo.py`): é sempre a mesma paleta do trabalho atual,
+        e as cores do logotipo): é sempre a mesma paleta do trabalho atual,
         não faz sentido ter duas listas de cores diferentes no mesmo app."""
         return [
             CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
@@ -1068,8 +1073,8 @@ class JanelaPrincipal(QMainWindow):
         # largura mínima da janela (no Layout ainda tem o inspetor ao lado).
         self._so_pagina_atual_conta(self.pilha_visualizacao)
         self.label_zoom.setVisible(not modo_3d)
-        self.painel_esquerdo.setVisible(not modo_layout)
-        self._grupo_medidas.setVisible(not modo_layout and not self._faca_propria)
+        self.painel_esquerdo.setVisible(indice == 0)  # Layout e 3D: a tela é do desenho
+        self._grupo_medidas.setVisible(indice == 0 and not self._faca_propria)
         self.barra_mockup.setVisible(modo_layout)
         if hasattr(self, "painel_status"):
             self.painel_status.definir_controles_de_cor(modo_layout)
@@ -1285,7 +1290,6 @@ class JanelaPrincipal(QMainWindow):
             self._cores_impressao_ativas, self._paineis_disponiveis
         )
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
-        self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.agrupar_solicitado = lambda: self.canvas.agrupar_selecionados()
         self.painel_propriedades_mockup.desagrupar_solicitado = lambda: self.canvas.desagrupar_selecionados()
@@ -1293,7 +1297,6 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.propriedades_alteradas = lambda el, antes, depois: (
             self.canvas.registrar_propriedades({el: antes}, {el: depois}, "Propriedade", juntar=True)
         )
-        self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
         self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
 
@@ -1316,7 +1319,7 @@ class JanelaPrincipal(QMainWindow):
         # Organizar à direita das propriedades, na mesma linha de contexto.
         self.removeToolBar(self.barra_organizar)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.barra_organizar)
-        # Inspetor: a aba Propriedades (Geometria, Alinhar ao painel, Tinta...).
+        # Inspetor: a aba Propriedades (Geometria, Tinta...).
         rolagem = QScrollArea()
         rolagem.setObjectName("rolagemInspetor")
         rolagem.setWidgetResizable(True)
@@ -1331,10 +1334,10 @@ class JanelaPrincipal(QMainWindow):
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _nova_tinta_inspetor(self) -> None:
-        """"+ Nova tinta" do inspetor: as tintas moram na legenda da
-        Dieline — vai pra lá, onde se marca/adiciona a cor."""
-        self.abas_tela.setCurrentIndex(0)
-        self.statusBar().showMessage("Marque ou adicione a tinta na legenda de cores, acima do desenho.", 6000)
+        """"+ Nova tinta" do inspetor: cria a tinta aqui mesmo (ela já entra
+        marcada) e o objeto selecionado passa a oferecê-la."""
+        if self._nova_cor_personalizada():
+            self._ao_selecao_mockup_mudar()
 
     def _tamanho_pagina(self) -> tuple[float, float] | None:
         pagina = self.canvas.retangulo_pagina()
@@ -1725,7 +1728,7 @@ class JanelaPrincipal(QMainWindow):
             self.botao_descartar_faca.setText("Voltar pro tipo de caixa")
         self._grupo_tipo.setVisible(not propria)
         self._grupo_medidas_cla.setVisible(not propria)
-        self._grupo_medidas.setVisible(not propria and self.abas_tela.currentIndex() != 1)
+        self._grupo_medidas.setVisible(not propria and self.abas_tela.currentIndex() == 0)
         self._aplicar_faces()
         if not self.canvas.cena.selectedItems():
             self.painel_propriedades_mockup.definir_elemento(None)  # a chapa pode ter mudado
@@ -1755,10 +1758,10 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
-        barra.addSeparator()
-        self._acao_icone(
-            barra, "alinhar_centro_h", "Alinhar e distribuir (Ctrl+Shift+A)", self._no_layout(lambda: self.abrir_docker("alinhar"))
-        )
+        # Sem nada selecionado não há o que organizar (ver `_ao_selecao_mockup_mudar`).
+        self._acoes_organizar = [a for a in barra.actions() if not a.isSeparator()]
+        for acao in self._acoes_organizar:
+            acao.setEnabled(False)
         barra.hide()
 
     def _montar_dockers(self) -> None:
@@ -2076,6 +2079,8 @@ class JanelaPrincipal(QMainWindow):
     def _ao_selecao_mockup_mudar(self) -> None:
         selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
         self._atualizar_status_objeto(selecionados)
+        for acao in self._acoes_organizar:
+            acao.setEnabled(bool(selecionados))
         if len(selecionados) > 1:
             self.painel_propriedades_mockup.definir_selecao_multipla(len(selecionados))
         else:
@@ -2343,8 +2348,6 @@ class JanelaPrincipal(QMainWindow):
             self.statusBar().showMessage(
                 f"Logotipo no tamanho do arquivo: {real[0]:.1f} × {real[1]:.1f} mm".replace(".", ","), 6000
             )
-        if isinstance(elemento, ElementoLogoVetorial) and elemento.cores_detectadas:
-            self._remapear_cores_logo(elemento)
 
     def inserir_simbolo(self, caminho: str, nome: str = "") -> ElementoLogoVetorial | None:
         """Símbolo do banco de simbologias no centro da tela, no tamanho real
@@ -2402,11 +2405,6 @@ class JanelaPrincipal(QMainWindow):
         self.abrir_docker("simbologias")
         self.statusBar().showMessage(f"“{destino.stem}” guardado no banco de simbologias", 6000)
         return destino
-
-    def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
-        dialogo = DialogoSepararCoresLogo(elemento.cores_detectadas, self._cores_impressao_ativas(), self)
-        if dialogo.exec() == DialogoSepararCoresLogo.DialogCode.Accepted:
-            elemento.definir_mapa_cores(dialogo.mapa_escolhido())
 
     def _remover_elemento_mockup_selecionado(self) -> None:
         self.canvas.remover_selecionados()

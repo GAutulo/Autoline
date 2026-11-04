@@ -75,6 +75,12 @@ def calcular_paineis(
     return _paineis_envoltorio(segmentos_impressora, segmentos_riscador, com_corte)
 
 
+def face_no_ponto(paineis: list[Painel], x: float, y: float) -> Painel | None:
+    """A face onde o ponto cai (a menor, se houver mais de uma)."""
+    dentro = [p for p in paineis if p.contem(x, y)]
+    return min(dentro, key=lambda p: p.largura * p.altura) if dentro else None
+
+
 def faces_da_faca(linhas: list[LinhaDesenho]) -> list[Painel]:
     """Faca que não vem de um tipo de caixa (Construtor, catálogo, em
     branco): as faces são as regiões que as próprias linhas fecham, numeradas

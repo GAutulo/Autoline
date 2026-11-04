@@ -64,7 +64,7 @@ def test_shift_clique_monta_a_selecao_e_alinha_entre_si(janela):
     _clique(canvas, b.mapToScene(b.largura / 2, b.altura / 2), Qt.KeyboardModifier.ShiftModifier)
     assert a.isSelected() and b.isSelected()
     assert janela.painel_propriedades_mockup._rotulo_tipo.text() == "2 selecionados"
-    _botao(janela, lambda x: "Alinhar bordas esquerdas" in x.toolTip()).click()
+    janela.docker_alinhar._alinhar_com("selecao", "esquerda")
     assert b.pos().x() == pytest.approx(a.pos().x())
     # Shift+clique de novo tira da seleção (e não desmarca o outro)
     _clique(canvas, b.mapToScene(b.largura / 2, b.altura / 2), Qt.KeyboardModifier.ShiftModifier)
@@ -80,7 +80,7 @@ def test_alinhar_na_face_sem_ter_escolhido_a_face(janela):
     t.setSelected(True)
     QApplication.processEvents()
     assert t.painel_id is None
-    botao = _botao(janela, lambda x: x.objectName() == "botaoAlinharFace" and x.property("alinhamento") == "centro_h")
+    botao = next(b for b in janela.docker_alinhar._botoes["face"] if "Centros na vertical" in b.toolTip())
     assert botao.isEnabled()  # antes ficava cinza até escolher a face
     botao.click()
     assert t.painel_id == painel_lateral.id  # achou a face onde ele está

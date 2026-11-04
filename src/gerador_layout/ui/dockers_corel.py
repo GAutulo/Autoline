@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -195,10 +196,21 @@ class DockerAlinhar(QWidget):
         self._referencia = "selecao"
         self.setObjectName("conteudoInspetor")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        vbox = QVBoxLayout(self)
-        vbox.setContentsMargins(16, 16, 16, 16)
+        externo = QVBoxLayout(self)
+        externo.setContentsMargins(16, 16, 16, 16)
+        externo.setSpacing(8)
+        self.dica_vazia = QLabel("Selecione um objeto no desenho para alinhar.")
+        self.dica_vazia.setObjectName("legendaMuted")
+        self.dica_vazia.setWordWrap(True)
+        externo.addWidget(self.dica_vazia)
+        self.conteudo = QWidget()
+        vbox = QVBoxLayout(self.conteudo)
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(8)
+        externo.addWidget(self.conteudo)
+        externo.addStretch(1)
 
+        self._referencias: list = []
         self._botoes: dict[str, list[QToolButton]] = {}
         self._dicas: dict[str, QLabel] = {}
         for chave, titulo, dica in self.REFERENCIAS:
@@ -219,6 +231,15 @@ class DockerAlinhar(QWidget):
                 botoes.append(botao)
             vbox.addLayout(linha)
             self._botoes[chave] = botoes
+            if chave == "selecao":
+                self._linha_referencia = QWidget()
+                linha_ref = QHBoxLayout(self._linha_referencia)
+                linha_ref.setContentsMargins(0, 0, 0, 0)
+                linha_ref.addWidget(QLabel("Alinhar a:"))
+                self.combo_referencia = QComboBox()
+                self.combo_referencia.setToolTip("O objeto que fica parado: os outros vão até ele")
+                linha_ref.addWidget(self.combo_referencia, 1)
+                vbox.addWidget(self._linha_referencia)
             texto_dica = QLabel(dica)
             texto_dica.setObjectName("legendaMuted")
             texto_dica.setWordWrap(True)
@@ -245,7 +266,6 @@ class DockerAlinhar(QWidget):
         self._dica_distribuir = QLabel("Selecione 3 ou mais objetos.")
         self._dica_distribuir.setObjectName("legendaMuted")
         vbox.addWidget(self._dica_distribuir)
-        vbox.addStretch(1)
 
         canvas.cena.selectionChanged.connect(self._atualizar_estado)
         self._atualizar_estado()
@@ -255,6 +275,9 @@ class DockerAlinhar(QWidget):
             n = len([it for it in self._canvas.cena.selectedItems() if isinstance(it, ElementoMockup)])
         except RuntimeError:  # cena já destruída ao fechar
             return
+        self.conteudo.setVisible(n >= 1)
+        self.dica_vazia.setVisible(n == 0)
+        self._atualizar_referencias(n >= 2)
         for chave, botoes in self._botoes.items():
             ativo = n >= 2 if chave == "selecao" else n >= 1
             for botao in botoes:
@@ -263,6 +286,29 @@ class DockerAlinhar(QWidget):
         for botao in self._botoes_distribuir:
             botao.setEnabled(n >= 3)
         self._dica_distribuir.setVisible(n < 3)
+
+    def _atualizar_referencias(self, mostrar: bool) -> None:
+        """A lista "Alinhar a": os selecionados, na ordem em que foram
+        selecionados, e a área de toda a seleção. O escolhido continua
+        escolhido enquanto estiver selecionado."""
+        atual = self.objeto_referencia()
+        self._linha_referencia.setVisible(mostrar)
+        ordem = self._canvas.selecao_em_ordem() if mostrar else []
+        self._referencias = [*ordem, "area"] if mostrar else []
+        self.combo_referencia.blockSignals(True)
+        self.combo_referencia.clear()
+        for el in ordem:
+            self.combo_referencia.addItem(_nome_elemento(el))
+        if mostrar:
+            self.combo_referencia.addItem("Área da seleção")
+        if atual in self._referencias:
+            self.combo_referencia.setCurrentIndex(self._referencias.index(atual))
+        self.combo_referencia.blockSignals(False)
+
+    def objeto_referencia(self):
+        """O objeto escolhido em "Alinhar a", "area" ou None."""
+        indice = self.combo_referencia.currentIndex()
+        return self._referencias[indice] if 0 <= indice < len(self._referencias) else None
 
     def referencia(self) -> str:
         return self._referencia
@@ -275,7 +321,7 @@ class DockerAlinhar(QWidget):
 
     def _alinhar_com(self, referencia: str, alinhamento: str) -> None:
         self._referencia = referencia
-        self._canvas.alinhar_a(referencia, alinhamento)
+        self._canvas.alinhar_a(referencia, alinhamento, self.objeto_referencia())
 
 
 def _spin(minimo: float, maximo: float, valor: float, sufixo: str, decimais: int = 2) -> QDoubleSpinBox:
