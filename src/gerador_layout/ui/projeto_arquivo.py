@@ -367,6 +367,7 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
             "impressora": trechos(janela.linha_impressora),
             "riscador": trechos(janela.linha_riscador),
             "cinta": {
+                "recuo": janela.spin_recuo.value(),
                 "faixas_recuadas": [i for i, c in enumerate(janela.checks_faixa_recuada, start=1) if c.isChecked()],
                 "furos": [
                     [f.faixa, f.borda, f.distancia, f.largura, f.altura, f.raio] for f in janela._furos_cinta()
@@ -577,8 +578,9 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
         for c in controles:
             c.blockSignals(False)
     # Cinta (projeto antigo não tem: volta sem recuo e sem furos).
-    recuadas, furos = _cinta_de(caixa.get("cinta") or {}, avisos)
-    janela.definir_cinta(recuadas, furos)
+    cinta = caixa.get("cinta") or {}
+    recuadas, furos = _cinta_de(cinta, avisos)
+    janela.definir_cinta(recuadas, furos, float(cinta.get("recuo", 0.0)))
     janela._ao_trocar_tipo()  # rótulos/trechos do tipo + recalcula
     for linha, valores in ((janela.linha_impressora, caixa["impressora"]), (janela.linha_riscador, caixa["riscador"])):
         linha.definir_valores_manuais(valores)

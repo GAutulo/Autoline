@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
-from ..paineis import Painel
+from ..paineis import Painel, face_no_ponto
 from . import configuracoes
 from .estilo import FONTE_MONO, Cor
 from .mockup_curva import (
@@ -761,6 +761,7 @@ class PreviewCanvas(QGraphicsView):
     mensagem_status = Signal(str)
     # Faca editada à mão (True) ou voltou a ser a calculada (False).
     faca_editada_alterada = Signal(bool)
+    linhas_faca_alteradas = Signal()  # a cada mudança, inclusive desfazer
     # Tipo da linha selecionada na edição da faca (TipoLinha) ou None.
     linha_faca_selecionada = Signal(object)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
@@ -2300,29 +2301,38 @@ class PreviewCanvas(QGraphicsView):
             it for it in selecionados if it not in self._ordem_selecao
         ]
 
-    def alinhar_selecionados(self, alinhamento: str) -> None:
-        """Alinha os selecionados ao PRIMEIRO que foi selecionado (ele fica
-        parado; os outros vão até ele). Usa a caixa que o objeto ocupa na
+    def alinhar_selecionados(self, alinhamento: str, referencia=None) -> None:
+        """Alinha os selecionados a `referencia`: um deles (ele fica parado;
+        os outros vão até ele), "area" (a caixa de toda a seleção) ou, sem
+        escolha, o PRIMEIRO selecionado. Usa a caixa que o objeto ocupa na
         tela, então funciona também com objeto girado."""
         selecionados = self.selecao_em_ordem()
         if len(selecionados) < 2:
             return
-        referencia = selecionados[0].retangulo_conteudo_cena()
-        for el in selecionados[1:]:
+        if referencia == "area":
+            alvo = selecionados[0].retangulo_conteudo_cena()
+            for el in selecionados[1:]:
+                alvo = alvo.united(el.retangulo_conteudo_cena())
+            movem = selecionados
+        else:
+            base = referencia if referencia in selecionados else selecionados[0]
+            alvo = base.retangulo_conteudo_cena()
+            movem = [el for el in selecionados if el is not base]
+        for el in movem:
             r = el.retangulo_conteudo_cena()
             dx = dy = 0.0
             if alinhamento == "esquerda":
-                dx = referencia.left() - r.left()
+                dx = alvo.left() - r.left()
             elif alinhamento == "direita":
-                dx = referencia.right() - r.right()
+                dx = alvo.right() - r.right()
             elif alinhamento == "centro_h":
-                dx = referencia.center().x() - r.center().x()
+                dx = alvo.center().x() - r.center().x()
             elif alinhamento == "topo":
-                dy = referencia.top() - r.top()
+                dy = alvo.top() - r.top()
             elif alinhamento == "base":
-                dy = referencia.bottom() - r.bottom()
+                dy = alvo.bottom() - r.bottom()
             elif alinhamento == "centro_v":
-                dy = referencia.center().y() - r.center().y()
+                dy = alvo.center().y() - r.center().y()
             el.setPos(el.pos() + QPointF(dx, dy))
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
@@ -2603,6 +2613,7 @@ class PreviewCanvas(QGraphicsView):
             self._pagina_pela_faca = False  # voltou pra faca calculada
         self._fundo_mudou()  # a chapa pode ter mudado de tamanho
         self.viewport().update()
+        self.linhas_faca_alteradas.emit()
 
     def _aplicar_faca(self, texto: str, depois) -> None:
         antes = _copiar_linhas(self._linhas_editadas)
@@ -3871,29 +3882,29 @@ class PreviewCanvas(QGraphicsView):
     def selecionados_mockup(self) -> list[ElementoMockup]:
         return self._selecionados_mockup()
 
-    def alinhar_a(self, referencia: str, alinhamento: str) -> None:
+    def alinhar_a(self, referencia: str, alinhamento: str, objeto=None) -> None:
         """Docker Alinhar e distribuir: `referencia` é "selecao" (entre
-        si), "pagina" (chapa) ou "face" (a face de cada elemento)."""
+        si, com `objeto` como base: ver `alinhar_selecionados`), "pagina"
+        (chapa) ou "face" (a face de cada elemento)."""
         selecionados = self._selecionados_mockup()
         if not selecionados:
             return
         if referencia == "selecao":
             if len(selecionados) > 1:
-                self._com_undo_geometria("Alinhar", lambda: self.alinhar_selecionados(alinhamento))
+                self._com_undo_geometria("Alinhar", lambda: self.alinhar_selecionados(alinhamento, objeto))
             return
 
-        # Sem face escolhida: a face onde está o centro dele (a mesma regra
-        # do "Alinhar ao painel" do inspetor) — e fica nela, no mesmo passo
-        # de desfazer do alinhamento.
+        # Sem face escolhida: a face onde está o centro dele — e fica nela,
+        # no mesmo passo de desfazer do alinhamento.
         faces_novas: dict = {}
         if referencia == "face":
             for el in selecionados:
                 if self._painel_do_elemento(el) is not None:
                     continue
                 centro = el.mapToScene(el.largura / 2, el.altura / 2)
-                dentro = [p for p in self._paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
-                if dentro:
-                    faces_novas[el] = min(dentro, key=lambda p: p.largura * p.altura).id
+                face = face_no_ponto(self._paineis, centro.x(), centro.y())
+                if face is not None:
+                    faces_novas[el] = face.id
 
         def alvo_de(el: ElementoMockup) -> QRectF | None:
             if referencia == "pagina":

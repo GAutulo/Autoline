@@ -215,6 +215,8 @@ class TelaInicio(QWidget):
         if cartao is self._cartao_escolhido:
             return  # clicou de novo no mesmo: as variantes marcadas ficam
         self._cartao_escolhido = cartao
+        for chave in ("l", "a"):  # na cinta só vale a largura total (C)
+            self.spins[chave].setEnabled(cartao.tipo != TipoCaixa.CINTA)
         # Troca a área inteira: as opções do estilo anterior somem na hora
         # (com `deleteLater` sozinho ficavam um instante por baixo das novas).
         antiga = self._area_variantes

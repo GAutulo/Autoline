@@ -1028,7 +1028,7 @@ QTabWidget#abasInspetor > QTabBar::tab {{
     color: {Cor.TEXTO_SECUNDARIO};
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 10px 12px;
+    padding: 10px 8px;
     font-weight: 600;
 }}
 QTabWidget#abasInspetor > QTabBar::tab:selected {{

@@ -148,7 +148,7 @@ def _janela_cinta():
     j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.CINTA))
     j.spin_comprimento.setValue(120)
     j.linha_riscador.definir_valores_manuais([30, 2, 25, 30, 0])
-    j.linha_impressora.definir_valores_manuais([0, 10])
+    j.spin_recuo.setValue(10)
     j.checks_faixa_recuada[1].setChecked(True)  # faixa 2
     j.adicionar_furo_cinta(FuroCinta(faixa=3, borda="direita", distancia=45, largura=8, altura=9, raio=1))
     j._recalcular()
@@ -170,6 +170,24 @@ def test_cinta_na_tela_usa_as_faixas_o_recuo_e_os_furos():
     j.close()
 
 
+def test_recuar_so_liga_com_recuo_e_em_faixa_que_existe():
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.CINTA))
+    j.linha_riscador.definir_valores_manuais([30, 2, 25, 0, 0])
+    j._recalcular()
+    assert not any(c.isEnabled() for c in j.checks_faixa_recuada)  # sem recuo digitado
+    j.spin_recuo.setValue(10)
+    assert [c.isEnabled() for c in j.checks_faixa_recuada] == [True, True, True, False, False]
+    j.checks_faixa_recuada[1].setChecked(True)
+    assert j.canvas.layout_atual.faixas_recuadas == (2,)  # marcar já recorta
+    j.close()
+
+
 def test_cinta_volta_igual_do_projeto(tmp_path):
     from gerador_layout.ui.main_window import JanelaPrincipal
 
@@ -182,6 +200,7 @@ def test_cinta_volta_igual_do_projeto(tmp_path):
     medidas = outra._obter_medidas()
     assert medidas.tipo == TipoCaixa.CINTA
     assert medidas.faixas_recuadas == (2,)
+    assert outra.spin_recuo.value() == 10
     assert medidas.furos == [FuroCinta(3, "direita", 45, 8, 9, 1)]
     assert outra.canvas.layout_atual.segmentos_riscador == [30, 2, 25, 30]
     outra.close()

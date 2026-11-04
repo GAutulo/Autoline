@@ -56,7 +56,7 @@ from ..models import (
     TipoCaixa,
     TipoLinha,
 )
-from ..paineis import Painel, calcular_paineis
+from ..paineis import Painel, calcular_paineis, faces_da_faca
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
@@ -65,7 +65,6 @@ from . import projeto_arquivo
 from .dialogo_construtor_dieline import DialogoConstrutorDieline
 from .docker_simbologias import DockerSimbologias
 from .dockers_corel import DockerAlinhar, DockerObjetos, DockerTransformacoes
-from .dialogo_logo import DialogoSepararCoresLogo
 from .dialogo_manual import DialogoManual
 from .dialogo_tabela import DialogoTabela
 from .estilo import cor_legivel_sobre
@@ -138,7 +137,7 @@ _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
 _ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
 _ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
 _ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
-_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "Recuo dos lados (0 = sem corte)", "", "", ""]
+_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "", "", "", ""]
 _ROTULOS_RISCADOR_CINTA = [f"Faixa {i}" for i in range(1, 6)]
 
 
@@ -176,6 +175,7 @@ class JanelaPrincipal(QMainWindow):
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
         self._paineis_atuais: list[Painel] = []
+        self._paineis_do_tipo: list[Painel] = []
         # Dobra genérica (faca editada/em branco): ângulo por linha e face base.
         self._angulos_dobra: dict[int, float] = {}
         self._face_base_3d: int | None = None
@@ -279,10 +279,12 @@ class JanelaPrincipal(QMainWindow):
         self.aviso_faca_editada = QWidget()
         aviso = QVBoxLayout(self.aviso_faca_editada)
         aviso.setContentsMargins(0, 0, 0, 0)
-        texto_aviso = QLabel("Faca editada à mão. As medidas estão travadas pra não desfazer a edição.")
+        texto_aviso = QLabel(self._TEXTO_FACA_EDITADA)
+        self.texto_aviso_faca = texto_aviso
         texto_aviso.setWordWrap(True)
         texto_aviso.setStyleSheet(f"color: {Cor.ERRO}; font-weight: 600;")
         botao_descartar = QPushButton("Descartar edições da faca")
+        self.botao_descartar_faca = botao_descartar
         botao_descartar.clicked.connect(lambda: self.canvas.descartar_edicoes_faca())
         aviso.addWidget(texto_aviso)
         aviso.addWidget(botao_descartar)
@@ -306,6 +308,7 @@ class JanelaPrincipal(QMainWindow):
         grupo_medidas = QGroupBox("Medidas C × L × A (mm)")
         self._grupo_medidas_cla = grupo_medidas
         form_medidas = QFormLayout(grupo_medidas)
+        self._form_medidas = form_medidas
         form_medidas.setVerticalSpacing(12)
         self.spin_comprimento = self._criar_spin(300)
         self.spin_largura = self._criar_spin(200)
@@ -434,12 +437,25 @@ class JanelaPrincipal(QMainWindow):
         self.grupo_cinta = QGroupBox("Cinta")
         coluna = QVBoxLayout(self.grupo_cinta)
         coluna.setSpacing(8)
-        coluna.addWidget(QLabel("Recuar dos dois lados as faixas:"))
+        linha_recuo = QHBoxLayout()
+        linha_recuo.addWidget(QLabel("Recuo dos lados:"))
+        self.spin_recuo = QDoubleSpinBox()
+        self.spin_recuo.setRange(0, 100000)
+        self.spin_recuo.setDecimals(2)
+        self.spin_recuo.setSuffix(" mm")
+        self.spin_recuo.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.spin_recuo.setKeyboardTracking(False)
+        self.spin_recuo.setToolTip("Quanto as faixas marcadas entram de cada lado (0 = sem corte)")
+        self.spin_recuo.valueChanged.connect(self._recalcular)
+        linha_recuo.addWidget(self.spin_recuo, 1)
+        coluna.addLayout(linha_recuo)
+        coluna.addWidget(QLabel("Recuar as faixas:"))
         linha = QHBoxLayout()
         self.checks_faixa_recuada: list[QCheckBox] = []
         for i in range(1, 6):
             check = QCheckBox(str(i))
-            check.setToolTip(f"A faixa {i} entra o recuo dos lados (2º campo da Impressora)")
+            check.setToolTip(f"A faixa {i} entra o recuo dos dois lados (digite o recuo acima)")
+            check.setEnabled(False)
             check.toggled.connect(self._recalcular)
             linha.addWidget(check)
             self.checks_faixa_recuada.append(check)
@@ -457,7 +473,10 @@ class JanelaPrincipal(QMainWindow):
         botoes.addWidget(mais)
         botoes.addStretch(1)
         coluna.addLayout(botoes)
-        dica = QLabel("Distância: da borda da chapa até o topo do furo (o lado curvo); o vinco fica voltado para a borda. Medidas em mm.")
+        dica = QLabel(
+            "As faixas são os campos do Riscador, embaixo do desenho. Distância do furo: da borda da chapa "
+            "até o topo (o lado curvo); o vinco fica voltado para a borda."
+        )
         dica.setObjectName("legendaMuted")
         dica.setWordWrap(True)
         coluna.addWidget(dica)
@@ -547,8 +566,17 @@ class JanelaPrincipal(QMainWindow):
             for c in getattr(self, "_furos", [])
         ]
 
-    def definir_cinta(self, faixas_recuadas, furos) -> None:
+    def _atualizar_checks_cinta(self, layout) -> None:
+        """Recuar só faz sentido com recuo digitado e em faixa que existe."""
+        faixas = layout.segmentos_riscador
+        for i, check in enumerate(self.checks_faixa_recuada):
+            check.setEnabled(self.spin_recuo.value() > 0 and i < len(faixas) and faixas[i] > 0)
+
+    def definir_cinta(self, faixas_recuadas, furos, recuo: float = 0.0) -> None:
         """Estado da cinta vindo de um projeto salvo (não recalcula)."""
+        self.spin_recuo.blockSignals(True)
+        self.spin_recuo.setValue(recuo)
+        self.spin_recuo.blockSignals(False)
         for i, check in enumerate(self.checks_faixa_recuada, start=1):
             check.blockSignals(True)
             check.setChecked(i in faixas_recuadas)
@@ -688,10 +716,15 @@ class JanelaPrincipal(QMainWindow):
         self.linha_impressora.definir_visiveis(5)
         cinta = tipo == TipoCaixa.CINTA
         self.grupo_cinta.setVisible(cinta)
-        self.spin_largura.setEnabled(not cinta)  # na cinta, C = largura total; A = faixa única até digitar as faixas
+        # Na cinta só vale a largura total (C): o resto são as faixas.
+        self.spin_largura.setEnabled(not cinta)
+        self._form_medidas.setRowVisible(self.spin_largura, not cinta)
+        self._form_medidas.setRowVisible(self.spin_altura, not cinta)
+        self._form_medidas.labelForField(self.spin_comprimento).setText("Largura total (C):" if cinta else "Comprimento (C):")
+        self._grupo_medidas_cla.setTitle("Medidas (mm)" if cinta else "Medidas C × L × A (mm)")
         if cinta:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA)
-            self.linha_impressora.definir_visiveis(2)
+            self.linha_impressora.definir_visiveis(1)
             self.linha_riscador.definir_rotulos(_ROTULOS_RISCADOR_CINTA)
             self.linha_riscador.definir_visiveis(5)
         elif tipo in TIPOS_MEIA_CAIXA:
@@ -718,7 +751,7 @@ class JanelaPrincipal(QMainWindow):
         """As tintas marcadas na legenda agora — mesma fonte usada tanto
         pra calcular o layout (`_obter_medidas`) quanto pra escolher a
         cor de um elemento de mockup (ver `painel_propriedades_mockup.py`
-        e `dialogo_logo.py`): é sempre a mesma paleta do trabalho atual,
+        e as cores do logotipo): é sempre a mesma paleta do trabalho atual,
         não faz sentido ter duas listas de cores diferentes no mesmo app."""
         return [
             CorImpressao(nome=nome.upper(), r=rgb[0], g=rgb[1], b=rgb[2])
@@ -736,7 +769,7 @@ class JanelaPrincipal(QMainWindow):
             largura=self.spin_largura.value(),
             altura=self.spin_altura.value(),
             impressora_aba=imp[0],
-            impressora_largura_1=imp[1],
+            impressora_largura_1=self.spin_recuo.value() if self.combo_tipo.currentData() == TipoCaixa.CINTA else imp[1],
             impressora_comprimento_1=imp[2],
             impressora_largura_2=imp[3],
             impressora_comprimento_2=imp[4],
@@ -1065,8 +1098,8 @@ class JanelaPrincipal(QMainWindow):
         # largura mínima da janela (no Layout ainda tem o inspetor ao lado).
         self._so_pagina_atual_conta(self.pilha_visualizacao)
         self.label_zoom.setVisible(not modo_3d)
-        self.painel_esquerdo.setVisible(not modo_layout)
-        self._grupo_medidas.setVisible(not modo_layout)
+        self.painel_esquerdo.setVisible(indice == 0)  # Layout e 3D: a tela é do desenho
+        self._grupo_medidas.setVisible(indice == 0 and not self._faca_propria)
         self.barra_mockup.setVisible(modo_layout)
         if hasattr(self, "painel_status"):
             self.painel_status.definir_controles_de_cor(modo_layout)
@@ -1203,6 +1236,7 @@ class JanelaPrincipal(QMainWindow):
         if "E" in faca.valores:
             # O 3D mostra o papelão que o estilo usou nas contas.
             self.visualizacao_3d.definir_espessura(faca.valores["E"])
+        self._atualizar_estado_faca()
         self.canvas.ajustar_a_tela()
         self._atualizar_modelo_3d()
         self.statusBar().showMessage(
@@ -1281,7 +1315,6 @@ class JanelaPrincipal(QMainWindow):
             self._cores_impressao_ativas, self._paineis_disponiveis
         )
         self.painel_propriedades_mockup.remover_solicitado = self._remover_elemento_mockup_selecionado
-        self.painel_propriedades_mockup.remapear_logo_solicitado = self._remapear_cores_logo
         self.painel_propriedades_mockup.remover_multiplos_solicitado = self._remover_elemento_mockup_selecionado
         self.painel_propriedades_mockup.agrupar_solicitado = lambda: self.canvas.agrupar_selecionados()
         self.painel_propriedades_mockup.desagrupar_solicitado = lambda: self.canvas.desagrupar_selecionados()
@@ -1289,7 +1322,6 @@ class JanelaPrincipal(QMainWindow):
         self.painel_propriedades_mockup.propriedades_alteradas = lambda el, antes, depois: (
             self.canvas.registrar_propriedades({el: antes}, {el: depois}, "Propriedade", juntar=True)
         )
-        self.painel_propriedades_mockup.alinhar_multiplos_solicitado = self.canvas.alinhar_selecionados
         self.painel_propriedades_mockup.obter_tamanho_pagina = self._tamanho_pagina
         self.painel_propriedades_mockup.modelar_solicitado = self.canvas.modelar_selecionados
 
@@ -1312,7 +1344,7 @@ class JanelaPrincipal(QMainWindow):
         # Organizar à direita das propriedades, na mesma linha de contexto.
         self.removeToolBar(self.barra_organizar)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.barra_organizar)
-        # Inspetor: a aba Propriedades (Geometria, Alinhar ao painel, Tinta...).
+        # Inspetor: a aba Propriedades (Geometria, Tinta...).
         rolagem = QScrollArea()
         rolagem.setObjectName("rolagemInspetor")
         rolagem.setWidgetResizable(True)
@@ -1327,10 +1359,10 @@ class JanelaPrincipal(QMainWindow):
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
 
     def _nova_tinta_inspetor(self) -> None:
-        """"+ Nova tinta" do inspetor: as tintas moram na legenda da
-        Dieline — vai pra lá, onde se marca/adiciona a cor."""
-        self.abas_tela.setCurrentIndex(0)
-        self.statusBar().showMessage("Marque ou adicione a tinta na legenda de cores, acima do desenho.", 6000)
+        """"+ Nova tinta" do inspetor: cria a tinta aqui mesmo (ela já entra
+        marcada) e o objeto selecionado passa a oferecê-la."""
+        if self._nova_cor_personalizada():
+            self._ao_selecao_mockup_mudar()
 
     def _tamanho_pagina(self) -> tuple[float, float] | None:
         pagina = self.canvas.retangulo_pagina()
@@ -1641,6 +1673,7 @@ class JanelaPrincipal(QMainWindow):
 
         self.canvas.linha_faca_selecionada.connect(self._ao_selecionar_linha_faca)
         self.canvas.faca_editada_alterada.connect(self._ao_faca_editada)
+        self.canvas.linhas_faca_alteradas.connect(self._atualizar_estado_faca)
         atalho = QAction(self)
         atalho.setShortcut(QKeySequence("F10"))
         atalho.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
@@ -1685,8 +1718,48 @@ class JanelaPrincipal(QMainWindow):
             self._dobras_estilo, self._base_estilo, self._estilo_atual = None, None, None
         for widget in (self._grupo_tipo, self._grupo_medidas_cla, self._grupo_medidas):
             widget.setEnabled(not editada)
-        if editada:
+        if editada and not self._faca_propria:
             self.statusBar().showMessage("Faca editada à mão — medidas travadas até descartar as edições.", 6000)
+
+    _TEXTO_FACA_EDITADA = "Faca editada à mão. As medidas estão travadas pra não desfazer a edição."
+
+    @property
+    def _faca_propria(self) -> bool:
+        """A faca na tela não vem do tipo de caixa (Construtor, catálogo,
+        em branco): o tipo e o C × L × A da tela não dizem nada sobre ela."""
+        return self.canvas.faca_editada and getattr(self, "_faca_do_zero", False)
+
+    def _nome_faca_propria(self) -> str:
+        estilo = getattr(self, "_estilo_atual", None)
+        return estilo[0] if estilo else ""
+
+    def _aplicar_faces(self) -> None:
+        """Faces da faca que está na tela: as do tipo de caixa ou, na faca
+        própria, as que as linhas dela fecham."""
+        propria = self._faca_propria
+        self._paineis_atuais = faces_da_faca(list(self.canvas.linhas_faca())) if propria else self._paineis_do_tipo
+        self.canvas.definir_paineis(self._paineis_atuais)
+
+    def _atualizar_estado_faca(self) -> None:
+        """O painel, as faces e a chapa acompanham a faca que está na tela."""
+        propria = self._faca_propria
+        nome = self._nome_faca_propria()
+        if not propria:
+            self.texto_aviso_faca.setText(self._TEXTO_FACA_EDITADA)
+            self.botao_descartar_faca.setText("Descartar edições da faca")
+        else:
+            origem = f"Faca {nome}" if nome else "Faca desenhada do zero"
+            self.texto_aviso_faca.setText(f"{origem}: não vem de um tipo de caixa, então tipo e medidas não valem aqui.")
+            self.botao_descartar_faca.setText("Voltar pro tipo de caixa")
+        self._grupo_tipo.setVisible(not propria)
+        self._grupo_medidas_cla.setVisible(not propria)
+        self._grupo_medidas.setVisible(not propria and self.abas_tela.currentIndex() == 0)
+        self._aplicar_faces()
+        self._ao_selecao_mockup_mudar()  # a chapa e a lista de faces do inspetor mudaram
+        pagina = self.canvas.retangulo_pagina()
+        if propria and pagina is not None:
+            medida = f"{pagina.width():.1f} × {pagina.height():.1f} mm".replace(".", ",")
+            self.statusBar().showMessage(f"{nome or 'Faca desenhada do zero'} — {medida}", 6000)
 
     def _montar_barra_organizar(self) -> None:
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
@@ -1713,10 +1786,10 @@ class JanelaPrincipal(QMainWindow):
         barra.addSeparator()
         self._acao_icone(barra, "trazer_frente", "Para a frente da página (Shift+PgUp)", lambda: self.canvas.trazer_para_frente())
         self._acao_icone(barra, "enviar_tras", "Para trás da página (Shift+PgDn)", lambda: self.canvas.enviar_para_tras())
-        barra.addSeparator()
-        self._acao_icone(
-            barra, "alinhar_centro_h", "Alinhar e distribuir (Ctrl+Shift+A)", self._no_layout(lambda: self.abrir_docker("alinhar"))
-        )
+        # Sem nada selecionado não há o que organizar (ver `_ao_selecao_mockup_mudar`).
+        self._acoes_organizar = [a for a in barra.actions() if not a.isSeparator()]
+        for acao in self._acoes_organizar:
+            acao.setEnabled(False)
         barra.hide()
 
     def _montar_dockers(self) -> None:
@@ -1740,6 +1813,9 @@ class JanelaPrincipal(QMainWindow):
         self.abas_inspetor.setObjectName("abasInspetor")
         self.abas_inspetor.setDocumentMode(True)
         self.abas_inspetor.setMinimumWidth(300)
+        # Sem as setinhas: as abas sempre cabem (encolhem com "..." se precisar).
+        self.abas_inspetor.setUsesScrollButtons(False)
+        self.abas_inspetor.setElideMode(Qt.TextElideMode.ElideRight)
         self.dock_inspetor.setWidget(self.abas_inspetor)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_inspetor)
         self.resizeDocks([self.dock_inspetor], [320], Qt.Orientation.Horizontal)
@@ -2034,6 +2110,8 @@ class JanelaPrincipal(QMainWindow):
     def _ao_selecao_mockup_mudar(self) -> None:
         selecionados = [item for item in self.canvas.cena.selectedItems() if isinstance(item, ElementoMockup)]
         self._atualizar_status_objeto(selecionados)
+        for acao in self._acoes_organizar:
+            acao.setEnabled(bool(selecionados))
         if len(selecionados) > 1:
             self.painel_propriedades_mockup.definir_selecao_multipla(len(selecionados))
         else:
@@ -2301,8 +2379,6 @@ class JanelaPrincipal(QMainWindow):
             self.statusBar().showMessage(
                 f"Logotipo no tamanho do arquivo: {real[0]:.1f} × {real[1]:.1f} mm".replace(".", ","), 6000
             )
-        if isinstance(elemento, ElementoLogoVetorial) and elemento.cores_detectadas:
-            self._remapear_cores_logo(elemento)
 
     def inserir_simbolo(self, caminho: str, nome: str = "") -> ElementoLogoVetorial | None:
         """Símbolo do banco de simbologias no centro da tela, no tamanho real
@@ -2360,11 +2436,6 @@ class JanelaPrincipal(QMainWindow):
         self.abrir_docker("simbologias")
         self.statusBar().showMessage(f"“{destino.stem}” guardado no banco de simbologias", 6000)
         return destino
-
-    def _remapear_cores_logo(self, elemento: ElementoLogoVetorial) -> None:
-        dialogo = DialogoSepararCoresLogo(elemento.cores_detectadas, self._cores_impressao_ativas(), self)
-        if dialogo.exec() == DialogoSepararCoresLogo.DialogCode.Accepted:
-            elemento.definir_mapa_cores(dialogo.mapa_escolhido())
 
     def _remover_elemento_mockup_selecionado(self) -> None:
         self.canvas.remover_selecionados()
@@ -2753,11 +2824,16 @@ class JanelaPrincipal(QMainWindow):
         return str(Path(pasta) / nome) if pasta else nome
 
     def _texto_medidas_folha(self, medidas: MedidasCaixa, texto_medidas) -> str:
-        """C × L × A; na cinta (sem L nem A), largura × altura total."""
-        layout = self.canvas.layout_atual
-        if medidas.tipo == TipoCaixa.CINTA and layout is not None:
+        """C × L × A; sem elas (cinta, faca própria), largura × altura da chapa."""
+        layout = self.canvas.layout_efetivo
+        if layout is not None and (medidas.tipo == TipoCaixa.CINTA or self._faca_propria):
             return texto_medidas(layout.largura_total, layout.altura_total)
         return texto_medidas(medidas.comprimento, medidas.largura, medidas.altura)
+
+    def _tipo_para_folha(self, medidas: MedidasCaixa) -> str:
+        if self._faca_propria:
+            return (self._nome_faca_propria() or "FACA ESPECIAL").upper()
+        return NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper()
 
     def gerar_folha_aprovacao(self, caminho: str | None = None, dialogo=None, abrir: bool = True) -> Path | None:
         """Folha de aprovação em PDF (ver `folha_aprovacao.py`). `dialogo`
@@ -2778,7 +2854,7 @@ class JanelaPrincipal(QMainWindow):
             referencia=dados_antes.get("referencia", ""),
             codigo=dados_antes.get("codigo", ""),
             medidas=self._texto_medidas_folha(medidas, texto_medidas),  # desenho em 1:10
-            tipo=NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper(),
+            tipo=self._tipo_para_folha(medidas),
             cores=self._cores_impressao_ativas(),
             criado_em=_dt.date.fromisoformat(criado) if criado else None,
             desenvolvido_por=configuracoes.desenvolvido_por(),
@@ -2956,10 +3032,12 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._atualizar_tintas_status()
-        self._paineis_atuais = calcular_paineis(
+        self._paineis_do_tipo = calcular_paineis(
             medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
         )
-        self.canvas.definir_paineis(self._paineis_atuais)
+        self._aplicar_faces()
+        if medidas.tipo == TipoCaixa.CINTA:
+            self._atualizar_checks_cinta(layout)
         self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
             self._atualizar_arte_3d()

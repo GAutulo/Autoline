@@ -13,7 +13,7 @@ mesmo painel —
 - a linha de contexto (este widget, 44 px): o tipo do objeto e as opções
   principais dele (fonte, tamanho, alinhamento...);
 - o INSPETOR (`self.inspetor`, vai na aba Propriedades à direita): título e
-  face, Geometria · mm, Alinhar ao painel, Tinta e as demais seções do tipo
+  face, Geometria · mm, Tinta e as demais seções do tipo
   (Espaçamento, Quadro, Posição...), e a distância até a borda da face.
 Mesmos campos de antes, só em outro lugar.
 """
@@ -24,7 +24,7 @@ import warnings
 from typing import Callable
 
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QSizePolicy,
     QButtonGroup,
@@ -59,6 +59,7 @@ from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
 from .layout_fluxo import LayoutFluxo
+from ..paineis import face_no_ponto
 from .mockup_icones import TAMANHO_ICONE, construir_icone
 from .mockup_imagem import ElementoImagem
 from .mockup_itens import ElementoMockup, GrupoMockup
@@ -67,7 +68,7 @@ from .mockup_simbolos import ElementoSimbolo, TipoSimbolo
 from .mockup_tabela import ElementoTabela
 from .mockup_texto import ElementoTexto
 
-_ROTULO_SEM_PAINEL = "Nenhum"
+_ROTULO_SEM_PAINEL = "Automática"
 
 _FONTES_DISPONIVEIS = ["Arial", "Arial Black", "Verdana", "Times New Roman", "Impact"]
 
@@ -114,8 +115,6 @@ class PainelPropriedadesMockup(QWidget):
         # elemento, então ações que afetam a cena (remover, reabrir o
         # diálogo de separação de cor) sobem por aqui.
         self.remover_solicitado: Callable[[], None] | None = None
-        self.remapear_logo_solicitado: Callable[[ElementoLogoVetorial], None] | None = None
-        self.alinhar_multiplos_solicitado: Callable[[str], None] | None = None
         self.remover_multiplos_solicitado: Callable[[], None] | None = None
         self.agrupar_solicitado: Callable[[], None] | None = None
         self.desagrupar_solicitado: Callable[[], None] | None = None
@@ -172,6 +171,11 @@ class PainelPropriedadesMockup(QWidget):
         self._botao_remover.clicked.connect(self._ao_clicar_remover)
         cabecalho.addWidget(self._botao_remover, 0, Qt.AlignmentFlag.AlignTop)
         coluna.addLayout(cabecalho)
+        # Sem objeto (ou com vários), em vez de campos vazios.
+        self.dica_inspetor = QLabel("")
+        self.dica_inspetor.setObjectName("legendaMuted")
+        self.dica_inspetor.setWordWrap(True)
+        coluna.addWidget(self.dica_inspetor)
 
         self._fixo = QWidget()
         self._layout_fixo = QVBoxLayout(self._fixo)
@@ -497,11 +501,19 @@ class PainelPropriedadesMockup(QWidget):
         self._rotulo_tipo.setStyleSheet(f"color: {Cor.TEXTO_TERCIARIO};" if apagado else "font-weight: 700;")
         self._titulo_inspetor.setText(texto)
         face = ""
-        elemento = self._elemento
-        if elemento is not None and elemento.painel_id is not None:
-            painel = next((p for p in self._obter_paineis() if p.id == elemento.painel_id), None)
+        if self._elemento is not None:
+            painel = self._face_do_elemento(self._elemento)
             face = painel.nome if painel is not None else ""
         self._subtitulo_inspetor.setText(face)
+
+    def _face_do_elemento(self, elemento: ElementoMockup):
+        """A face escolhida ou, em "Automática", a face onde está o centro."""
+        paineis = self._obter_paineis()
+        escolhida = next((p for p in paineis if p.id == elemento.painel_id), None)
+        if escolhida is not None:
+            return escolhida
+        centro = elemento.mapToScene(elemento.largura / 2, elemento.altura / 2)
+        return face_no_ponto(paineis, centro.x(), centro.y())
 
     def _montar_estado_sem_selecao(self) -> None:
         """Barra de propriedades sem nada selecionado, como no CorelDRAW:
@@ -560,29 +572,10 @@ class PainelPropriedadesMockup(QWidget):
         self._limpar_barra()
         self._atualizar_fixo(None)
         self._definir_rotulo_tipo(f"{quantidade} selecionados")
+        self._botao_remover.setVisible(True)
         self._botao_remover.setEnabled(True)
+        self.dica_inspetor.setText("Para alinhar ou distribuir, use a aba Alinhar. Com um objeto só, as propriedades dele aparecem aqui.")
         self._nova_aba("Organizar")
-
-        disposicao = (
-            ("alinhar_esquerda", "esquerda", "Alinhar bordas esquerdas entre si"),
-            ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente entre si"),
-            ("alinhar_direita", "direita", "Alinhar bordas direitas entre si"),
-            ("alinhar_topo", "topo", "Alinhar topos entre si"),
-            ("alinhar_centro_v", "centro_v", "Centralizar verticalmente entre si"),
-            ("alinhar_base", "base", "Alinhar bases entre si"),
-        )
-        botao_agrupar = self._botao_icone("agrupar", "Agrupar (Ctrl+G)")
-        botao_agrupar.setObjectName("botaoAgrupar")
-        botao_agrupar.clicked.connect(lambda: self.agrupar_solicitado and self.agrupar_solicitado())
-        self._separador()
-        rotulo = QLabel("Alinhar ao 1º selecionado:")
-        rotulo.setStyleSheet(f"color: {Cor.TEXTO_SECUNDARIO};")
-        self._layout_campos.addWidget(rotulo)
-        for tipo_icone, alinhamento, tooltip in disposicao:
-            botao = self._botao_icone(tipo_icone, tooltip)
-            botao.clicked.connect(
-                lambda _c=False, a=alinhamento: self.alinhar_multiplos_solicitado and self.alinhar_multiplos_solicitado(a)
-            )
 
         # Modelar, como na barra de propriedades do CorelDRAW com vários
         # objetos selecionados (ver `modelagem.py`).
@@ -601,8 +594,8 @@ class PainelPropriedadesMockup(QWidget):
 
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_fixo(self) -> None:
-        """Geometria · mm e Alinhar ao painel — montados UMA vez, sempre no
-        mesmo lugar do inspetor; só os valores mudam com a seleção."""
+        """Geometria · mm — montada UMA vez; só os valores mudam com a
+        seleção. Alinhar mora só na aba Alinhar (ver `DockerAlinhar`)."""
         geometria, _ = self._nova_secao_widget("Geometria · mm")
         grade = QGridLayout()
         grade.setHorizontalSpacing(10)
@@ -666,30 +659,6 @@ class PainelPropriedadesMockup(QWidget):
         grade.addLayout(espelhos, 3, 0, 1, 2)
         self._layout_fixo.addWidget(geometria)
 
-        alinhar, _ = self._nova_secao_widget("Alinhar ao painel")
-        linha_alinhar = QHBoxLayout()
-        linha_alinhar.setSpacing(4)
-        alinhar.layout().addLayout(linha_alinhar)
-        self._botoes_alinhar_face: list[QToolButton] = []
-        for tipo_icone, alinhamento, tooltip in (
-            ("alinhar_esquerda", "esquerda", "Alinhar à esquerda da face"),
-            ("alinhar_centro_h", "centro_h", "Centralizar horizontalmente na face"),
-            ("alinhar_direita", "direita", "Alinhar à direita da face"),
-            ("alinhar_topo", "topo", "Alinhar ao topo da face"),
-            ("alinhar_centro_v", "centro_v", "Centralizar verticalmente na face"),
-            ("alinhar_base", "base", "Alinhar à base da face"),
-        ):
-            botao = QToolButton()
-            botao.setObjectName("botaoAlinharFace")
-            botao.setProperty("alinhamento", alinhamento)
-            botao.setIcon(construir_icone(tipo_icone))
-            botao.setToolTip(tooltip)
-            botao.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar_ao_painel(a))
-            botao.clicked.connect(self._conferir_mudanca)
-            linha_alinhar.addWidget(botao)
-            self._botoes_alinhar_face.append(botao)
-        self._layout_fixo.addWidget(alinhar)
 
     def _mostrar_trava(self, travada: bool) -> None:
         # Dois desenhos, como no CorelDRAW: cadeado fechado = proporção travada.
@@ -733,8 +702,10 @@ class PainelPropriedadesMockup(QWidget):
         self._botao_espelho_v.setChecked(bool(espelhavel and elemento.espelho_v))
         for botao in botoes:
             botao.blockSignals(False)
-        for botao in self._botoes_alinhar_face:
-            botao.setEnabled(tem and bool(self._obter_paineis()))
+        self._fixo.setVisible(tem)
+        self._botao_remover.setVisible(tem)
+        self.dica_inspetor.setVisible(not tem)
+        self.dica_inspetor.setText("Clique num objeto do desenho para ver e editar as propriedades dele.")
         if tem:
             self._atualizar_campos_geometria()
 
@@ -809,7 +780,6 @@ class PainelPropriedadesMockup(QWidget):
         paineis = self._obter_paineis()
         combo = QComboBox()
         combo.setObjectName("comboPainel")  # pra achar de forma confiável (ex.: em teste), não por posição
-        combo.setMaximumWidth(100)
         combo.addItem(_ROTULO_SEM_PAINEL, None)
         indice_atual = 0
         for i, painel in enumerate(paineis, start=1):
@@ -818,10 +788,6 @@ class PainelPropriedadesMockup(QWidget):
                 indice_atual = i
         combo.setCurrentIndex(indice_atual)
         self._grupo("face", combo, "Face da caixa a que este elemento pertence")
-
-        # Sem face escolhida, "alinhar na face" (na parte fixa) usa a face
-        # onde o objeto está (e ela passa a aparecer escolhida aqui).
-        self._combo_painel = combo
 
         def ao_mudar(_indice: int) -> None:
             elemento.definir_painel(combo.currentData())
@@ -851,12 +817,10 @@ class PainelPropriedadesMockup(QWidget):
         if rotulo is None:
             return
         elemento = self._elemento
-        painel = None
-        if elemento is not None and elemento.painel_id is not None:
-            painel = next((p for p in self._obter_paineis() if p.id == elemento.painel_id), None)
+        painel = self._face_do_elemento(elemento) if elemento is not None else None
         if elemento is None or painel is None:
-            rotulo.setText("Sem face escolhida — escolha a face em Posição, ou use Alinhar ao painel.")
-            rotulo.setToolTip("Posição na face: sem face escolhida.")
+            rotulo.setText("Fora das faces da caixa.")
+            rotulo.setToolTip("Posição na face: o objeto está fora das faces.")
             return
 
         x, y = elemento.pos().x(), elemento.pos().y()
@@ -877,42 +841,6 @@ class PainelPropriedadesMockup(QWidget):
         rotulo.setToolTip("\n".join(partes))
         menor = min(esq, dir_, topo, base)
         rotulo.setText(f"Na face {painel.nome}: {mm(menor)} mm da borda mais próxima.\n" + "\n".join(partes))
-
-    def _alinhar_ao_painel(self, alinhamento: str) -> None:
-        elemento = self._elemento
-        if elemento is None:
-            return
-        paineis = self._obter_paineis()
-        painel = next((p for p in paineis if p.id == elemento.painel_id), None)
-        if painel is None:
-            # Sem face escolhida: a face onde está o centro do objeto (antes
-            # o botão ficava cinza até escolher a face — parecia quebrado).
-            centro = elemento.mapToScene(elemento.largura / 2, elemento.altura / 2)
-            dentro = [p for p in paineis if p.x1 <= centro.x() <= p.x2 and p.y1 <= centro.y() <= p.y2]
-            if not dentro:
-                return
-            painel = min(dentro, key=lambda p: p.largura * p.altura)
-            combo = getattr(self, "_combo_painel", None)
-            indice = combo.findData(painel.id) if combo is not None else -1
-            if indice >= 0:
-                combo.setCurrentIndex(indice)  # dispara definir_painel
-            else:
-                elemento.definir_painel(painel.id)
-
-        x, y = elemento.pos().x(), elemento.pos().y()
-        if alinhamento == "esquerda":
-            x = painel.x1
-        elif alinhamento == "direita":
-            x = painel.x2 - elemento.largura
-        elif alinhamento == "centro_h":
-            x = painel.x1 + (painel.largura - elemento.largura) / 2
-        elif alinhamento == "topo":
-            y = painel.y1
-        elif alinhamento == "base":
-            y = painel.y2 - elemento.altura
-        elif alinhamento == "centro_v":
-            y = painel.y1 + (painel.altura - elemento.altura) / 2
-        elemento.setPos(x, y)
 
     def _ao_editar_geometria(self, chave: str, valor: float) -> None:
         elemento = self._elemento
@@ -1378,9 +1306,64 @@ class PainelPropriedadesMockup(QWidget):
             combo.addItem("Separada por cor", "separada")
             combo.setCurrentIndex(combo.count() - 1)
         combo.setMaximumWidth(130)
-        combo.currentIndexChanged.connect(
-            lambda _i: combo.currentData() != "separada" and el.pintar_numa_tinta(combo.currentData())
-        )
+        def pintar_tudo(_indice: int) -> None:
+            if combo.currentData() != "separada":
+                el.pintar_numa_tinta(combo.currentData())
+                # As linhas "Cores do arquivo" mostram o que ficou.
+                QTimer.singleShot(0, lambda: self._elemento is el and self.definir_elemento(el))
+
+        combo.currentIndexChanged.connect(pintar_tudo)
         self._grupo("tinta", combo, "Cor: o desenho todo numa tinta do trabalho (o branco continua branco), ou as cores do arquivo")
-        botao = self._botao_icone("remapear", f"{len(el.cores_detectadas)} cor(es) no arquivo — separar cor a cor")
-        botao.clicked.connect(lambda: self.remapear_logo_solicitado and self.remapear_logo_solicitado(el))
+        self._montar_cores_do_logo(el, combo)
+
+    def _montar_cores_do_logo(self, el: ElementoLogoVetorial, combo_todo: QComboBox) -> None:
+        """Uma linha por cor do arquivo, já com a tinta escolhida: dá pra
+        trocar a qualquer hora, uma cor sem mexer nas outras."""
+        cores = el.cores_detectadas
+        if not cores:
+            return
+        caixa, fluxo = self._nova_secao_widget("Cores do arquivo")
+        self._layout_secoes.addWidget(caixa)
+        self._secoes["Cores do arquivo"] = caixa
+        tintas = self._obter_tintas()
+        mapa = el.mapa_cores
+        for cor in cores:
+            linha = QWidget()
+            horizontal = QHBoxLayout(linha)
+            horizontal.setContentsMargins(0, 0, 0, 0)
+            horizontal.setSpacing(6)
+            amostra = QLabel()
+            amostra.setFixedSize(16, 16)
+            amostra.setStyleSheet(f"background: {cor}; border: 1px solid {Cor.BORDA_FORTE}; border-radius: 3px;")
+            amostra.setToolTip(f"Cor {cor} do arquivo")
+            combo = QComboBox()
+            combo.setProperty("corOriginal", cor)
+            combo.addItem("Cor original", None)
+            for tinta in tintas:
+                combo.addItem(tinta.nome, tinta)
+            destino = mapa.get(cor)
+            if destino is not None:
+                indice = next((i for i, t in enumerate(tintas, start=1) if QColor(t.r, t.g, t.b).name() == destino), -1)
+                if indice < 0:  # tinta que saiu da legenda: continua aparecendo
+                    combo.addItem(destino, destino)
+                    indice = combo.count() - 1
+                combo.setCurrentIndex(indice)
+            combo.currentIndexChanged.connect(lambda _i, o=cor, w=combo: self._trocar_cor_logo(el, o, w, combo_todo))
+            horizontal.addWidget(amostra)
+            horizontal.addWidget(combo, 1)
+            fluxo.addWidget(linha)
+
+    @staticmethod
+    def _trocar_cor_logo(el: ElementoLogoVetorial, original: str, combo: QComboBox, combo_todo: QComboBox) -> None:
+        mapa = el.mapa_cores
+        tinta = combo.currentData()
+        if tinta is None:
+            mapa.pop(original, None)
+        else:
+            mapa[original] = tinta if isinstance(tinta, str) else QColor(tinta.r, tinta.g, tinta.b).name()
+        el.definir_mapa_cores(mapa)
+        combo_todo.blockSignals(True)
+        if combo_todo.findData("separada") < 0:
+            combo_todo.addItem("Separada por cor", "separada")
+        combo_todo.setCurrentIndex(combo_todo.findData("separada"))
+        combo_todo.blockSignals(False)
