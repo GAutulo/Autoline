@@ -761,6 +761,7 @@ class PreviewCanvas(QGraphicsView):
     mensagem_status = Signal(str)
     # Faca editada à mão (True) ou voltou a ser a calculada (False).
     faca_editada_alterada = Signal(bool)
+    linhas_faca_alteradas = Signal()  # a cada mudança, inclusive desfazer
     # Tipo da linha selecionada na edição da faca (TipoLinha) ou None.
     linha_faca_selecionada = Signal(object)  # p1, p2, tipo (ver mockup_cota.TIPOS_COTA)
     texto_solicitado = Signal(QPointF)
@@ -2603,6 +2604,7 @@ class PreviewCanvas(QGraphicsView):
             self._pagina_pela_faca = False  # voltou pra faca calculada
         self._fundo_mudou()  # a chapa pode ter mudado de tamanho
         self.viewport().update()
+        self.linhas_faca_alteradas.emit()
 
     def _aplicar_faca(self, texto: str, depois) -> None:
         antes = _copiar_linhas(self._linhas_editadas)

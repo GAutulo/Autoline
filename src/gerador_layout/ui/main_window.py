@@ -56,7 +56,7 @@ from ..models import (
     TipoCaixa,
     TipoLinha,
 )
-from ..paineis import Painel, calcular_paineis
+from ..paineis import Painel, calcular_paineis, faces_da_faca
 from . import configuracoes, corel_bridge, exportacao
 from .area_trabalho_corel import BotaoFlyout, PainelStatus, PaletaCores
 from .dialogo_configuracoes import DialogoConfiguracoes
@@ -176,6 +176,7 @@ class JanelaPrincipal(QMainWindow):
         self._chips_cor: dict[str, tuple[QPushButton, tuple[int, int, int]]] = {}
         self._corel_app = None
         self._paineis_atuais: list[Painel] = []
+        self._paineis_do_tipo: list[Painel] = []
         # Dobra genérica (faca editada/em branco): ângulo por linha e face base.
         self._angulos_dobra: dict[int, float] = {}
         self._face_base_3d: int | None = None
@@ -279,10 +280,12 @@ class JanelaPrincipal(QMainWindow):
         self.aviso_faca_editada = QWidget()
         aviso = QVBoxLayout(self.aviso_faca_editada)
         aviso.setContentsMargins(0, 0, 0, 0)
-        texto_aviso = QLabel("Faca editada à mão. As medidas estão travadas pra não desfazer a edição.")
+        texto_aviso = QLabel(self._TEXTO_FACA_EDITADA)
+        self.texto_aviso_faca = texto_aviso
         texto_aviso.setWordWrap(True)
         texto_aviso.setStyleSheet(f"color: {Cor.ERRO}; font-weight: 600;")
         botao_descartar = QPushButton("Descartar edições da faca")
+        self.botao_descartar_faca = botao_descartar
         botao_descartar.clicked.connect(lambda: self.canvas.descartar_edicoes_faca())
         aviso.addWidget(texto_aviso)
         aviso.addWidget(botao_descartar)
@@ -1066,7 +1069,7 @@ class JanelaPrincipal(QMainWindow):
         self._so_pagina_atual_conta(self.pilha_visualizacao)
         self.label_zoom.setVisible(not modo_3d)
         self.painel_esquerdo.setVisible(not modo_layout)
-        self._grupo_medidas.setVisible(not modo_layout)
+        self._grupo_medidas.setVisible(not modo_layout and not self._faca_propria)
         self.barra_mockup.setVisible(modo_layout)
         if hasattr(self, "painel_status"):
             self.painel_status.definir_controles_de_cor(modo_layout)
@@ -1203,6 +1206,7 @@ class JanelaPrincipal(QMainWindow):
         if "E" in faca.valores:
             # O 3D mostra o papelão que o estilo usou nas contas.
             self.visualizacao_3d.definir_espessura(faca.valores["E"])
+        self._atualizar_estado_faca()
         self.canvas.ajustar_a_tela()
         self._atualizar_modelo_3d()
         self.statusBar().showMessage(
@@ -1641,6 +1645,7 @@ class JanelaPrincipal(QMainWindow):
 
         self.canvas.linha_faca_selecionada.connect(self._ao_selecionar_linha_faca)
         self.canvas.faca_editada_alterada.connect(self._ao_faca_editada)
+        self.canvas.linhas_faca_alteradas.connect(self._atualizar_estado_faca)
         atalho = QAction(self)
         atalho.setShortcut(QKeySequence("F10"))
         atalho.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
@@ -1687,6 +1692,43 @@ class JanelaPrincipal(QMainWindow):
             widget.setEnabled(not editada)
         if editada:
             self.statusBar().showMessage("Faca editada à mão — medidas travadas até descartar as edições.", 6000)
+
+    _TEXTO_FACA_EDITADA = "Faca editada à mão. As medidas estão travadas pra não desfazer a edição."
+
+    @property
+    def _faca_propria(self) -> bool:
+        """A faca na tela não vem do tipo de caixa (Construtor, catálogo,
+        em branco): o tipo e o C × L × A da tela não dizem nada sobre ela."""
+        return self.canvas.faca_editada and getattr(self, "_faca_do_zero", False)
+
+    def _nome_faca_propria(self) -> str:
+        estilo = getattr(self, "_estilo_atual", None)
+        return estilo[0] if estilo else ""
+
+    def _aplicar_faces(self) -> None:
+        """Faces da faca que está na tela: as do tipo de caixa ou, na faca
+        própria, as que as linhas dela fecham."""
+        propria = self._faca_propria
+        self._paineis_atuais = faces_da_faca(list(self.canvas.linhas_faca())) if propria else self._paineis_do_tipo
+        self.canvas.definir_paineis(self._paineis_atuais)
+
+    def _atualizar_estado_faca(self) -> None:
+        """O painel, as faces e a chapa acompanham a faca que está na tela."""
+        propria = self._faca_propria
+        nome = self._nome_faca_propria()
+        if not propria:
+            self.texto_aviso_faca.setText(self._TEXTO_FACA_EDITADA)
+            self.botao_descartar_faca.setText("Descartar edições da faca")
+        else:
+            origem = f"Faca {nome}" if nome else "Faca desenhada do zero"
+            self.texto_aviso_faca.setText(f"{origem}: não vem de um tipo de caixa, então tipo e medidas não valem aqui.")
+            self.botao_descartar_faca.setText("Voltar pro tipo de caixa")
+        self._grupo_tipo.setVisible(not propria)
+        self._grupo_medidas_cla.setVisible(not propria)
+        self._grupo_medidas.setVisible(not propria and self.abas_tela.currentIndex() != 1)
+        self._aplicar_faces()
+        if not self.canvas.cena.selectedItems():
+            self.painel_propriedades_mockup.definir_elemento(None)  # a chapa pode ter mudado
 
     def _montar_barra_organizar(self) -> None:
         """Desfazer/refazer, agrupar e ordem — no topo, como a barra
@@ -2753,11 +2795,16 @@ class JanelaPrincipal(QMainWindow):
         return str(Path(pasta) / nome) if pasta else nome
 
     def _texto_medidas_folha(self, medidas: MedidasCaixa, texto_medidas) -> str:
-        """C × L × A; na cinta (sem L nem A), largura × altura total."""
-        layout = self.canvas.layout_atual
-        if medidas.tipo == TipoCaixa.CINTA and layout is not None:
+        """C × L × A; sem elas (cinta, faca própria), largura × altura da chapa."""
+        layout = self.canvas.layout_efetivo
+        if layout is not None and (medidas.tipo == TipoCaixa.CINTA or self._faca_propria):
             return texto_medidas(layout.largura_total, layout.altura_total)
         return texto_medidas(medidas.comprimento, medidas.largura, medidas.altura)
+
+    def _tipo_para_folha(self, medidas: MedidasCaixa) -> str:
+        if self._faca_propria:
+            return (self._nome_faca_propria() or "FACA ESPECIAL").upper()
+        return NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper()
 
     def gerar_folha_aprovacao(self, caminho: str | None = None, dialogo=None, abrir: bool = True) -> Path | None:
         """Folha de aprovação em PDF (ver `folha_aprovacao.py`). `dialogo`
@@ -2778,7 +2825,7 @@ class JanelaPrincipal(QMainWindow):
             referencia=dados_antes.get("referencia", ""),
             codigo=dados_antes.get("codigo", ""),
             medidas=self._texto_medidas_folha(medidas, texto_medidas),  # desenho em 1:10
-            tipo=NOME_EXIBICAO_TIPO_CAIXA.get(medidas.tipo, "").upper(),
+            tipo=self._tipo_para_folha(medidas),
             cores=self._cores_impressao_ativas(),
             criado_em=_dt.date.fromisoformat(criado) if criado else None,
             desenvolvido_por=configuracoes.desenvolvido_por(),
@@ -2956,10 +3003,10 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._atualizar_tintas_status()
-        self._paineis_atuais = calcular_paineis(
+        self._paineis_do_tipo = calcular_paineis(
             medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
         )
-        self.canvas.definir_paineis(self._paineis_atuais)
+        self._aplicar_faces()
         self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
             self._atualizar_arte_3d()

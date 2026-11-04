@@ -25,8 +25,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .dobra_generica import achar_faces
 from .models import TIPOS_MALETA as _TIPOS_MALETA
-from .models import TipoCaixa
+from .models import LinhaDesenho, TipoCaixa
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,24 @@ def calcular_paineis(
         return _paineis_capa(segmentos_impressora, segmentos_riscador)
     com_corte = tipo in (TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE, TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE)
     return _paineis_envoltorio(segmentos_impressora, segmentos_riscador, com_corte)
+
+
+def faces_da_faca(linhas: list[LinhaDesenho]) -> list[Painel]:
+    """Faca que não vem de um tipo de caixa (Construtor, catálogo, em
+    branco): as faces são as regiões que as próprias linhas fecham, numeradas
+    de cima pra baixo e da esquerda pra direita. O painel é o retângulo que
+    envolve cada região."""
+    if not linhas:
+        return []
+    caixas = []
+    for face in achar_faces(linhas).faces:
+        xs = [p[0] for p in face.poligono]
+        ys = [p[1] for p in face.poligono]
+        caixas.append((min(ys), min(xs), max(xs), max(ys)))
+    return [
+        Painel(f"face{n}", f"Face {n}", x1, y1, x2, y2, eh_aba=False)
+        for n, (y1, x1, x2, y2) in enumerate(sorted(caixas), start=1)
+    ]
 
 
 def _paineis_capa(segmentos_impressora: list[float], segmentos_riscador: list[float]) -> list[Painel]:
