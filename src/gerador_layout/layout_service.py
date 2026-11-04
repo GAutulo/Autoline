@@ -397,11 +397,16 @@ class ServicoLayoutCaixa:
         layout = LayoutCaixa()
         linhas = layout.linhas
         largura = _valor_ou_padrao(m.impressora_aba, m.comprimento)
-        riscador = [m.riscador_superior, m.riscador_centro, m.riscador_inferior, m.riscador_parte_4, m.riscador_parte_5]
+        digitado = [m.riscador_superior, m.riscador_centro, m.riscador_inferior, m.riscador_parte_4, m.riscador_parte_5]
+        padrao = [m.largura, m.altura, m.largura, 0.0, 0.0]  # 600X90X128 risca 90 | 128 | 90
+        riscador = [
+            0.0 if n in m.faixas_zeradas else _valor_ou_padrao(v, p)
+            for n, (v, p) in enumerate(zip(digitado, padrao), start=1)
+        ]
         # Cada faixa guarda o número do campo dela: um campo vazio no meio
         # não renumera as de baixo (os recuos e furos apontam pelo número).
         ultima = max((i for i, v in enumerate(riscador) if v > 0), default=-1)
-        valores = riscador[: ultima + 1] if ultima >= 0 else [m.altura]
+        valores = riscador[: ultima + 1]
         faixas = [n for n, v in enumerate(valores, start=1) if v > 0]
         recuo = m.impressora_largura_1 if 0 < m.impressora_largura_1 < largura / 2.0 else 0.0  # o resto é impossível
         recuadas = tuple(sorted(set(m.faixas_recuadas) & set(faixas))) if recuo > 0 else ()
@@ -412,7 +417,7 @@ class ServicoLayoutCaixa:
         bordas = {n: (recuo, largura - recuo) if n in recuadas else (0.0, largura) for n in faixas}
         layout.largura_total = largura
         layout.altura_total = ys[-1]
-        layout.segmentos_impressora = [largura, recuo]
+        layout.segmentos_impressora = [recuo, largura - 2.0 * recuo, recuo] if recuadas else [largura]
         layout.segmentos_riscador = list(valores)
         layout.faixas_recuadas = recuadas
         layout.descricao = "Cinta — faixas no riscador"

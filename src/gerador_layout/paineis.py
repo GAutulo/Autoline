@@ -136,11 +136,11 @@ def _paineis_capa(segmentos_impressora: list[float], segmentos_riscador: list[fl
 def _paineis_cinta(
     segmentos_impressora: list[float], segmentos_riscador: list[float], faixas_recuadas: tuple[int, ...]
 ) -> list[Painel]:
-    # Impressora: largura total | recuo. Cada faixa do riscador é uma face.
+    # Impressora: C, ou recuo | miolo | recuo. Cada faixa do riscador é uma face.
     if not segmentos_impressora or not segmentos_riscador:
         return []
-    largura = segmentos_impressora[0]
-    recuo = segmentos_impressora[1] if len(segmentos_impressora) > 1 else 0.0
+    largura = sum(segmentos_impressora)
+    recuo = segmentos_impressora[0] if len(segmentos_impressora) > 1 else 0.0
     ys = _bordas_cumulativas(segmentos_riscador)
     paineis = []
     for i, altura in enumerate(segmentos_riscador):
@@ -234,3 +234,46 @@ def _paineis_envoltorio(
             sufixo = "" if linha == 2 else f"_{linha}"
             paineis.append(Painel(f"aba_lateral_{lado}{sufixo}", f"Aba lateral {lado}", xs[col], ys[linha], xs[col + 1], ys[linha + 1], eh_aba=True))
     return paineis
+
+
+Retangulo = tuple[float, float, float, float]  # x1, y1, x2, y2
+_MENOR_DISTANCIA_MM = 0.5
+
+
+def _distancias_na_horizontal(objetos: list[tuple[Retangulo, Retangulo]]) -> list[Retangulo]:
+    """Cada objeto (com o limite dele) mede até o vizinho da esquerda ou até
+    a borda; à direita, só até a borda: o vizinho de lá já mediu até ele."""
+    saida = []
+    for r, limite in objetos:
+        x1, y1, x2, y2 = r
+        meio = (y1 + y2) / 2
+        na_linha = [(o, lim) for o, lim in objetos if o is not r and min(o[3], y2) > max(o[1], y1)]
+        esquerda = [o for o, _ in na_linha if limite[0] < o[2] <= x1]
+        direita = [o for o, lim in na_linha if x2 <= o[0] < limite[2] and lim[0] < x2]  # e ele me enxerga
+        if esquerda:
+            o = max(esquerda, key=lambda v: v[2])
+            y = (max(o[1], y1) + min(o[3], y2)) / 2
+            saida.append((o[2], y, x1, y))
+        else:
+            saida.append((limite[0], meio, x1, meio))
+        if not direita:
+            saida.append((x2, meio, limite[2], meio))
+    return [m for m in saida if m[2] - m[0] >= _MENOR_DISTANCIA_MM]
+
+
+def distancias_dos_objetos(objetos: list[Retangulo], faces: list[Painel], chapa: Retangulo) -> list[Retangulo]:
+    """As medidas entre os objetos impressos e até a caixa, como (x1, y1, x2, y2).
+    A caixa é a borda da face do objeto: o que está em outra face fica depois
+    dela, então não se mede por cima do vinco."""
+
+    def limite(r: Retangulo) -> Retangulo:
+        face = face_no_ponto(faces, (r[0] + r[2]) / 2, (r[1] + r[3]) / 2)
+        return (face.x1, face.y1, face.x2, face.y2) if face is not None else chapa
+
+    def de_lado(r: Retangulo) -> Retangulo:
+        return (r[1], r[0], r[3], r[2])
+
+    pares = [(r, limite(r)) for r in objetos]
+    horizontais = _distancias_na_horizontal(pares)
+    verticais = _distancias_na_horizontal([(de_lado(r), de_lado(l)) for r, l in pares])
+    return horizontais + [de_lado(m) for m in verticais]

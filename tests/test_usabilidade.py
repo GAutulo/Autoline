@@ -136,16 +136,16 @@ def test_3d_usa_a_tela_toda(janela):
     assert not janela.painel_esquerdo.isHidden() and not janela._grupo_medidas.isHidden()
 
 
-def test_cinta_esconde_l_e_a(janela):
+def test_cinta_pede_c_l_a(janela):
     janela.abas_tela.setCurrentIndex(0)
     janela.combo_tipo.setCurrentIndex(janela.combo_tipo.findData(TipoCaixa.CINTA))
-    assert not janela._form_medidas.isRowVisible(janela.spin_largura)
-    assert not janela._form_medidas.isRowVisible(janela.spin_altura)
+    assert janela._form_medidas.isRowVisible(janela.spin_largura)
+    assert janela._form_medidas.isRowVisible(janela.spin_altura)
     janela.combo_tipo.setCurrentIndex(janela.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
     assert janela._form_medidas.isRowVisible(janela.spin_largura)
     janela.mostrar_inicio()
     janela.tela_inicio.cartoes["Cinta"].click()
-    assert not janela.tela_inicio.spins["l"].isEnabled() and not janela.tela_inicio.spins["a"].isEnabled()
+    assert janela.tela_inicio.spins["l"].isEnabled() and janela.tela_inicio.spins["a"].isEnabled()
     janela.tela_inicio.cartoes["Maleta normal"].click()
     assert janela.tela_inicio.spins["l"].isEnabled()
 

@@ -73,7 +73,7 @@ DESCRICAO_TIPO_CAIXA: dict[TipoCaixa, str] = {
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE: "Duas meias tampas (L/2) que se encontram no meio; chapa inteira.",
     TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_COM_CORTE: "Duas meias tampas (L/2); cantos externos recortados.",
     TipoCaixa.ENVOLTORIO_CAPA: "Bandeja: A | C | A na impressora e A | L | A no riscador — fundo, 4 paredes e cantos, sem tampa.",
-    TipoCaixa.CINTA: "Largura total (C) na impressora e até 5 faixas no riscador; recuo dos dois lados e furos de pega opcionais.",
+    TipoCaixa.CINTA: "C na impressora e L | A | L no riscador, com até 5 medidas; recuo dos dois lados e furos de pega opcionais.",
 }
 
 TIPOS_MALETA = {
@@ -173,6 +173,9 @@ class MedidasCaixa:
     # mm de cada lado, e os furos de pega.
     faixas_recuadas: tuple[int, ...] = ()
     furos: list[FuroCinta] = field(default_factory=list)
+    # Campos do riscador em que se digitou 0: a faixa sai (sem isso, campo
+    # vazio é automático: L, A, L).
+    faixas_zeradas: tuple[int, ...] = ()
 
     # ── Geral ─────────────────────────────────────────────────────────
     espessura_papelao: float = 3.0

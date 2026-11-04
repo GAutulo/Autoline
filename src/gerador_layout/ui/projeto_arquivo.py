@@ -28,6 +28,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, QPointF, QStandardPaths
 
+from ..conversao_cinta import cla_das_faixas
 from ..models import CorImpressao, FuroCinta, LinhaDesenho, TipoCaixa, TipoLinha
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
@@ -369,6 +370,7 @@ def estado_da_janela(janela, com_arquivos: bool = True) -> dict:
             "cinta": {
                 "recuo": janela.spin_recuo.value(),
                 "faixas_recuadas": [i for i, c in enumerate(janela.checks_faixa_recuada, start=1) if c.isChecked()],
+                "faixas_zeradas": janela.linha_riscador.zerados() if janela.combo_tipo.currentData() == TipoCaixa.CINTA else [],
                 "furos": [
                     [f.faixa, f.borda, f.distancia, f.largura, f.altura, f.raio] for f in janela._furos_cinta()
                 ],
@@ -552,18 +554,40 @@ def _cinta_de(cinta: dict, avisos: list[str]) -> tuple[tuple[int, ...], list[Fur
     return recuadas, furos
 
 
+def _cinta_em_c_l_a(caixa: dict) -> dict:
+    """Cinta gravada antes do C × L × A: só valia o digitado (largura na
+    impressora ou em C, faixas no riscador; sem faixas, a altura)."""
+    cinta = caixa.get("cinta") or {}
+    if caixa["tipo"] != TipoCaixa.CINTA.name or "faixas_zeradas" in cinta:
+        return caixa
+    riscador = [float(v) for v in caixa["riscador"]]
+    if not any(v > 0 for v in riscador):
+        riscador[0] = float(caixa["altura"])
+    largura, altura = cla_das_faixas([v for v in riscador if v > 0])
+    return {
+        **caixa,
+        "comprimento": float(caixa["impressora"][0]) or float(caixa["comprimento"]),
+        "largura": largura,
+        "altura": altura,
+        "impressora": [0.0] * len(caixa["impressora"]),
+        "riscador": riscador,
+        "cinta": {**cinta, "faixas_zeradas": [n for n, v in enumerate(riscador, start=1) if v <= 0]},
+    }
+
+
 def aplicar_na_janela(janela, dados: dict) -> list[str]:
     """Troca o projeto aberto pelo do arquivo. Devolve avisos (ex.: objeto
     de tipo desconhecido, pulado)."""
     avisos: list[str] = []
     canvas = janela.canvas
-    caixa = dados["caixa"]
+    caixa = _cinta_em_c_l_a(dados["caixa"])
 
     # Limpa o projeto atual.
     for el in list(canvas.elementos_mockup):
         canvas._retirar_elemento(el)
     canvas.definir_layout(None)
     canvas._linhas_editadas = None
+    canvas._altura_cotas = None
 
     # Caixa e medidas (sem recalcular a cada campo).
     controles = [janela.combo_tipo, janela.spin_comprimento, janela.spin_largura, janela.spin_altura]
@@ -584,6 +608,7 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
     janela._ao_trocar_tipo()  # rótulos/trechos do tipo + recalcula
     for linha, valores in ((janela.linha_impressora, caixa["impressora"]), (janela.linha_riscador, caixa["riscador"])):
         linha.definir_valores_manuais(valores)
+    janela.linha_riscador.definir_zerados(cinta.get("faixas_zeradas", []))
     ativas = set(dados.get("cores", []))
     faltando = [(n, tuple(rgb)) for n, rgb in (dados.get("cores_rgb") or {}).items() if n not in janela._chips_cor]
     if faltando:

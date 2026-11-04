@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..conversao_cinta import cla_das_faixas, ler_cinta
 from ..dobra3d import montar_modelo
 from ..dobra_generica import montar_modelo_generico
 from ..layout_service import ServicoLayoutCaixa
@@ -137,7 +138,8 @@ _ROTULOS_RISCADOR_ENVOLTORIO = ["Sup", "A", "L", "A", "Inf"]
 _ROTULOS_IMPRESSORA_MEIA = ["Aba", "L", "C", "", ""]
 _ROTULOS_IMPRESSORA_CAPA = ["A", "C", "A", "", ""]
 _ROTULOS_RISCADOR_CAPA = ["A", "L", "A", "", ""]
-_ROTULOS_IMPRESSORA_CINTA = ["Largura total", "", "", "", ""]
+_ROTULOS_IMPRESSORA_CINTA = ["Comprimento (C)", "", "", "", ""]
+_ROTULOS_IMPRESSORA_CINTA_RECUO = ["Recuo", "Entre os recuos", "Recuo", "", ""]
 _ROTULOS_RISCADOR_CINTA = [f"Faixa {i}" for i in range(1, 6)]
 
 
@@ -286,7 +288,13 @@ class JanelaPrincipal(QMainWindow):
         botao_descartar = QPushButton("Descartar edições da faca")
         self.botao_descartar_faca = botao_descartar
         botao_descartar.clicked.connect(lambda: self.canvas.descartar_edicoes_faca())
+        botao_cinta = QPushButton("Converter em cinta")
+        self.botao_converter_cinta = botao_cinta
+        botao_cinta.setToolTip("Lê largura, faixas, recuo e furos desta faca e passa a editá-la pelo tipo Cinta. A arte fica onde está.")
+        botao_cinta.clicked.connect(self.converter_em_cinta)
+        botao_cinta.hide()
         aviso.addWidget(texto_aviso)
+        aviso.addWidget(botao_cinta)
         aviso.addWidget(botao_descartar)
         self.aviso_faca_editada.hide()
         vbox.addWidget(self.aviso_faca_editada)
@@ -474,7 +482,7 @@ class JanelaPrincipal(QMainWindow):
         botoes.addStretch(1)
         coluna.addLayout(botoes)
         dica = QLabel(
-            "As faixas são os campos do Riscador, embaixo do desenho. Distância do furo: da borda da chapa "
+            "O riscador sai de L, A, L, embaixo do desenho. Digite por cima, use os campos 4 e 5 pra somar faixas e 0 pra tirar uma. Distância do furo: da borda da chapa "
             "até o topo (o lado curvo); o vinco fica voltado para a borda."
         )
         dica.setObjectName("legendaMuted")
@@ -588,10 +596,57 @@ class JanelaPrincipal(QMainWindow):
         for furo in furos:
             self._inserir_furo(furo)
 
+    def converter_em_cinta(self) -> bool:
+        """Faca própria que é uma cinta passa a ser do tipo Cinta, com as
+        medidas lidas dela. A que não dá vira aviso e nada muda."""
+        cinta = ler_cinta(list(self.canvas.linhas_faca()))
+        if cinta is None:
+            QMessageBox.information(
+                self,
+                "Converter em cinta",
+                "Esta faca não dá pra virar cinta sem mudar o desenho.\n\n"
+                "A cinta é um retângulo de até 5 faixas, com vincos de lado a lado. Pode ter recuo igual "
+                "nos dois lados e furos de pega centralizados na faixa. Qualquer outro detalhe seria perdido.",
+            )
+            return False
+        largura, altura = cla_das_faixas(cinta.faixas)
+        controles = (self.combo_tipo, self.spin_comprimento, self.spin_largura, self.spin_altura)
+        for c in controles:
+            c.blockSignals(True)
+        try:
+            self.combo_tipo.setCurrentIndex(self.combo_tipo.findData(TipoCaixa.CINTA))
+            self.spin_comprimento.setValue(cinta.largura)
+            self.spin_largura.setValue(largura)
+            self.spin_altura.setValue(altura)
+        finally:
+            for c in controles:
+                c.blockSignals(False)
+        self.definir_cinta(cinta.faixas_recuadas, cinta.furos, cinta.recuo)
+        # Isto não é medida mudando: sem faces antigas, a arte não acompanha
+        # as faces de passagem. Trocar o tipo apaga os trechos, então eles
+        # entram depois (e `descartar` antes: a faca solta avisa o painel).
+        self._paineis_do_tipo = []
+        self.canvas.descartar_edicoes_faca()
+        self._ao_trocar_tipo()
+        self.linha_impressora.definir_valores_manuais([0.0] * 5)
+        self.linha_riscador.definir_valores_manuais(cinta.faixas + [0.0] * (5 - len(cinta.faixas)))
+        self.linha_riscador.definir_zerados(list(range(len(cinta.faixas) + 1, 4)))  # L, A, L não voltam sozinhos
+        self._paineis_atuais = []
+        self._recalcular()
+        self.canvas.levar_objetos_com_a_faca(-cinta.origem[0], -cinta.origem[1], self._paineis_atuais)
+        # Desfazer devolveria só a faca, com o tipo e as medidas já de cinta.
+        self.canvas.pilha_desfazer.clear()
+        self.statusBar().showMessage(
+            f"Agora é uma cinta de {cinta.largura:g} mm com {len(cinta.faixas)} faixas. Ajuste as medidas no painel "
+            "à esquerda. O arquivo só muda quando você salvar.",
+            10000,
+        )
+        return True
+
     def _criar_spin(self, valor_padrao: float) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setRange(0, 100000)
-        spin.setDecimals(1)
+        spin.setDecimals(2)
         spin.setSuffix(" mm")
         spin.setValue(valor_padrao)
         return spin
@@ -716,12 +771,8 @@ class JanelaPrincipal(QMainWindow):
         self.linha_impressora.definir_visiveis(5)
         cinta = tipo == TipoCaixa.CINTA
         self.grupo_cinta.setVisible(cinta)
-        # Na cinta só vale a largura total (C): o resto são as faixas.
-        self.spin_largura.setEnabled(not cinta)
-        self._form_medidas.setRowVisible(self.spin_largura, not cinta)
-        self._form_medidas.setRowVisible(self.spin_altura, not cinta)
-        self._form_medidas.labelForField(self.spin_comprimento).setText("Largura total (C):" if cinta else "Comprimento (C):")
-        self._grupo_medidas_cla.setTitle("Medidas (mm)" if cinta else "Medidas C × L × A (mm)")
+        # Impressora da cinta só mostra: vem do C e do recuo.
+        self.linha_impressora.definir_somente_leitura(cinta)
         if cinta:
             self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA)
             self.linha_impressora.definir_visiveis(1)
@@ -781,6 +832,7 @@ class JanelaPrincipal(QMainWindow):
             cores_legenda=cores,
             faixas_recuadas=tuple(i for i, c in enumerate(self.checks_faixa_recuada, start=1) if c.isChecked()),
             furos=self._furos_cinta(),
+            faixas_zeradas=tuple(self.linha_riscador.zerados()),
         )
 
     # ── Menu / Exportação ───────────────────────────────────────────
@@ -1745,6 +1797,7 @@ class JanelaPrincipal(QMainWindow):
         """O painel, as faces e a chapa acompanham a faca que está na tela."""
         propria = self._faca_propria
         nome = self._nome_faca_propria()
+        self.botao_converter_cinta.setVisible(propria)
         if not propria:
             self.texto_aviso_faca.setText(self._TEXTO_FACA_EDITADA)
             self.botao_descartar_faca.setText("Descartar edições da faca")
@@ -1795,13 +1848,31 @@ class JanelaPrincipal(QMainWindow):
         cotas = QToolButton()
         cotas.setObjectName("botaoTextoInspetor")
         cotas.setText("Cotas automáticas")
-        cotas.setToolTip("Cota a faca pelos vincos e bordas. Apague as que não precisar: as que ficarem saem na folha de aprovação.")
+        cotas.setToolTip(
+            "Cota a faca pelos vincos e bordas, e a distância de cada objeto até o vizinho e até a borda da caixa. "
+            "Apague as que não precisar: as que ficarem saem na folha de aprovação."
+        )
         cotas.clicked.connect(self._gerar_cotas_automaticas)
         barra.addWidget(cotas)
+        barra.addWidget(QLabel(" Texto das cotas: "))
+        self.spin_tamanho_cotas = QDoubleSpinBox()
+        self.spin_tamanho_cotas.setRange(0.5, 50.0)
+        self.spin_tamanho_cotas.setDecimals(1)
+        self.spin_tamanho_cotas.setSuffix(" mm")
+        self.spin_tamanho_cotas.setValue(3.5)
+        self.spin_tamanho_cotas.setKeyboardTracking(False)
+        self.spin_tamanho_cotas.setMaximumWidth(84)
+        self.spin_tamanho_cotas.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.spin_tamanho_cotas.setToolTip("Tamanho do texto de todas as cotas. Para mudar uma só, selecione a cota e use Propriedades.")
+        self.spin_tamanho_cotas.valueChanged.connect(self.canvas.definir_altura_cotas)
+        barra.addWidget(self.spin_tamanho_cotas)
         barra.hide()
 
     def _gerar_cotas_automaticas(self) -> None:
         feitas = self.canvas.gerar_cotas_automaticas()
+        self.spin_tamanho_cotas.blockSignals(True)
+        self.spin_tamanho_cotas.setValue(self.canvas.altura_cotas_usada)
+        self.spin_tamanho_cotas.blockSignals(False)
         self.canvas.ajustar_a_tela()
         self.statusBar().showMessage(
             f"{feitas} cotas criadas. Clique numa e aperte Delete pra apagar; as que ficarem saem na folha de aprovação.", 10000
@@ -2839,9 +2910,15 @@ class JanelaPrincipal(QMainWindow):
         return str(Path(pasta) / nome) if pasta else nome
 
     def _texto_medidas_folha(self, medidas: MedidasCaixa, texto_medidas) -> str:
-        """C × L × A; sem elas (cinta, faca própria), largura × altura da chapa."""
+        """C × L × A; sem elas (faca própria, cinta que não fecha em L + A + L),
+        largura × altura da chapa."""
         layout = self.canvas.layout_efetivo
-        if layout is not None and (medidas.tipo == TipoCaixa.CINTA or self._faca_propria):
+        cinta_sem_cla = medidas.tipo == TipoCaixa.CINTA and (
+            layout is None
+            or not (medidas.largura > 0 and medidas.altura > 0)
+            or abs(layout.altura_total - (2 * medidas.largura + medidas.altura)) > 0.05
+        )
+        if layout is not None and (cinta_sem_cla or self._faca_propria):
             return texto_medidas(layout.largura_total, layout.altura_total)
         return texto_medidas(medidas.comprimento, medidas.largura, medidas.altura)
 
@@ -3056,6 +3133,9 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.acompanhar_faces(faces_antes, self._paineis_atuais)  # Autolayout (ADR 0009)
         if medidas.tipo == TipoCaixa.CINTA:
             self._atualizar_checks_cinta(layout)
+            com_recuo = len(layout.segmentos_impressora) > 1
+            self.linha_impressora.definir_rotulos(_ROTULOS_IMPRESSORA_CINTA_RECUO if com_recuo else _ROTULOS_IMPRESSORA_CINTA)
+            self.linha_impressora.definir_visiveis(len(layout.segmentos_impressora))
         self._atualizar_modelo_3d()
         if self.abas_tela.currentIndex() == 2:
             self._atualizar_arte_3d()
