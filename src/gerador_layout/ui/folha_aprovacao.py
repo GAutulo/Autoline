@@ -166,11 +166,13 @@ def _logo(p: QPainter, caminho: str | None, area: QRectF) -> None:
 
 
 def desenhar_folha(
-    p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, logo: str | None, imagem_3d: QImage | None = None
+    p: QPainter, cena, layout: LayoutCaixa, dados: DadosFolha, logo: str | None, imagem_3d: QImage | None = None,
+    area_desenho: QRectF | None = None,
 ) -> None:
     """A folha inteira, em mm (o painter já está em mm, A4 deitado). Com
     `imagem_3d`, o meio da folha é a caixa montada em vez do layout (a 2ª
-    folha) — o resto (cabeçalho, atenção, rodapé) é o mesmo."""
+    folha) — o resto (cabeçalho, atenção, rodapé) é o mesmo. `area_desenho`:
+    o pedaço do desenho que entra (a chapa com as cotas); sem ela, a chapa."""
     w, h = _PAGINA.width(), _PAGINA.height()
     preto = QColor(0, 0, 0)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -206,7 +208,7 @@ def desenhar_folha(
 
     # O layout, vetorial, centralizado e na maior escala que cabe.
     area = QRectF(_MARGEM_LAYOUT, y_aten + _MARGEM_LAYOUT, w - 2 * _MARGEM_LAYOUT, y_rod - y_aten - 2 * _MARGEM_LAYOUT)
-    fonte_rect = QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
+    fonte_rect = area_desenho or QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
     if imagem_3d is not None and not imagem_3d.isNull():
         escala = min(area.width() / imagem_3d.width(), area.height() / imagem_3d.height())
         alvo = QRectF(0, 0, imagem_3d.width() * escala, imagem_3d.height() * escala)
@@ -273,7 +275,7 @@ def desenhar_folha(
 
 def gerar_pdf(
     cena, layout: LayoutCaixa, dados: DadosFolha, caminho: str | Path, logo: str | None = None,
-    imagem_3d: QImage | None = None,
+    imagem_3d: QImage | None = None, area_desenho: QRectF | None = None,
 ) -> Path:
     """1ª folha: o layout. Com `imagem_3d`, 2ª folha: a caixa montada."""
     caminho = Path(caminho)
@@ -290,7 +292,7 @@ def gerar_pdf(
     try:
         px_por_mm = escritor.resolution() / 25.4
         p.scale(px_por_mm, px_por_mm)
-        desenhar_folha(p, cena, layout, dados, logo)
+        desenhar_folha(p, cena, layout, dados, logo, area_desenho=area_desenho)
         if imagem_3d is not None and not imagem_3d.isNull():
             escritor.newPage()
             desenhar_folha(p, cena, layout, dados, logo, imagem_3d)

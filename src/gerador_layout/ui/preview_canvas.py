@@ -48,7 +48,8 @@ from PySide6.QtWidgets import (
 
 from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
-from ..paineis import Painel, face_no_ponto
+from ..paineis import Painel, deslocamento_na_face, face_no_ponto
+from .mockup_cota import ElementoCota, criar_cota
 from . import configuracoes
 from .estilo import FONTE_MONO, Cor
 from .mockup_curva import (
@@ -2222,6 +2223,11 @@ class PreviewCanvas(QGraphicsView):
             self._scene.addItem(linha)
             self._linhas_guia_snap.append(linha)
 
+    def _face_sob_o_elemento(self, elemento: ElementoMockup) -> Painel | None:
+        """A face escolhida ou, em "Automática", a que está embaixo dele."""
+        centro = elemento.mapToScene(elemento.largura / 2, elemento.altura / 2)
+        return self._painel_do_elemento(elemento) or face_no_ponto(self._paineis, centro.x(), centro.y())
+
     def _alvos_snap_x(self, elemento: ElementoMockup) -> list[float]:
         alvos = [g.posicao for g in self._guias if g.orientacao == "v"] if self._ajustar_a["guias"] else []
         if self._ajustar_a["objetos"]:
@@ -2229,7 +2235,7 @@ class PreviewCanvas(QGraphicsView):
                 if outro is elemento:
                     continue
                 alvos.extend((outro.pos().x(), outro.pos().x() + outro.largura / 2, outro.pos().x() + outro.largura))
-            painel = self._painel_do_elemento(elemento)
+            painel = self._face_sob_o_elemento(elemento)
             if painel is not None:
                 alvos.extend((painel.x1, (painel.x1 + painel.x2) / 2, painel.x2))
         pagina = self.retangulo_pagina()
@@ -2244,7 +2250,7 @@ class PreviewCanvas(QGraphicsView):
                 if outro is elemento:
                     continue
                 alvos.extend((outro.pos().y(), outro.pos().y() + outro.altura / 2, outro.pos().y() + outro.altura))
-            painel = self._painel_do_elemento(elemento)
+            painel = self._face_sob_o_elemento(elemento)
             if painel is not None:
                 alvos.extend((painel.y1, (painel.y1 + painel.y2) / 2, painel.y2))
         pagina = self.retangulo_pagina()
@@ -2334,6 +2340,79 @@ class PreviewCanvas(QGraphicsView):
             elif alinhamento == "centro_v":
                 dy = alvo.center().y() - r.center().y()
             el.setPos(el.pos() + QPointF(dx, dy))
+
+    def acompanhar_faces(self, antes: list[Painel], depois: list[Painel]) -> None:
+        """Autolayout: as medidas mudaram, então cada objeto acompanha a sua
+        face (a escolhida ou, em "Automática", a que estava embaixo dele)."""
+        novas = {p.id: p for p in depois}
+        for el in self._elementos_mockup:
+            r = el.retangulo_conteudo_cena()
+            velha = next((p for p in antes if p.id == el.painel_id), None) or face_no_ponto(antes, r.center().x(), r.center().y())
+            nova = novas.get(velha.id) if velha is not None else None
+            if nova is None or nova == velha:
+                continue
+            dx, dy = deslocamento_na_face(r.left(), r.top(), r.right(), r.bottom(), velha, nova)
+            if dx or dy:
+                el.setPos(el.pos() + QPointF(dx, dy))
+
+    def _pontos_de_cota(self, valores: list[float], tolerancia: float = 1.5) -> list[float]:
+        """Os pontos de referência num eixo, sem os quase iguais (serra)."""
+        pontos: list[float] = []
+        for v in sorted(valores):
+            if not pontos or v - pontos[-1] > tolerancia:
+                pontos.append(v)
+        return pontos
+
+    def gerar_cotas_automaticas(self) -> int:
+        """Cota a faca pelos pontos de referência (as bordas das faces): uma
+        linha de cotas por trecho e, mais pra fora, o total, em cima e à
+        esquerda da chapa. São cotas comuns: dá pra apagar as que não
+        precisar. Gerar de novo troca as automáticas. Devolve quantas fez."""
+        pagina = self.retangulo_pagina()
+        if pagina is None:
+            return 0
+        xs = self._pontos_de_cota([pagina.left(), pagina.right()] + [v for p in self._paineis for v in (p.x1, p.x2)])
+        ys = self._pontos_de_cota([pagina.top(), pagina.bottom()] + [v for p in self._paineis for v in (p.y1, p.y2)])
+        lado = max(pagina.width(), pagina.height())
+        letra = max(2.0, lado / 90.0)  # cabe em 1:10 e na chapa grande
+        afastamento = letra * 2.5
+        centro = pagina.center()
+        pares = []
+        for a, b in zip(xs, xs[1:]):
+            pares.append((QPointF(a, pagina.top()), QPointF(b, pagina.top()), "horizontal", afastamento))
+        for a, b in zip(ys, ys[1:]):
+            pares.append((QPointF(pagina.left(), a), QPointF(pagina.left(), b), "vertical", afastamento))
+        if len(xs) > 2:
+            pares.append((pagina.topLeft(), pagina.topRight(), "horizontal", afastamento * 2.4))
+        if len(ys) > 2:
+            pares.append((pagina.topLeft(), pagina.bottomLeft(), "vertical", afastamento * 2.4))
+        antigas = [el for el in self._elementos_mockup if getattr(el, "cota_automatica", False)]
+        feitas = 0
+        self._pilha_desfazer.beginMacro("Cotas automáticas")
+        try:
+            if antigas:
+                self._pilha_desfazer.push(_ComandoRemoverElementos(self, antigas))
+            for p1, p2, tipo, afast in pares:
+                cota = criar_cota(p1, p2, tipo, afast, centro_referencia=centro)
+                if cota is None:
+                    continue
+                cota.definir_altura_texto(letra)
+                cota.cota_automatica = True
+                self.adicionar_elemento_mockup(cota)
+                feitas += 1
+        finally:
+            self._pilha_desfazer.endMacro()
+        return feitas
+
+    def retangulo_com_cotas(self) -> QRectF | None:
+        """A chapa mais as cotas à mostra: o que a folha de aprovação mostra."""
+        rect = self.retangulo_pagina()
+        if rect is None:
+            return None
+        for el in self._elementos_mockup:
+            if isinstance(el, ElementoCota) and el.isVisible():
+                rect = rect.united(el.retangulo_conteudo_cena())
+        return rect
 
     def agrupar_selecionados(self) -> GrupoMockup | None:
         selecionados = [it for it in self._scene.selectedItems() if isinstance(it, ElementoMockup)]
@@ -3629,6 +3708,8 @@ class PreviewCanvas(QGraphicsView):
             for canto in (pagina.topLeft(), pagina.topRight(), pagina.bottomRight(), pagina.bottomLeft()):
                 pontos.append((canto, "canto da chapa"))
             pontos.append((pagina.center(), "centro da chapa"))
+        for face in self._paineis:
+            pontos.append((QPointF((face.x1 + face.x2) / 2, (face.y1 + face.y2) / 2), "centro da face"))
         return pontos
 
     def _intersecoes_da_faca(self, linhas) -> list[QPointF]:

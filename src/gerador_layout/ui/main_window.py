@@ -1012,6 +1012,7 @@ class JanelaPrincipal(QMainWindow):
                 construir_icone(f"modelar_{operacao}"), nome, self._no_layout(lambda op=operacao: self.canvas.modelar_selecionados(op))
             )
         self._menu_objeto = menu_objeto
+        menu_objeto.addAction("Cotas automáticas", self._no_layout(self._gerar_cotas_automaticas))
 
         menu_exibir = self.menuBar().addMenu("&Exibir")
         acao_grade = menu_exibir.addAction("Grade do canvas")
@@ -1790,7 +1791,21 @@ class JanelaPrincipal(QMainWindow):
         self._acoes_organizar = [a for a in barra.actions() if not a.isSeparator()]
         for acao in self._acoes_organizar:
             acao.setEnabled(False)
+        barra.addSeparator()
+        cotas = QToolButton()
+        cotas.setObjectName("botaoTextoInspetor")
+        cotas.setText("Cotas automáticas")
+        cotas.setToolTip("Cota a faca pelos vincos e bordas. Apague as que não precisar: as que ficarem saem na folha de aprovação.")
+        cotas.clicked.connect(self._gerar_cotas_automaticas)
+        barra.addWidget(cotas)
         barra.hide()
+
+    def _gerar_cotas_automaticas(self) -> None:
+        feitas = self.canvas.gerar_cotas_automaticas()
+        self.canvas.ajustar_a_tela()
+        self.statusBar().showMessage(
+            f"{feitas} cotas criadas. Clique numa e aperte Delete pra apagar; as que ficarem saem na folha de aprovação.", 10000
+        )
 
     def _montar_dockers(self) -> None:
         """Inspetor da direita (prancheta Layout do REDESIGN.md): UM dock,
@@ -2881,7 +2896,8 @@ class JanelaPrincipal(QMainWindow):
             with self._cursor_espera():
                 imagem_3d = self._imagem_3d_montada() if janela.check_3d.isChecked() else None
                 destino = gerar_pdf(
-                    self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None, imagem_3d
+                    self.canvas.cena, self.canvas.layout_efetivo, dados, caminho, janela.logo or None, imagem_3d,
+                    area_desenho=self.canvas.retangulo_com_cotas(),
                 )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Folha de aprovação", f"Não consegui gerar o PDF:\n{exc}")
@@ -3032,10 +3048,12 @@ class JanelaPrincipal(QMainWindow):
         self.canvas.definir_layout(layout)
         self.painel_legenda_cores.definir_cores(layout.cores_legenda)
         self._atualizar_tintas_status()
+        faces_antes = list(self._paineis_atuais)
         self._paineis_do_tipo = calcular_paineis(
             medidas.tipo, layout.segmentos_impressora, layout.segmentos_riscador, faixas_recuadas=layout.faixas_recuadas
         )
         self._aplicar_faces()
+        self.canvas.acompanhar_faces(faces_antes, self._paineis_atuais)  # Autolayout (ADR 0009)
         if medidas.tipo == TipoCaixa.CINTA:
             self._atualizar_checks_cinta(layout)
         self._atualizar_modelo_3d()
