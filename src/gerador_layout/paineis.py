@@ -81,20 +81,37 @@ def face_no_ponto(paineis: list[Painel], x: float, y: float) -> Painel | None:
     return min(dentro, key=lambda p: p.largura * p.altura) if dentro else None
 
 
+def bordas_de_apoio(
+    x1: float, y1: float, x2: float, y2: float, face: Painel, tolerancia: float = 0.5
+) -> tuple[str, str]:
+    """A que o objeto está preso em cada eixo: "inicio", "fim" ou "centro"."""
+
+    def lado(a: float, b: float, f1: float, f2: float) -> str:
+        antes, depois = a - f1, f2 - b
+        if abs(antes - depois) <= tolerancia:
+            return "centro"
+        return "inicio" if antes < depois else "fim"
+
+    return lado(x1, x2, face.x1, face.x2), lado(y1, y2, face.y1, face.y2)
+
+
 def deslocamento_na_face(
-    x1: float, y1: float, x2: float, y2: float, velha: Painel, nova: Painel, tolerancia: float = 0.5
+    x1: float, y1: float, x2: float, y2: float, velha: Painel, nova: Painel, tolerancia: float = 0.5,
+    apoio: tuple[str, str] | None = None,
 ) -> tuple[float, float]:
     """Quanto mover um objeto (a caixa x1..x2, y1..y2) quando a face muda de
     tamanho: mantém a distância da borda mais próxima, e o que está
-    centralizado continua centralizado. O tamanho do objeto não muda."""
+    centralizado continua centralizado. O tamanho do objeto não muda.
+    `apoio`: a borda já conhecida; numa face menor que o objeto, a "mais
+    próxima" trocaria de lado."""
+    lado_x, lado_y = apoio or bordas_de_apoio(x1, y1, x2, y2, velha, tolerancia)
 
-    def eixo(a: float, b: float, v1: float, v2: float, n1: float, n2: float) -> float:
-        antes, depois = a - v1, v2 - b
-        if abs(antes - depois) <= tolerancia:
+    def eixo(lado: str, v1: float, v2: float, n1: float, n2: float) -> float:
+        if lado == "centro":
             return (n1 + n2) / 2 - (v1 + v2) / 2
-        return n1 - v1 if antes < depois else n2 - v2
+        return n1 - v1 if lado == "inicio" else n2 - v2
 
-    return eixo(x1, x2, velha.x1, velha.x2, nova.x1, nova.x2), eixo(y1, y2, velha.y1, velha.y2, nova.y1, nova.y2)
+    return eixo(lado_x, velha.x1, velha.x2, nova.x1, nova.x2), eixo(lado_y, velha.y1, velha.y2, nova.y1, nova.y2)
 
 
 def faces_da_faca(linhas: list[LinhaDesenho]) -> list[Painel]:

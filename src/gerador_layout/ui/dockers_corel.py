@@ -179,93 +179,55 @@ _ALINHAMENTOS = (
 
 
 class DockerAlinhar(QWidget):
-    """Alinhar e distribuir (Ctrl+Shift+A no CorelDRAW). Uma linha de
-    botões por referência — entre os selecionados, na face de cada um, na
-    página — em vez de escolher a referência num rádio e depois o botão
-    (com um objeto só e "Seleção" marcada, nada acontecia, sem aviso)."""
-
-    REFERENCIAS = (
-        ("selecao", "Entre os selecionados", "Selecione 2 ou mais objetos."),
-        ("face", "Na face", "Cada objeto na face da caixa em que está."),
-        ("pagina", "Na página", "Na chapa inteira."),
-    )
+    """Alinhar e distribuir (Ctrl+Shift+A no CorelDRAW): bloco no topo de
+    Propriedades. Uma lista diz a que alinhar e uma linha de botões alinha;
+    com um objeto só, a lista oferece a face e a chapa."""
 
     def __init__(self, canvas, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._canvas = canvas
-        self._referencia = "selecao"
-        self.setObjectName("conteudoInspetor")
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        externo = QVBoxLayout(self)
-        externo.setContentsMargins(16, 16, 16, 16)
-        externo.setSpacing(8)
-        self.dica_vazia = QLabel("Selecione um objeto no desenho para alinhar.")
-        self.dica_vazia.setObjectName("legendaMuted")
-        self.dica_vazia.setWordWrap(True)
-        externo.addWidget(self.dica_vazia)
-        self.conteudo = QWidget()
-        vbox = QVBoxLayout(self.conteudo)
+        self._referencias: list[tuple[str, object]] = []  # (chave, objeto ou "area" ou None)
+        self._com_varios = False
+        vbox = QVBoxLayout(self)
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(8)
-        externo.addWidget(self.conteudo)
-        externo.addStretch(1)
-
-        self._referencias: list = []
-        self._botoes: dict[str, list[QToolButton]] = {}
-        self._dicas: dict[str, QLabel] = {}
-        for chave, titulo, dica in self.REFERENCIAS:
-            rotulo = QLabel(titulo.upper())
-            rotulo.setObjectName("tituloSecaoInspetor")
-            vbox.addWidget(rotulo)
-            linha = QHBoxLayout()
-            linha.setSpacing(4)
-            botoes = []
-            for icone, alinhamento, texto in _ALINHAMENTOS:
-                botao = QToolButton()
-                botao.setObjectName("botaoAlinharFace")
-                botao.setIcon(construir_icone(icone))
-                botao.setToolTip(f"{texto} — {titulo.lower()}")
-                botao.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-                botao.clicked.connect(lambda _c=False, r=chave, a=alinhamento: self._alinhar_com(r, a))
-                linha.addWidget(botao)
-                botoes.append(botao)
-            vbox.addLayout(linha)
-            self._botoes[chave] = botoes
-            if chave == "selecao":
-                self._linha_referencia = QWidget()
-                linha_ref = QHBoxLayout(self._linha_referencia)
-                linha_ref.setContentsMargins(0, 0, 0, 0)
-                linha_ref.addWidget(QLabel("Alinhar a:"))
-                self.combo_referencia = QComboBox()
-                self.combo_referencia.setToolTip("O objeto que fica parado: os outros vão até ele")
-                linha_ref.addWidget(self.combo_referencia, 1)
-                vbox.addWidget(self._linha_referencia)
-            texto_dica = QLabel(dica)
-            texto_dica.setObjectName("legendaMuted")
-            texto_dica.setWordWrap(True)
-            vbox.addWidget(texto_dica)
-            self._dicas[chave] = texto_dica
-            vbox.addSpacing(10)
-
-        rotulo = QLabel("DISTRIBUIR")
+        rotulo = QLabel("ALINHAR")
         rotulo.setObjectName("tituloSecaoInspetor")
         vbox.addWidget(rotulo)
-        grade_dist = QGridLayout()
+        linha_ref = QHBoxLayout()
+        linha_ref.addWidget(QLabel("Alinhar a:"))
+        self.combo_referencia = QComboBox()
+        self.combo_referencia.setToolTip("Com um objeto da lista, ele fica parado e os outros vão até ele")
+        linha_ref.addWidget(self.combo_referencia, 1)
+        vbox.addLayout(linha_ref)
+        linha = QHBoxLayout()
+        linha.setSpacing(4)
+        self.botoes: list[QToolButton] = []
+        for icone, alinhamento, texto in _ALINHAMENTOS:
+            botao = QToolButton()
+            botao.setObjectName("botaoAlinharFace")
+            botao.setIcon(construir_icone(icone))
+            botao.setToolTip(texto)
+            botao.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            botao.clicked.connect(lambda _c=False, a=alinhamento: self._alinhar(a))
+            linha.addWidget(botao)
+            self.botoes.append(botao)
+        vbox.addLayout(linha)
+
+        self._distribuir = QWidget()
+        grade_dist = QGridLayout(self._distribuir)
+        grade_dist.setContentsMargins(0, 4, 0, 0)
         grade_dist.setHorizontalSpacing(6)
         grade_dist.setVerticalSpacing(6)
-        self._botoes_distribuir: list[QPushButton] = []
         for linha_g, (eixo, rotulo_eixo) in enumerate((("h", "Horizontal"), ("v", "Vertical"))):
             grade_dist.addWidget(QLabel(rotulo_eixo), linha_g, 0)
             for coluna, (modo, texto) in enumerate((("centros", "Centros"), ("espacos", "Espaços")), start=1):
                 botao = QPushButton(texto)
                 botao.setObjectName(f"distribuir_{eixo}_{modo}")
+                botao.setToolTip(f"Distribuir: {rotulo_eixo.lower()}, {texto.lower()}")
                 botao.clicked.connect(lambda _c=False, e=eixo, m=modo: self._canvas.distribuir(e, m))
                 grade_dist.addWidget(botao, linha_g, coluna)
-                self._botoes_distribuir.append(botao)
-        vbox.addLayout(grade_dist)
-        self._dica_distribuir = QLabel("Selecione 3 ou mais objetos.")
-        self._dica_distribuir.setObjectName("legendaMuted")
-        vbox.addWidget(self._dica_distribuir)
+        vbox.addWidget(self._distribuir)
 
         canvas.cena.selectionChanged.connect(self._atualizar_estado)
         self._atualizar_estado()
@@ -275,32 +237,29 @@ class DockerAlinhar(QWidget):
             n = len([it for it in self._canvas.cena.selectedItems() if isinstance(it, ElementoMockup)])
         except RuntimeError:  # cena já destruída ao fechar
             return
-        self.conteudo.setVisible(n >= 1)
-        self.dica_vazia.setVisible(n == 0)
-        self._atualizar_referencias(n >= 2)
-        for chave, botoes in self._botoes.items():
-            ativo = n >= 2 if chave == "selecao" else n >= 1
-            for botao in botoes:
-                botao.setEnabled(ativo)
-        self._dicas["selecao"].setVisible(n < 2)
-        for botao in self._botoes_distribuir:
-            botao.setEnabled(n >= 3)
-        self._dica_distribuir.setVisible(n < 3)
+        self.setVisible(n >= 1)
+        self._distribuir.setVisible(n >= 3)
+        self._atualizar_referencias(n)
 
-    def _atualizar_referencias(self, mostrar: bool) -> None:
+    def _atualizar_referencias(self, n: int) -> None:
         """A lista "Alinhar a": os selecionados, na ordem em que foram
-        selecionados, e a área de toda a seleção. O escolhido continua
-        escolhido enquanto estiver selecionado."""
-        atual = self.objeto_referencia()
-        self._linha_referencia.setVisible(mostrar)
-        ordem = self._canvas.selecao_em_ordem() if mostrar else []
-        self._referencias = [*ordem, "area"] if mostrar else []
+        selecionados, a área da seleção, a face e a chapa. O escolhido
+        continua escolhido enquanto valer."""
+        indice = self.combo_referencia.currentIndex()
+        atual = self._referencias[indice] if 0 <= indice < len(self._referencias) else None
+        ordem = self._canvas.selecao_em_ordem() if n >= 2 else []
+        if bool(ordem) != self._com_varios:  # de um objeto pra vários, recomeça no primeiro
+            atual = None
+        self._com_varios = bool(ordem)
+        itens = [(("selecao", el), _nome_elemento(el)) for el in ordem]
+        if ordem:
+            itens.append((("selecao", "area"), "Área da seleção"))
+        itens.append((("face", None), "Face de cada um" if ordem else "Face do objeto"))
+        itens.append((("pagina", None), "Chapa"))
+        self._referencias = [r for r, _texto in itens]
         self.combo_referencia.blockSignals(True)
         self.combo_referencia.clear()
-        for el in ordem:
-            self.combo_referencia.addItem(_nome_elemento(el))
-        if mostrar:
-            self.combo_referencia.addItem("Área da seleção")
+        self.combo_referencia.addItems([texto for _r, texto in itens])
         if atual in self._referencias:
             self.combo_referencia.setCurrentIndex(self._referencias.index(atual))
         self.combo_referencia.blockSignals(False)
@@ -308,19 +267,22 @@ class DockerAlinhar(QWidget):
     def objeto_referencia(self):
         """O objeto escolhido em "Alinhar a", "area" ou None."""
         indice = self.combo_referencia.currentIndex()
-        return self._referencias[indice] if 0 <= indice < len(self._referencias) else None
+        return self._referencias[indice][1] if 0 <= indice < len(self._referencias) else None
 
     def referencia(self) -> str:
-        return self._referencia
+        indice = self.combo_referencia.currentIndex()
+        return self._referencias[indice][0] if 0 <= indice < len(self._referencias) else "pagina"
 
     def definir_referencia(self, chave: str) -> None:
-        self._referencia = chave
+        for i, (referencia, _objeto) in enumerate(self._referencias):
+            if referencia == chave:
+                self.combo_referencia.setCurrentIndex(i)
+                return
 
     def _alinhar(self, alinhamento: str) -> None:
-        self._alinhar_com(self._referencia, alinhamento)
+        self._alinhar_com(self.referencia(), alinhamento)
 
     def _alinhar_com(self, referencia: str, alinhamento: str) -> None:
-        self._referencia = referencia
         self._canvas.alinhar_a(referencia, alinhamento, self.objeto_referencia())
 
 

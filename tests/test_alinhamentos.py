@@ -80,7 +80,8 @@ def test_alinhar_na_face_sem_ter_escolhido_a_face(janela):
     t.setSelected(True)
     QApplication.processEvents()
     assert t.painel_id is None
-    botao = next(b for b in janela.docker_alinhar._botoes["face"] if "Centros na vertical" in b.toolTip())
+    janela.docker_alinhar.definir_referencia("face")
+    botao = next(b for b in janela.docker_alinhar.botoes if "Centros na vertical" in b.toolTip())
     assert botao.isEnabled()  # antes ficava cinza até escolher a face
     botao.click()
     assert t.painel_id == painel_lateral.id  # achou a face onde ele está

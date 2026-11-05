@@ -88,6 +88,7 @@ class LinhaTrechos(QWidget):
         spin = QDoubleSpinBox()
         spin.setRange(0, 100000)
         spin.setDecimals(2)
+        spin.setKeyboardTracking(False)  # vale no Enter/Tab, não a cada tecla (a arte acompanha a medida)
         # Sem as setinhas de incrementar/decrementar (ninguém usa clique
         # pra ajustar essa tabela — digita o número ou deixa automático):
         # sem elas, a largura toda vai pro texto.

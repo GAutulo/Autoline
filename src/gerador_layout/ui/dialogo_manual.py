@@ -276,7 +276,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 objeto (o grupo se ajusta em volta se ele andar). Com o grupo
                 selecionado, a barra tem <b>Desagrupar</b> (Ctrl+U) e <b>Desagrupar
                 tudo</b>; com vários selecionados, <b>Agrupar</b> (Ctrl+G).</p>
-                <p><b>Alinhar vários</b>: na aba <b>Alinhar</b>, a lista <b>Alinhar a</b>
+                <p><b>Alinhar vários</b>: no bloco <b>Alinhar</b>, no topo de Propriedades, a lista <b>Alinhar a</b>
                 escolhe o objeto que fica parado (ou a área da seleção). Nas teclas
                 L/R/T/B/C/E, a referência é o <b>primeiro</b> que você selecionou.</p>
                 <p><b>Ctrl+C / Ctrl+V</b> cola no mesmo lugar e no mesmo giro do original
@@ -331,7 +331,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <p><b>Ctrl/Shift + clique</b> — adiciona/remove elementos individuais da
                 seleção atual (seleção múltipla). <b>Arrastar numa área vazia</b> — abre
                 uma seleção retangular, seleciona tudo que estiver dentro. Com 2 ou
-                mais selecionados, a aba <b>Alinhar</b> alinha entre si (bordas,
+                mais selecionados, o bloco <b>Alinhar</b>, no topo de Propriedades, alinha entre si (bordas,
                 centros, topos, bases).</p>
                 <p><b>Setas do teclado</b> — move o(s) elemento(s) selecionado(s) aos
                 poucos (o passo é uma preferência, ver Configurações > Ferramentas);
@@ -724,7 +724,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 baixo, na ordem da frente pra trás) e a camada Faca, travada. Clicar
                 na lista seleciona no desenho e vice-versa; desmarcar oculta o
                 elemento, e o oculto não sai na exportação nem vai pro CorelDRAW.</p>
-                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — alinhar entre os
+                <p><b>Alinhar e distribuir</b> (<b>Ctrl+Shift+A</b>) — bloco no topo de Propriedades, com um objeto selecionado: alinhar entre os
                 selecionados (escolha em <b>Alinhar a</b> qual fica parado), com a face de
                 cada elemento ou com a página (chapa); distribuir 3 ou mais objetos por
                 centros ou por espaços iguais.</p>
