@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
-from ..paineis import Painel, deslocamento_na_face, distancias_dos_objetos, face_no_ponto
+from ..paineis import Painel, bordas_de_apoio, deslocamento_na_face, distancias_dos_objetos, face_no_ponto
 from .mockup_cota import ElementoCota, criar_cota
 from .mockup_cota_angular import ElementoCotaAngular
 from . import configuracoes
@@ -2351,13 +2351,27 @@ class PreviewCanvas(QGraphicsView):
         novas = {p.id: p for p in depois}
         for el in self._elementos_mockup:
             r = el.retangulo_conteudo_cena()
-            velha = next((p for p in antes if p.id == el.painel_id), None) or face_no_ponto(antes, r.center().x(), r.center().y())
-            nova = novas.get(velha.id) if velha is not None else None
-            if nova is None or nova == velha:
+            # Numa face que encolheu muito, o centro do objeto cai fora dela e
+            # a borda mais próxima troca de lado: vale o que ele já vinha
+            # acompanhando, se não foi movido nem redimensionado desde então.
+            memoria = getattr(el, "face_acompanhada", None)
+            if memoria is not None and (memoria[1] != el.pos() or memoria[3] != r.size()):
+                memoria = None
+            velha = (
+                next((p for p in antes if p.id == el.painel_id), None)
+                or next((p for p in antes if memoria is not None and p.id == memoria[0]), None)
+                or face_no_ponto(antes, r.center().x(), r.center().y())
+            )
+            if velha is None:
                 continue
-            dx, dy = deslocamento_na_face(r.left(), r.top(), r.right(), r.bottom(), velha, nova)
-            if dx or dy:
-                el.setPos(el.pos() + QPointF(dx, dy))
+            caixa = (r.left(), r.top(), r.right(), r.bottom())
+            apoio = memoria[2] if memoria is not None and memoria[0] == velha.id else bordas_de_apoio(*caixa, velha)
+            nova = novas.get(velha.id)
+            if nova is not None and nova != velha:
+                dx, dy = deslocamento_na_face(*caixa, velha, nova, apoio=apoio)
+                if dx or dy:
+                    el.setPos(el.pos() + QPointF(dx, dy))
+            el.face_acompanhada = (velha.id, el.pos(), apoio, r.size())
 
     def levar_objetos_com_a_faca(self, dx: float, dy: float, faces: list[Painel]) -> None:
         """A faca virou outra: os objetos andam junto com ela (`dx`, `dy`) e

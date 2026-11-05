@@ -349,3 +349,39 @@ def test_logotipo_do_layout_vai_pro_banco(tmp_path):
     assert destino is not None and destino.read_text(encoding="utf-8") == svg.read_text(encoding="utf-8")
     assert any(s.nome == "Selo Brooklyn" for s in j.docker_simbologias.simbolos())
     j.close()
+
+
+@pytest.mark.parametrize("botao, janela_de_arquivo", [
+    ("botao_adicionar_svg", "getOpenFileNames"),
+    ("botao_importar_folha", "getOpenFileName"),
+])
+def test_clicar_no_botao_abre_a_janela_de_arquivos(tmp_path, monkeypatch, botao, janela_de_arquivo):
+    from PySide6.QtWidgets import QApplication, QFileDialog
+
+    from gerador_layout.ui.docker_simbologias import DockerSimbologias
+
+    QApplication.instance() or QApplication([])
+    chamadas = []
+    monkeypatch.setattr(QFileDialog, janela_de_arquivo, lambda *a, **k: chamadas.append(a) or ("", ""))
+    docker = DockerSimbologias(pasta_usuario=tmp_path)
+    getattr(docker, botao).click()
+    assert len(chamadas) == 1
+
+
+def test_ver_todos_os_recentes_abre_a_galeria_pelo_menu():
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    abertos = []
+    original = QDialog.exec
+    QDialog.exec = lambda self: abertos.append(self) or 0
+    try:
+        j._montar_menu_recentes()
+        next(a for a in j._menu_recentes.actions() if a.text().startswith("Ver todos")).trigger()
+    finally:
+        QDialog.exec = original
+    assert abertos
+    j.close()

@@ -96,14 +96,17 @@ class DockerSimbologias(QWidget):
         self.botao_inserir.setToolTip("Põe o símbolo no layout (ou dê dois cliques nele)")
         self.botao_inserir.clicked.connect(lambda: self._inserir_item(self.lista.currentItem()))
         botao_adicionar = QPushButton("Adicionar SVG…")
+        self.botao_adicionar_svg = botao_adicionar
         botao_adicionar.setToolTip(
             "Guarda um ou mais arquivos SVG no banco, um símbolo por arquivo\n"
             "(ou arraste os arquivos do Explorer pra cá)"
         )
-        botao_adicionar.clicked.connect(self.adicionar_svgs)
+        # Sem lambda, o clique chega como `caminhos=False` e a janela não abre.
+        botao_adicionar.clicked.connect(lambda: self.adicionar_svgs())
         botao_folha = QPushButton("Importar folha…")
+        self.botao_importar_folha = botao_folha
         botao_folha.setToolTip("Um SVG com vários símbolos (exportado do CorelDRAW): cada grupo vira um símbolo")
-        botao_folha.clicked.connect(self.importar_folha)
+        botao_folha.clicked.connect(lambda: self.importar_folha())
 
         botoes = QHBoxLayout()
         botoes.addWidget(botao_adicionar)

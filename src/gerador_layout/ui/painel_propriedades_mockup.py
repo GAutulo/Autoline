@@ -176,6 +176,7 @@ class PainelPropriedadesMockup(QWidget):
         self.dica_inspetor.setObjectName("legendaMuted")
         self.dica_inspetor.setWordWrap(True)
         coluna.addWidget(self.dica_inspetor)
+        self._coluna_inspetor = coluna
 
         self._fixo = QWidget()
         self._layout_fixo = QVBoxLayout(self._fixo)
@@ -394,6 +395,10 @@ class PainelPropriedadesMockup(QWidget):
             except (TypeError, RuntimeError):
                 pass
 
+    def definir_bloco_alinhar(self, bloco: QWidget) -> None:
+        """Alinhar fica no topo, antes da Geometria, como no Figma."""
+        self._coluna_inspetor.insertWidget(self._coluna_inspetor.indexOf(self._fixo), bloco)
+
     def definir_elemento(self, elemento: ElementoMockup | None) -> None:
         self._definir_campos(elemento)
         self._vigiar_campos()
@@ -574,7 +579,7 @@ class PainelPropriedadesMockup(QWidget):
         self._definir_rotulo_tipo(f"{quantidade} selecionados")
         self._botao_remover.setVisible(True)
         self._botao_remover.setEnabled(True)
-        self.dica_inspetor.setText("Para alinhar ou distribuir, use a aba Alinhar. Com um objeto só, as propriedades dele aparecem aqui.")
+        self.dica_inspetor.setText("Com um objeto só, as propriedades dele aparecem aqui.")
         self._nova_aba("Organizar")
 
         # Modelar, como na barra de propriedades do CorelDRAW com vários
@@ -595,7 +600,7 @@ class PainelPropriedadesMockup(QWidget):
     # ── Posição/tamanho/rotação — comuns a todo elemento ──────────────
     def _montar_fixo(self) -> None:
         """Geometria · mm — montada UMA vez; só os valores mudam com a
-        seleção. Alinhar mora só na aba Alinhar (ver `DockerAlinhar`)."""
+        seleção. Alinhar mora só no bloco do topo do inspetor (ver `DockerAlinhar`)."""
         geometria, _ = self._nova_secao_widget("Geometria · mm")
         grade = QGridLayout()
         grade.setHorizontalSpacing(10)

@@ -649,6 +649,9 @@ class JanelaPrincipal(QMainWindow):
         spin.setDecimals(2)
         spin.setSuffix(" mm")
         spin.setValue(valor_padrao)
+        # Vale no Enter/Tab: digitar 150 passaria por 1 e 15, e a arte
+        # acompanharia cada medida de passagem até sair do lugar.
+        spin.setKeyboardTracking(False)
         return spin
 
     def _montar_chips_cores(self) -> None:
@@ -1091,6 +1094,8 @@ class JanelaPrincipal(QMainWindow):
         self._acao_guias_dinamicas = acao_dinamicas
         menu_dockers = menu_exibir.addMenu("Janelas de encaixe (Layout)")
         for chave, dock in self._docks.items():
+            if chave == "alinhar":  # é a mesma página de Propriedades
+                continue
             menu_dockers.addAction(dock.windowTitle(), self._no_layout(lambda c=chave: self.abrir_docker(c)))
         self._menu_dockers = menu_dockers
 
@@ -1407,6 +1412,8 @@ class JanelaPrincipal(QMainWindow):
         self.abas_inspetor.insertTab(0, rolagem, "Propriedades")
         self.abas_inspetor.setCurrentIndex(0)
         self._docks["propriedades"] = _PaginaInspetor(self, rolagem, "Propriedades", False)
+        self.painel_propriedades_mockup.definir_bloco_alinhar(self.docker_alinhar)
+        self._docks["alinhar"] = self._docks["propriedades"]  # Ctrl+Shift+A abre Propriedades
         self.painel_propriedades_mockup.nova_tinta_solicitada = self._nova_tinta_inspetor
         # 3D: sem linha de contexto (os controles ficam na própria vista).
         self.barra_propriedades_mockup.hide()  # só aparece na tela de Layout (ver _trocar_tela)
@@ -1881,7 +1888,7 @@ class JanelaPrincipal(QMainWindow):
     def _montar_dockers(self) -> None:
         """Inspetor da direita (prancheta Layout do REDESIGN.md): UM dock,
         entre o desenho e a paleta, com as abas Propriedades | Objetos |
-        Alinhar | ··· (Transformações, Simbologias). Os dockers do
+        Simbologias | ··· (Transformações). Alinhar fica em Propriedades. Os dockers do
         CorelDRAW (ver `dockers_corel.py`) viram páginas dele; `_docks`
         continua respondendo por cada um (ver `_PaginaInspetor`). Só existe
         na tela de Layout."""
@@ -1898,7 +1905,7 @@ class JanelaPrincipal(QMainWindow):
         self.abas_inspetor = QTabWidget()
         self.abas_inspetor.setObjectName("abasInspetor")
         self.abas_inspetor.setDocumentMode(True)
-        self.abas_inspetor.setMinimumWidth(300)
+        self.abas_inspetor.setMinimumWidth(320)
         # Sem as setinhas: as abas sempre cabem (encolhem com "..." se precisar).
         self.abas_inspetor.setUsesScrollButtons(False)
         self.abas_inspetor.setElideMode(Qt.TextElideMode.ElideRight)
@@ -1916,9 +1923,8 @@ class JanelaPrincipal(QMainWindow):
         self._docks: dict[str, _PaginaInspetor] = {}
         for chave, titulo, rotulo_aba, conteudo, no_menu in (
             ("objetos", "Objetos", "Objetos", self.docker_objetos, False),
-            ("alinhar", "Alinhar e distribuir", "Alinhar", self.docker_alinhar, False),
+            ("simbologias", "Simbologias", "Simbologias", self.docker_simbologias, False),
             ("transformacoes", "Transformações", "Transformações", self.docker_transformacoes, True),
-            ("simbologias", "Simbologias", "Simbologias", self.docker_simbologias, True),
         ):
             self.abas_inspetor.addTab(conteudo, rotulo_aba)
             pagina = _PaginaInspetor(self, conteudo, titulo, no_menu)
@@ -2814,7 +2820,7 @@ class JanelaPrincipal(QMainWindow):
                 acao.setIcon(QIcon(QPixmap.fromImage(miniatura)))
         self._menu_recentes.setStyleSheet("QMenu { icon-size: 48px; }")
         self._menu_recentes.addSeparator()
-        self._menu_recentes.addAction("Ver todos com prévia…", self.abrir_galeria_recentes)
+        self._menu_recentes.addAction("Ver todos com prévia…", lambda: self.abrir_galeria_recentes())
 
     def abrir_galeria_recentes(self, executar: bool = True):
         """Os projetos recentes em miniatura; dois cliques abre."""

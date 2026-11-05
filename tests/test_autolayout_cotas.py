@@ -113,3 +113,78 @@ def test_centro_da_face_e_alvo_de_encaixe_mesmo_em_automatica(janela):
     assert (f.y1 + f.y2) / 2 in canvas._alvos_snap_y(el)
     rotulos = [nome for _p, nome in canvas.nos_de_encaixe_com_tipo()]
     assert "centro da face" in rotulos
+
+
+def _objeto_na_face(janela, face_id, y=15.0):
+    from gerador_layout.ui.mockup_formas import ElementoRetangulo
+
+    face = next(p for p in janela._paineis_atuais if p.id == face_id)
+    el = ElementoRetangulo(largura=60.0, altura=12.0)
+    el.setPos(face.x1 + 30.0, face.y1 + y)
+    janela.canvas.adicionar_elemento_mockup(el)
+    return el
+
+
+def _dentro(janela, face_id, el):
+    from PySide6.QtCore import QRectF
+
+    face = next(p for p in janela._paineis_atuais if p.id == face_id)
+    area = QRectF(face.x1, face.y1, face.x2 - face.x1, face.y2 - face.y1)
+    return area.contains(el.retangulo_conteudo_cena())
+
+
+def _digitar(spin, texto):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    spin.setFocus()
+    spin.selectAll()
+    QTest.keyClicks(spin, texto)
+    QTest.keyClick(spin, Qt.Key.Key_Tab)
+
+
+def _maleta(janela):
+    from gerador_layout.models import TipoCaixa
+
+    janela.combo_tipo.setCurrentIndex(janela.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+    janela.spin_comprimento.setValue(600)
+    janela.spin_largura.setValue(400)
+    janela.spin_altura.setValue(300)
+
+
+def test_digitar_a_medida_nao_tira_a_arte_da_face(janela):
+    _maleta(janela)
+    objetos = {f: _objeto_na_face(janela, f) for f in ("frente", "tampa_frente", "lateral1")}
+    _digitar(janela.spin_largura, "150")
+    _digitar(janela.spin_altura, "500")
+    assert janela.spin_largura.value() == 150
+    assert all(_dentro(janela, f, el) for f, el in objetos.items())
+
+
+def test_digitar_no_riscador_nao_tira_a_arte_da_face(janela):
+    _maleta(janela)
+    objeto = _objeto_na_face(janela, "tampa_frente")
+    _digitar(janela.linha_riscador._spins[0], "150")
+    assert _dentro(janela, "tampa_frente", objeto)
+
+
+def test_objeto_lembra_a_face_quando_ela_encolhe_e_volta(janela):
+    _maleta(janela)
+    objeto = _objeto_na_face(janela, "lateral1")
+    janela.spin_largura.setValue(5)
+    janela.spin_largura.setValue(400)
+    assert _dentro(janela, "lateral1", objeto)
+
+
+def test_objeto_redimensionado_volta_a_escolher_a_borda(janela):
+    _maleta(janela)
+    objeto = _objeto_na_face(janela, "frente")
+    janela.spin_comprimento.setValue(620)  # a memória nasce presa à esquerda
+    face = next(p for p in janela._paineis_atuais if p.id == "frente")
+    objeto.setPos(face.x1 + 20.0, objeto.pos().y())
+    objeto.definir_tamanho(face.x2 - face.x1 - 40.0, objeto.altura)  # agora centralizado
+    centro = objeto.retangulo_conteudo_cena().center().x()
+    assert centro == pytest.approx((face.x1 + face.x2) / 2)
+    janela.spin_comprimento.setValue(700)
+    nova = next(p for p in janela._paineis_atuais if p.id == "frente")
+    assert objeto.retangulo_conteudo_cena().center().x() == pytest.approx((nova.x1 + nova.x2) / 2)

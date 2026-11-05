@@ -47,11 +47,13 @@ def _selecionar(j, *els):
     QApplication.processEvents()
 
 
-def test_alinhar_mora_so_na_aba_alinhar(janela):
+def test_alinhar_mora_so_no_topo_de_propriedades(janela):
     painel = janela.painel_propriedades_mockup
     a, b = _ret(janela, 10, 10), _ret(janela, 60, 40)
     _selecionar(janela, a)
-    assert not [x for x in painel.inspetor.findChildren(QToolButton) if x.objectName() == "botaoAlinharFace"]
+    assert len([x for x in painel.inspetor.findChildren(QToolButton) if x.objectName() == "botaoAlinharFace"]) == 6
+    assert janela.docker_alinhar.parent() is painel.inspetor
+    assert "Alinhar" not in [janela.abas_inspetor.tabText(i) for i in range(janela.abas_inspetor.count())]
     _selecionar(janela, a, b)
     assert not [x for x in painel.findChildren(QToolButton) if "Alinhar" in x.toolTip()]
     assert not [x for x in janela.barra_organizar.actions() if "Alinhar" in x.text()]
@@ -61,7 +63,7 @@ def test_escolher_o_objeto_de_referencia_do_alinhamento(janela):
     a, b, c = _ret(janela, 10, 10), _ret(janela, 60, 40), _ret(janela, 120, 70)
     _selecionar(janela, a, b, c)
     docker = janela.docker_alinhar
-    assert docker.combo_referencia.count() == 4  # os 3 e a área da seleção
+    assert docker.combo_referencia.count() == 6  # os 3, a área, a face e a chapa
     docker.combo_referencia.setCurrentIndex(2)  # o 3º selecionado fica parado
     referencia = docker.objeto_referencia()
     x = referencia.pos().x()
@@ -75,7 +77,7 @@ def test_alinhar_na_area_da_selecao(janela):
     a, b = _ret(janela, 10, 10), _ret(janela, 60, 40)
     _selecionar(janela, a, b)
     docker = janela.docker_alinhar
-    docker.combo_referencia.setCurrentIndex(docker.combo_referencia.count() - 1)
+    docker.combo_referencia.setCurrentIndex(docker.combo_referencia.findText("Área da seleção"))
     docker._alinhar_com("selecao", "direita")
     assert a.pos().x() == pytest.approx(60) and b.pos().x() == pytest.approx(60)
 
@@ -90,15 +92,15 @@ def test_inspetor_sem_selecao_nao_mostra_campos_mortos(janela):
     assert not painel._fixo.isHidden() and painel.dica_inspetor.isHidden()
     _selecionar(janela, a, b)
     assert painel._fixo.isHidden() and not painel._botao_remover.isHidden()
-    assert "Alinhar" in painel.dica_inspetor.text()
+    assert not janela.docker_alinhar.isHidden()
 
 
-def test_aba_alinhar_sem_selecao_so_tem_a_dica(janela):
+def test_alinhar_so_aparece_com_objeto_selecionado(janela):
     docker = janela.docker_alinhar
     _selecionar(janela)
-    assert docker.conteudo.isHidden() and not docker.dica_vazia.isHidden()
+    assert docker.isHidden()
     _selecionar(janela, _ret(janela, 10, 10))
-    assert not docker.conteudo.isHidden() and docker.dica_vazia.isHidden()
+    assert not docker.isHidden()
 
 
 def test_face_automatica_pela_posicao(janela):
@@ -187,3 +189,11 @@ def test_cores_do_logo_editaveis_depois_de_pronto(janela, tmp_path):
 
 def test_abas_do_inspetor_sem_setinhas(janela):
     assert not janela.abas_inspetor.usesScrollButtons()
+
+
+def test_lista_de_alinhar_comeca_no_primeiro_objeto_ao_selecionar_varios(janela):
+    a, b = _ret(janela, 10, 10), _ret(janela, 60, 40)
+    _selecionar(janela, a)
+    assert janela.docker_alinhar.referencia() == "face"
+    _selecionar(janela, a, b)
+    assert janela.docker_alinhar.referencia() == "selecao" and janela.docker_alinhar.objeto_referencia() is not None
