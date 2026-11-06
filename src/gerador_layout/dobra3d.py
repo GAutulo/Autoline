@@ -379,7 +379,7 @@ def _modelo_maleta(tipo: TipoCaixa, imp: list[float], ris: list[float]) -> Model
 
 
 def _modelo_capa(imp: list[float], ris: list[float]) -> ModeloCaixa3D:
-    # Impressora (X): A | C | A    Riscador (Y): A | L | A — bandeja sem tampa.
+    # Impressora (X): A | C | A    Riscador (Y): A | L | A — sem tampa: é ela a tampa.
     xs, ys = _bordas(imp), _bordas(ris)
     if len(xs) < 4 or len(ys) < 4:
         return ModeloCaixa3D()
@@ -400,9 +400,11 @@ def _modelo_capa(imp: list[float], ris: list[float]) -> ModeloCaixa3D:
     ]
     return ModeloCaixa3D(
         paineis=paineis,
-        cima=(0.0, 0.0, 1.0),
-        frente=(0.0, -1.0, 0.0),
-        pitch_planificada=-90.0,
+        # A capa encaixa por cima: o lado impresso do centro é o topo e as
+        # paredes descem. A chapa plana segue vista pelo lado impresso.
+        cima=(0.0, 0.0, -1.0),
+        frente=(0.0, 1.0, 0.0),
+        pitch_planificada=90.0,
         descricao="Envoltório capa (bandeja)",
         solido_fechado=False,  # aberta: o fundo de dentro aparece
     )
