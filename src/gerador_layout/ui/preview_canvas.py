@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from .. import geometria_faca as geo
 from ..models import CorImpressao, LayoutCaixa, LinhaDesenho, TipoLinha
-from ..paineis import Painel, bordas_de_apoio, deslocamento_na_face, distancias_dos_objetos, face_no_ponto
+from ..paineis import Painel, bordas_de_apoio, deslocamento_na_face, distancias_dos_objetos, distancias_por_fora, face_no_ponto
 from .mockup_cota import ElementoCota, criar_cota
 from .mockup_cota_angular import ElementoCotaAngular
 from . import configuracoes
@@ -630,7 +630,7 @@ class _ComandoAlterarGeometria(QUndoCommand):
 
         # De fora pra dentro: o tamanho de um grupo escala os de dentro, e o
         # estado gravado de cada um deles vem depois e fica valendo.
-        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v, *extra) in sorted(
+        for item, (pos, largura, altura, rotacao, espelho_h, espelho_v, painel_id, *extra) in sorted(
             estados.items(), key=lambda par: profundidade(par[0])
         ):
             if extra and hasattr(item, "_aplicar_estado_extra"):
@@ -639,6 +639,7 @@ class _ComandoAlterarGeometria(QUndoCommand):
             item.setPos(pos)
             item.setRotation(rotacao)
             item.definir_espelho(espelho_h, espelho_v)
+            item.definir_painel(painel_id)  # arrastar pra outra face solta a escolhida
 
 
 class _ComandoDefinirFaces(QUndoCommand):
@@ -2394,7 +2395,8 @@ class PreviewCanvas(QGraphicsView):
     def gerar_cotas_automaticas(self) -> int:
         """Cota a faca pelos pontos de referência (as bordas das faces): uma
         linha de cotas por trecho e, mais pra fora, o total, em cima e à
-        esquerda da chapa. São cotas comuns: dá pra apagar as que não
+        esquerda da chapa. As distâncias da arte saem por fora, embaixo e à
+        direita, para não cobrir o desenho. São cotas comuns: dá pra apagar as que não
         precisar. Gerar de novo troca as automáticas. Devolve quantas fez."""
         pagina = self.retangulo_pagina()
         if pagina is None:
@@ -2402,7 +2404,7 @@ class PreviewCanvas(QGraphicsView):
         xs = self._pontos_de_cota([pagina.left(), pagina.right()] + [v for p in self._paineis for v in (p.x1, p.x2)])
         ys = self._pontos_de_cota([pagina.top(), pagina.bottom()] + [v for p in self._paineis for v in (p.y1, p.y2)])
         lado = max(pagina.width(), pagina.height())
-        automatica = max(2.0, lado / 150.0)  # cabe em 1:10 e na chapa grande
+        automatica = max(0.5, lado / 200.0)  # pequena na chapa inteira, em 1:10 ou 1:1
         letra = automatica if self._altura_cotas is None else self._altura_cotas
         self.altura_cotas_usada = letra
         afastamento = letra * 2.5
@@ -2416,8 +2418,10 @@ class PreviewCanvas(QGraphicsView):
             pares.append((pagina.topLeft(), pagina.topRight(), "horizontal", afastamento * 2.4))
         if len(ys) > 2:
             pares.append((pagina.topLeft(), pagina.bottomLeft(), "vertical", afastamento * 2.4))
-        for x1, y1, x2, y2 in self._distancias_dos_objetos(pagina):
-            pares.append((QPointF(x1, y1), QPointF(x2, y2), "horizontal" if y1 == y2 else "vertical", 0.0))
+        chapa = (pagina.left(), pagina.top(), pagina.right(), pagina.bottom())
+        for (x1, y1, x2, y2), fila in distancias_por_fora(self._distancias_dos_objetos(pagina), chapa):
+            tipo = "horizontal" if y1 == y2 else "vertical"
+            pares.append((QPointF(x1, y1), QPointF(x2, y2), tipo, afastamento + fila * letra * 2.2))
         antigas = [el for el in self._elementos_mockup if getattr(el, "cota_automatica", False)]
         feitas = 0
         self._pilha_desfazer.beginMacro("Cotas automáticas")
@@ -2425,8 +2429,7 @@ class PreviewCanvas(QGraphicsView):
             if antigas:
                 self._pilha_desfazer.push(_ComandoRemoverElementos(self, antigas))
             for p1, p2, tipo, afast in pares:
-                # Afastamento 0 é cota de objeto: fica junto dele, não por fora da chapa.
-                cota = criar_cota(p1, p2, tipo, afast, centro_referencia=centro if afast else None)
+                cota = criar_cota(p1, p2, tipo, afast, centro_referencia=centro, altura_texto=letra)
                 if cota is None:
                     continue
                 cota.definir_altura_texto(letra)

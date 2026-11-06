@@ -10,7 +10,8 @@ motor em `mockup_itens.py`.
 Coordenadas locais (y cresce pra baixo):
 
     y = 0 ............ topo (espaço do texto)
-    y = linha ........ linha de cota com as setas; texto logo acima
+    y = linha ........ linha de cota; o texto fica no meio dela, ou logo
+                       acima quando não cabe entre as duas linhas de chamada
     y = altura - ya .. ponto medido A (x = 0)
     y = altura - yb .. ponto medido B (x = largura)
 
@@ -23,8 +24,8 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPen, QPolygonF, QTransform
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen, QPolygonF, QTransform
 
 from ..models import CorImpressao
 from .mockup_itens import ElementoMockup
@@ -33,15 +34,17 @@ TIPOS_COTA = ("paralela", "horizontal", "vertical")
 
 _ALTURA_TEXTO_PADRAO_MM = 3.5
 _AFASTAMENTO_PADRAO_MM = 10.0
+# Os três abaixo valem para a letra padrão e acompanham a letra: numa faca
+# desenhada em escala reduzida, medida fixa em mm engrossaria tudo.
 _FOLGA_PONTO_MM = 1.0  # linha de chamada não encosta no objeto medido
 _SOBRA_CHAMADA_MM = 1.5  # linha de chamada passa um pouco da linha de cota
-_SETA_MM = 2.5
-_TRACO_MM = 0.25
+_MENOR_AFASTAMENTO_MM = 2.0
+_TRACO_POR_ALTURA = 0.06  # fio fino: 6% da altura da letra
 _TAMANHO_FONTE_REFERENCIA = 100.0
 
 
 class ElementoCota(ElementoMockup):
-    _altura_minima_mm = 4.0
+    _altura_minima_mm = 0.5
 
     def __init__(
         self,
@@ -58,15 +61,23 @@ class ElementoCota(ElementoMockup):
         self._yb = max(0.0, yb)
         self._altura_texto = max(0.5, altura_texto)
         self._tipo = tipo if tipo in TIPOS_COTA else "paralela"
-        self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
+        self._cor_tinta = cor_tinta or CorImpressao(nome="Vermelho", r=237, g=28, b=36)
         super().__init__(largura=largura, altura=self._altura_para(afastamento), parent=parent)
 
     # ── Geometria da cota ───────────────────────────────────────────
+    def _na_escala_da_letra(self, mm: float) -> float:
+        return mm * self._altura_texto / _ALTURA_TEXTO_PADRAO_MM
+
     def _margem_texto(self) -> float:
-        return self._altura_texto * 1.4 + _SOBRA_CHAMADA_MM
+        return self._altura_texto * 1.4 + self._na_escala_da_letra(_SOBRA_CHAMADA_MM)
 
     def _altura_para(self, afastamento: float) -> float:
-        return self._margem_texto() + max(2.0, afastamento) + max(self._ya, self._yb)
+        menor = self._na_escala_da_letra(_MENOR_AFASTAMENTO_MM)
+        return self._margem_texto() + max(menor, afastamento) + max(self._ya, self._yb)
+
+    @property
+    def traco_mm(self) -> float:
+        return self._altura_texto * _TRACO_POR_ALTURA
 
     @property
     def tipo(self) -> str:
@@ -112,30 +123,49 @@ class ElementoCota(ElementoMockup):
     def texto_valor(self) -> str:
         return f"{self._largura:.1f} mm".replace(".", ",")
 
+    def _fonte_e_escala(self) -> tuple[QFont, QFontMetricsF, float]:
+        fonte = QFont("Arial")
+        fonte.setPixelSize(int(_TAMANHO_FONTE_REFERENCIA))
+        metricas = QFontMetricsF(fonte)
+        return fonte, metricas, self._altura_texto / metricas.capHeight()
+
+    def _largura_vao_texto(self) -> float:
+        """Vão do texto na linha de cota, com uma folga de cada lado."""
+        _fonte, metricas, escala = self._fonte_e_escala()
+        return metricas.horizontalAdvance(self.texto_valor()) * escala + self._altura_texto
+
+    def texto_na_linha(self) -> bool:
+        return self._largura_vao_texto() < self._largura - self._altura_texto
+
     def segmentos_locais(self) -> list[tuple[QPointF, QPointF]]:
         """Linhas de chamada + linha de cota, em coordenadas locais —
-        mesma geometria da pintura, usada também pela ponte do CorelDRAW."""
+        mesma geometria da pintura, usada também pela ponte do CorelDRAW.
+        O texto que cabe interrompe a linha de cota no meio."""
         h, l = self._altura, self._largura
         linha = self._margem_texto()
-        topo_chamada = linha - _SOBRA_CHAMADA_MM
-        return [
-            (QPointF(0.0, h - self._ya - _FOLGA_PONTO_MM), QPointF(0.0, topo_chamada)),
-            (QPointF(l, h - self._yb - _FOLGA_PONTO_MM), QPointF(l, topo_chamada)),
-            (QPointF(0.0, linha), QPointF(l, linha)),
+        topo_chamada = linha - self._na_escala_da_letra(_SOBRA_CHAMADA_MM)
+        folga = self._na_escala_da_letra(_FOLGA_PONTO_MM)
+        chamadas = [
+            (QPointF(0.0, h - self._ya - folga), QPointF(0.0, topo_chamada)),
+            (QPointF(l, h - self._yb - folga), QPointF(l, topo_chamada)),
+        ]
+        if not self.texto_na_linha():
+            return chamadas + [(QPointF(0.0, linha), QPointF(l, linha))]
+        vao = self._largura_vao_texto() / 2
+        return chamadas + [
+            (QPointF(0.0, linha), QPointF(l / 2 - vao, linha)),
+            (QPointF(l / 2 + vao, linha), QPointF(l, linha)),
         ]
 
     def setas_locais(self) -> list[QPolygonF]:
-        linha = self._margem_texto()
-        s = min(_SETA_MM * self._altura_texto / _ALTURA_TEXTO_PADRAO_MM, self._largura / 3)
-        meia = s * 0.35
-        return [
-            QPolygonF([QPointF(0.0, linha), QPointF(s, linha - meia), QPointF(s, linha + meia)]),
-            QPolygonF([QPointF(self._largura, linha), QPointF(self._largura - s, linha - meia), QPointF(self._largura - s, linha + meia)]),
-        ]
+        """Sem setas: a cota termina nas linhas de chamada. O método fica
+        porque a ponte do CorelDRAW percorre o que ele devolve."""
+        return []
 
     def retangulo_texto_local(self) -> QRectF:
         linha = self._margem_texto()
-        return QRectF(0.0, linha - self._altura_texto * 1.4, self._largura, self._altura_texto * 1.3)
+        topo = linha - self._altura_texto * (0.65 if self.texto_na_linha() else 1.4)
+        return QRectF(0.0, topo, self._largura, self._altura_texto * 1.3)
 
     def texto_de_cabeca_pra_baixo(self) -> bool:
         """Texto sempre legível: entre 90° e 270° ele é virado."""
@@ -145,19 +175,12 @@ class ElementoCota(ElementoMockup):
     # ── Pintura ─────────────────────────────────────────────────────
     def _pintar_conteudo(self, painter: QPainter) -> None:
         cor = QColor(self._cor_tinta.r, self._cor_tinta.g, self._cor_tinta.b)
-        pen = QPen(cor, _TRACO_MM)
+        pen = QPen(cor, self.traco_mm)
         painter.setPen(pen)
         for a, b in self.segmentos_locais():
             painter.drawLine(a, b)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(cor))
-        for seta in self.setas_locais():
-            painter.drawPolygon(seta)
 
-        fonte = QFont("Arial")
-        fonte.setPixelSize(int(_TAMANHO_FONTE_REFERENCIA))
-        metricas = QFontMetricsF(fonte)
-        escala = self._altura_texto / metricas.capHeight()
+        fonte, metricas, escala = self._fonte_e_escala()
         texto = self.texto_valor()
         rect = self.retangulo_texto_local()
         painter.save()
@@ -191,6 +214,7 @@ def criar_cota(
     afastamento: float = _AFASTAMENTO_PADRAO_MM,
     cor=None,
     centro_referencia: QPointF | None = None,
+    altura_texto: float = _ALTURA_TEXTO_PADRAO_MM,
 ) -> ElementoCota | None:
     """Cota entre dois pontos da cena. Paralela mede a distância direta;
     horizontal só o Δx; vertical só o Δy. Com `centro_referencia` (o
@@ -227,7 +251,9 @@ def criar_cota(
     if tipo == "paralela":
         ya = yb = 0.0
 
-    cota = ElementoCota(largura=comprimento, afastamento=afastamento, ya=ya, yb=yb, tipo=tipo, cor_tinta=cor)
+    cota = ElementoCota(
+        largura=comprimento, afastamento=afastamento, ya=ya, yb=yb, tipo=tipo, cor_tinta=cor, altura_texto=altura_texto
+    )
     cota.setRotation(angulo)
     # pos tal que o ponto local (0, altura - ya) caia em `a`:
     # cena = pos + origem + R·(local − origem).

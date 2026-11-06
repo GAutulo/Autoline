@@ -48,6 +48,7 @@ class Cartao:
     # `tipos` leva a combinação escolhida (uma opção por eixo) ao tipo.
     variantes: tuple[tuple[str, tuple[str, ...]], ...] = ()
     tipos: dict[tuple[str, ...], TipoCaixa] | None = None
+    compacto: bool = False  # botão pequeno só com a sigla, numa linha abaixo dos cartões
 
 
 class TelaInicio(QWidget):
@@ -123,7 +124,7 @@ class TelaInicio(QWidget):
         self._grupo_tipo.setExclusive(True)
         self.cartoes: dict[str, QPushButton] = {}
         self._tipo_escolhido: TipoCaixa | None = None
-        for i, cartao in enumerate(cartoes):
+        for i, cartao in enumerate(c for c in cartoes if not c.compacto):
             botao = QPushButton()
             botao.setObjectName("cartaoEstilo")
             botao.setMinimumHeight(96)
@@ -140,6 +141,21 @@ class TelaInicio(QWidget):
             self.cartoes[cartao.titulo] = botao
             grade.addWidget(botao, i // 4, i % 4)
         principal.addLayout(grade)
+        compactos = [c for c in cartoes if c.compacto]
+        if compactos:  # com um cartão inteiro para cada, o Início passa de 768 px de altura
+            linha_compacta = QHBoxLayout()
+            linha_compacta.setSpacing(6)
+            rotulo_compacto = QLabel("Modelos FEFCO")
+            rotulo_compacto.setObjectName("legendaMuted")
+            linha_compacta.addWidget(rotulo_compacto)
+            for cartao in compactos:
+                botao = QPushButton(cartao.sigla)
+                botao.setToolTip(f"{cartao.titulo} — {cartao.detalhe}")
+                botao.setAccessibleName(botao.toolTip())
+                botao.clicked.connect(lambda _c=False, c=cartao: c.acao())
+                self.cartoes[cartao.titulo] = botao
+                linha_compacta.addWidget(botao, 1)
+            principal.addLayout(linha_compacta)
 
         # Variantes do estilo escolhido (inteira/meia, com/sem corte...).
         self._area_variantes = QWidget()

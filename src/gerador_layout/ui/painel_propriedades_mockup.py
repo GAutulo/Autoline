@@ -109,6 +109,7 @@ class PainelPropriedadesMockup(QWidget):
         self._modo_multiplo = False
         self._spins_geometria: dict[str, QDoubleSpinBox] = {}
         self._rotulo_posicao_painel: QLabel | None = None
+        self._combo_painel: QComboBox | None = None
 
         # Callbacks ligados de fora (main_window.py) — este painel não
         # sabe mexer na cena/canvas, só nas propriedades do próprio
@@ -792,6 +793,7 @@ class PainelPropriedadesMockup(QWidget):
             if painel.id == elemento.painel_id:
                 indice_atual = i
         combo.setCurrentIndex(indice_atual)
+        self._combo_painel = combo
         self._grupo("face", combo, "Face da caixa a que este elemento pertence")
 
         def ao_mudar(_indice: int) -> None:
@@ -813,6 +815,30 @@ class PainelPropriedadesMockup(QWidget):
 
     _TOLERANCIA_CENTRALIZADO_MM = 0.5
 
+    def _soltar_face_se_saiu(self, elemento: ElementoMockup) -> None:
+        """Arrastou para outra face: a escolhida não vale mais, e a face volta
+        a ser a da posição. Só no arrasto, para o alinhar não trocar a face
+        recém-escolhida quando move o objeto em um eixo só."""
+        combo = self._combo_painel
+        if combo is None or elemento.painel_id is None or not elemento.em_arrasto_corpo:
+            return
+        centro = elemento.mapToScene(elemento.largura / 2, elemento.altura / 2)
+        onde_esta = face_no_ponto(self._obter_paineis(), centro.x(), centro.y())
+        if onde_esta is not None and onde_esta.id != elemento.painel_id:
+            elemento.definir_painel(None)
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+
+    def _mostrar_face_identificada(self, elemento: ElementoMockup | None) -> None:
+        """A opção "Automática" diz a face encontrada, e o título acompanha."""
+        painel = self._face_do_elemento(elemento) if elemento is not None else None
+        if self._combo_painel is not None:
+            automatica = elemento is None or elemento.painel_id is None
+            texto = f"{_ROTULO_SEM_PAINEL}: {painel.nome}" if automatica and painel is not None else _ROTULO_SEM_PAINEL
+            self._combo_painel.setItemText(0, texto)
+        self._subtitulo_inspetor.setText(painel.nome if painel is not None else "")
+
     def _atualizar_rotulo_posicao_painel(self) -> None:
         """Distância das 4 bordas da face até o elemento, mais se está
         centralizado (dentro de uma tolerância pequena) em cada eixo —
@@ -822,6 +848,9 @@ class PainelPropriedadesMockup(QWidget):
         if rotulo is None:
             return
         elemento = self._elemento
+        if elemento is not None:
+            self._soltar_face_se_saiu(elemento)
+        self._mostrar_face_identificada(elemento)
         painel = self._face_do_elemento(elemento) if elemento is not None else None
         if elemento is None or painel is None:
             rotulo.setText("Fora das faces da caixa.")
@@ -883,6 +912,7 @@ class PainelPropriedadesMockup(QWidget):
             self._slot_fonte = None
 
     def _limpar_barra(self) -> None:
+        self._combo_painel = None
         combo = getattr(self, "_combo_fonte_guardado", None)
 
         def esvaziar(layout) -> None:
@@ -1090,7 +1120,7 @@ class PainelPropriedadesMockup(QWidget):
         el.geometria_alterada.connect(lambda: valor.setText(el.texto_valor()) if valor.parent() else None)
         self._layout_campos.addWidget(valor)
         afastamento = QDoubleSpinBox()
-        afastamento.setRange(2.0, 500.0)
+        afastamento.setRange(0.0, 500.0)  # o mínimo real acompanha a letra
         afastamento.setSuffix(" mm")
         afastamento.setValue(el.afastamento)
         afastamento.setKeyboardTracking(False)

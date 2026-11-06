@@ -110,9 +110,43 @@ def test_face_automatica_pela_posicao(janela):
     el.definir_painel(None)
     _selecionar(janela, el)
     combo = painel.inspetor.findChild(QComboBox, "comboPainel")
-    assert combo.itemText(0) == "Automática" and combo.maximumWidth() > 1000
+    assert combo.itemText(0) == "Automática: Frente" and combo.maximumWidth() > 1000
     assert painel._subtitulo_inspetor.text() == "Frente"
     assert "Na face Frente" in painel._caixa_info.text()
+
+
+def test_face_acompanha_o_arrasto(janela):
+    painel = janela.painel_propriedades_mockup
+    frente = next(p for p in janela._paineis_disponiveis() if p.id == "frente")
+    outra = next(p for p in janela._paineis_disponiveis() if p.id != "frente" and not p.eh_aba)
+    el = _ret(janela, frente.x1 + 10, frente.y1 + 10)
+    el.definir_painel("frente")
+    _selecionar(janela, el)
+    combo = painel.inspetor.findChild(QComboBox, "comboPainel")
+    assert combo.currentText() == "Frente"
+
+    el._arrastando_corpo = True
+    el.setPos(frente.x1 + 20, frente.y1 + 20)  # dentro da mesma face: continua
+    painel._atualizar_rotulo_posicao_painel()
+    assert el.painel_id == "frente"
+    el.setPos(outra.x1 + 5, outra.y1 + 5)
+    painel._atualizar_rotulo_posicao_painel()
+    el._arrastando_corpo = False
+    assert el.painel_id is None and combo.currentText() == f"Automática: {outra.nome}"
+    assert painel._subtitulo_inspetor.text() == outra.nome
+
+
+def test_escolher_face_e_alinhar_nao_volta_para_automatica(janela):
+    painel = janela.painel_propriedades_mockup
+    frente = next(p for p in janela._paineis_disponiveis() if p.id == "frente")
+    outra = next(p for p in janela._paineis_disponiveis() if p.id != "frente" and not p.eh_aba)
+    el = _ret(janela, frente.x1 + 10, frente.y1 + 10)
+    el.definir_painel(None)
+    _selecionar(janela, el)
+    combo = painel.inspetor.findChild(QComboBox, "comboPainel")
+    combo.setCurrentIndex(combo.findData(outra.id))
+    janela.canvas.alinhar_a("face", "esquerda")
+    assert el.painel_id == outra.id and el.retangulo_conteudo_cena().left() == pytest.approx(outra.x1)
 
 
 def test_nova_tinta_nao_sai_do_layout(janela, monkeypatch):
@@ -197,3 +231,23 @@ def test_lista_de_alinhar_comeca_no_primeiro_objeto_ao_selecionar_varios(janela)
     assert janela.docker_alinhar.referencia() == "face"
     _selecionar(janela, a, b)
     assert janela.docker_alinhar.referencia() == "selecao" and janela.docker_alinhar.objeto_referencia() is not None
+
+
+def test_desfazer_o_arrasto_devolve_a_face_escolhida(janela):
+    from gerador_layout.ui.mockup_itens import _estado_recursivo
+    from gerador_layout.ui.preview_canvas import _ComandoAlterarGeometria
+
+    painel = janela.painel_propriedades_mockup
+    frente = next(p for p in janela._paineis_disponiveis() if p.id == "frente")
+    outra = next(p for p in janela._paineis_disponiveis() if p.id != "frente" and not p.eh_aba)
+    el = _ret(janela, frente.x1 + 10, frente.y1 + 10)
+    el.definir_painel("frente")
+    _selecionar(janela, el)
+    antes = _estado_recursivo(el)
+    el._arrastando_corpo = True
+    el.setPos(outra.x1 + 5, outra.y1 + 5)
+    painel._atualizar_rotulo_posicao_painel()
+    el._arrastando_corpo = False
+    assert el.painel_id is None
+    _ComandoAlterarGeometria(antes, _estado_recursivo(el)).undo()
+    assert el.painel_id == "frente" and el.pos().x() == pytest.approx(frente.x1 + 10)

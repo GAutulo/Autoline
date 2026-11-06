@@ -645,7 +645,7 @@ def _desenhar_cota_angular_cdr(app, layer, elemento: "ElementoCotaAngular", altu
     for a, b in segmentos:
         linha = layer.CreateLineSegment(*cdr(a), *cdr(b))
         linha.Outline.Color = cor
-        linha.Outline.Width = 0.25
+        linha.Outline.Width = elemento.traco_mm
     texto = layer.CreateArtisticText(0, 0, elemento.texto_valor(), Size=elemento.altura_texto * _FATOR_SIZE_CDR_POR_MM)
     _aplicar_cor_preenchimento(app, texto, elemento.cor_tinta.r, elemento.cor_tinta.g, elemento.cor_tinta.b)
     cx, cy = cdr(caixa.center())
@@ -665,7 +665,7 @@ def _desenhar_cota_cdr(app, layer, elemento: "ElementoCota", altura_total: float
         x1, y1 = ponto_cdr(b.x(), b.y())
         linha = layer.CreateLineSegment(x0, y0, x1, y1)
         linha.Outline.Color = cor
-        linha.Outline.Width = 0.25
+        linha.Outline.Width = elemento.traco_mm
         formas.append(linha)
     for seta in elemento.setas_locais():
         pontos = [ponto_cdr(seta[i].x(), seta[i].y()) for i in range(seta.count())]

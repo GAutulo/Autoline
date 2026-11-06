@@ -74,6 +74,7 @@ from .mockup_acabamento import ElementoAcabamento
 from .mockup_callout import ElementoCallout
 from .dialogo_estilos import DialogoEstilos, pasta_estilos_usuario
 from ..estilos import carregar_estilos, estilo_da_faca, salvar_estilo
+from ..estilos_catalogo import CATALOGO
 from .mockup_checklist import ElementoChecklistCores
 from .mockup_cota import ElementoCota, criar_cota
 from .mockup_cota_angular import ElementoCotaAngular
@@ -872,6 +873,11 @@ class JanelaPrincipal(QMainWindow):
     def _montar_inicio(self) -> None:
         from .projeto_arquivo import ler_miniatura
 
+        def cartao_fefco(modelo: dict) -> Cartao:
+            codigo = modelo["codigo"]
+            return Cartao(codigo, modelo["nome"], sigla=codigo.split()[-1], compacto=True,
+                          acao=lambda: self._inicio_estilo(codigo))
+
         cartoes = [
             Cartao("Maleta normal", "inteira ou meia caixa", "caixa_maleta", tipo=TipoCaixa.MALETA_NORMAL,
                    variantes=(("Caixa", ("Inteira", "Meia caixa")),),
@@ -890,8 +896,7 @@ class JanelaPrincipal(QMainWindow):
                           ("No meio", "Sem corte"): TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE}),
             Cartao("Envoltório capa", "bandeja", "caixa_capa", tipo=TipoCaixa.ENVOLTORIO_CAPA),
             Cartao("Cinta", "faixas, recuo e furos", "caixa_cinta", tipo=TipoCaixa.CINTA),
-            Cartao("FEFCO 0201", "catálogo de estilos", sigla="0201", acao=lambda: self._inicio_estilo("FEFCO 0201")),
-            Cartao("FEFCO 0427", "catálogo de estilos", sigla="0427", acao=lambda: self._inicio_estilo("FEFCO 0427")),
+            *[cartao_fefco(m) for m in CATALOGO],
             Cartao("Faca em branco", "desenho livre", "mais", acao=lambda: self._inicio_e(self._nova_faca_em_branco)),
             Cartao("Construtor de dieline", "monte por trechos", "linha_medida",
                    acao=lambda: self._inicio_e(self._abrir_construtor_dieline)),

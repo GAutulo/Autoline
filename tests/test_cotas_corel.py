@@ -117,7 +117,7 @@ def test_ponte_corel_desenha_cota_com_primitivas(app):
     registro: list = []
     corel_bridge._desenhar_elemento_mockup(_Falso(registro), _Falso(registro, "layer"), cota, 350.0)
     chamadas = [nome for nome, *_ in registro if nome != "set"]
-    assert chamadas.count("CreateLineSegment") == 3 + 6  # 2 chamadas + linha + 2 setas de 3 lados
+    assert chamadas.count("CreateLineSegment") == 4  # 2 chamadas + a linha partida pelo texto, sem setas
     assert "CreateArtisticText" in chamadas
     assert "RotateEx" in chamadas
 

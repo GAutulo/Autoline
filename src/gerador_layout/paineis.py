@@ -278,6 +278,26 @@ def _distancias_na_horizontal(objetos: list[tuple[Retangulo, Retangulo]]) -> lis
     return [m for m in saida if m[2] - m[0] >= _MENOR_DISTANCIA_MM]
 
 
+def distancias_por_fora(medidas: list[Retangulo], chapa: Retangulo) -> list[tuple[Retangulo, int]]:
+    """Leva as medidas dos objetos para fora da chapa: as horizontais para a
+    base e as verticais para a direita, cada uma com a sua fila. Medida igual
+    só aparece uma vez, e a que cruza outra vai para a fila seguinte."""
+    saida: list[tuple[Retangulo, int]] = []
+
+    def por_lado(trechos: list[tuple[float, float]], medida) -> None:
+        fim_da_fila: list[float] = []
+        for a, b in sorted({(round(a, 1), round(b, 1)): (a, b) for a, b in trechos}.values()):
+            fila = next((i for i, fim in enumerate(fim_da_fila) if a >= fim - 0.05), len(fim_da_fila))
+            if fila == len(fim_da_fila):
+                fim_da_fila.append(b)
+            fim_da_fila[fila] = b
+            saida.append((medida(a, b), fila))
+
+    por_lado([(x1, x2) for x1, y1, x2, y2 in medidas if y1 == y2], lambda a, b: (a, chapa[3], b, chapa[3]))
+    por_lado([(y1, y2) for x1, y1, x2, y2 in medidas if y1 != y2], lambda a, b: (chapa[2], a, chapa[2], b))
+    return saida
+
+
 def distancias_dos_objetos(objetos: list[Retangulo], faces: list[Painel], chapa: Retangulo) -> list[Retangulo]:
     """As medidas entre os objetos impressos e até a caixa, como (x1, y1, x2, y2).
     A caixa é a borda da face do objeto: o que está em outra face fica depois

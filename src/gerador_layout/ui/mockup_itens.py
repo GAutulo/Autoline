@@ -362,7 +362,7 @@ class ElementoMockup(QGraphicsObject):
         self._registrar_geometria_undo = registrador
 
     def _estado_geometria(self) -> tuple:
-        return (self.pos(), self._largura, self._altura, self.rotation(), self._espelho_h, self._espelho_v)
+        return (self.pos(), self._largura, self._altura, self.rotation(), self._espelho_h, self._espelho_v, self._painel_id)
 
     def definir_largura(self, largura: float) -> None:
         """Muda só a largura — se a proporção estiver travada, a altura

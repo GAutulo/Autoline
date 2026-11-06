@@ -28,7 +28,7 @@ Autoline. O CorelDRAW virou opcional.
 - Faca editável (F10) com ferramentas no estilo ArtiosCAD: retângulo,
   linha por medida, arco, paralela, aparar, estender e arredondar.
 - Guias dinâmicas e encaixe com o nome do ponto.
-- Estilos paramétricos (FEFCO 0201 e 0427, mais os meus) e construtor de
+- Estilos paramétricos (FEFCO 0200, 0201, 0202, 0204, 0301 e 0427, mais os meus) e construtor de
   dieline por trechos.
 
 **Layout (arte sobre a faca)**
@@ -141,7 +141,7 @@ src/gerador_layout/
 ├── dobra_generica.py      # dobra 3D de qualquer faca (estilo ArtiosCAD)
 ├── geometria_faca.py      # retas, arcos e ferramentas de desenho da faca
 ├── estilos.py             # estilos paramétricos (expressões via ast, sem eval)
-├── estilos_catalogo.py    # FEFCO 0201 e 0427
+├── estilos_catalogo.py    # FEFCO 0200 a 0204, 0301 e 0427
 ├── construtor_dieline.py  # faca montada por trechos
 ├── simbologias.py         # banco de símbolos (SVG no tamanho real)
 ├── svg_corel.py           # correção dos SVGs exportados pelo CorelDRAW
