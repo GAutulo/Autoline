@@ -21,22 +21,32 @@ _MEDIDAS = [
 ]
 
 
-# ── FEFCO 0201: caixa normal com abas (RSC) ───────────────────────────
-# x: cola | C | L | C | L      y: abas (L/2) | A | abas (L/2)
-def _fefco_0201() -> dict:
+# ── Família 02: caixa de uma peça com abas ────────────────────────────
+# x: cola | C | L | C | L      y: abas | A | abas
+# FC é a altura das abas sobre C, FL a das abas sobre L e FM a maior das
+# duas: as fendas entre as abas vão sempre até FM.
+def _caixa_com_abas(
+    codigo: str,
+    nome: str,
+    descricao: str,
+    aba_c: str,
+    aba_l: str = "FC",
+    com_topo: bool = True,
+    variaveis_extras: tuple = (),
+    validacoes: tuple = (),
+) -> dict:
     x0, x1, x2, x3, x4, x5 = "0", "G", "G + C", "G + C + L", "G + 2*C + L", "G + 2*C + 2*L"
-    y0, y1, y2, y3 = "0", "F", "F + A", "2*F + A"
-    linhas = [
-        # contorno das abas de cima e de baixo
-        _l((x1, y0), (x5, y0)),
-        _l((x1, y3), (x5, y3)),
-        _l((x1, y0), (x1, y1)),
-        _l((x5, y0), (x5, y1)),
-        _l((x1, y2), (x1, y3)),
-        _l((x5, y2), (x5, y3)),
+    y1 = "FM" if com_topo else "0"
+    y2, y3 = f"{y1} + A", f"{y1} + A + FM"
+    linhas = []
+    for xa, xb, aba in ((x1, x2, "FC"), (x2, x3, "FL"), (x3, x4, "FC"), (x4, x5, "FL")):
+        linhas.append(_l((xa, f"{y2} + {aba}"), (xb, f"{y2} + {aba}")))
+        linhas.append(_l((xa, f"{y1} - {aba}"), (xb, f"{y1} - {aba}")) if com_topo else _l((xa, y1), (xb, y1)))
+    linhas += [
+        _l((x1, y2), (x1, f"{y2} + FC")),
+        _l((x5, y2), (x5, f"{y2} + FL")),
         _l((x5, y1), (x5, y2)),
         # fendas entre as abas
-        *[_l((x, y0), (x, y1)) for x in (x2, x3, x4)],
         *[_l((x, y2), (x, y3)) for x in (x2, x3, x4)],
         # aba de cola (chanfrada)
         _l((x1, y1), (x0, f"{y1} + T")),
@@ -48,25 +58,146 @@ def _fefco_0201() -> dict:
         _l((x3, y1), (x3, y2), "vinco", 90, (0.0, 0.3)),
         _l((x4, y1), (x4, y2), "vinco", 90, (0.0, 0.3)),
     ]
+    if com_topo:
+        linhas += [
+            _l((x1, f"{y1} - FC"), (x1, y1)),
+            _l((x5, f"{y1} - FL"), (x5, y1)),
+            *[_l((x, f"{y1} - FM"), (x, y1)) for x in (x2, x3, x4)],
+        ]
     # vincos das abas: as menores (sobre L) dobram primeiro e um pouco
     # mais (ficam por dentro); as maiores (sobre C) fecham por cima.
     for xa, xb, menor in ((x1, x2, False), (x2, x3, True), (x3, x4, False), (x4, x5, True)):
         angulo, tempo = (92, (0.45, 0.65)) if menor else (90, (0.65, 0.9))
-        linhas.append(_l((xa, y1), (xb, y1), "vinco", angulo, tempo))
         linhas.append(_l((xa, y2), (xb, y2), "vinco", angulo, tempo))
+        if com_topo:
+            linhas.append(_l((xa, y1), (xb, y1), "vinco", angulo, tempo))
     return {
-        "codigo": "FEFCO 0201",
-        "nome": "Caixa normal com abas",
-        "descricao": "A caixa de papelão mais comum: 4 paredes, aba de cola e abas em cima e embaixo "
-        "que se encontram no meio. Medidas internas.",
-        "variaveis": _MEDIDAS + [{"nome": "G", "rotulo": "Aba de cola (G)", "padrao": 30, "min": 10, "max": 80}],
-        "derivadas": {"F": "L / 2 + E / 2", "T": "min(G * 0.5, A / 4)"},
+        "codigo": codigo,
+        "nome": nome,
+        "descricao": descricao,
+        "variaveis": _MEDIDAS
+        + [{"nome": "G", "rotulo": "Aba de cola (G)", "padrao": 30, "min": 10, "max": 80}]
+        + list(variaveis_extras),
+        "derivadas": {"FC": aba_c, "FL": aba_l, "FM": "max(FC, FL)", "T": "min(G * 0.5, A / 4)"},
+        "validacoes": [list(v) for v in validacoes],
         "linhas": linhas,
-        "base": ["G + C / 2", "F + A / 2"],
+        "base": ["G + C / 2", f"{y1} + A / 2"],
         "cotas": [
-            {"de": [x1, "2*F + A + 12"], "ate": [x2, "2*F + A + 12"], "rotulo": "C"},
-            {"de": [x2, "2*F + A + 12"], "ate": [x3, "2*F + A + 12"], "rotulo": "L"},
+            {"de": [x1, f"{y3} + 12"], "ate": [x2, f"{y3} + 12"], "rotulo": "C"},
+            {"de": [x2, f"{y3} + 12"], "ate": [x3, f"{y3} + 12"], "rotulo": "L"},
             {"de": ["G + 2*C + 2*L + 12", y1], "ate": ["G + 2*C + 2*L + 12", y2], "rotulo": "A"},
+        ],
+    }
+
+
+_ABA_NO_MEIO = "L / 2 + E / 2"
+
+
+def _fefco_0200() -> dict:
+    return _caixa_com_abas(
+        "FEFCO 0200",
+        "Caixa aberta em cima",
+        "Como a 0201, mas só com as abas de baixo: a boca fica aberta, ou fechada por uma tampa à parte. Medidas internas.",
+        _ABA_NO_MEIO,
+        com_topo=False,
+    )
+
+
+def _fefco_0201() -> dict:
+    return _caixa_com_abas(
+        "FEFCO 0201",
+        "Caixa normal com abas",
+        "A caixa de papelão mais comum: 4 paredes, aba de cola e abas em cima e embaixo "
+        "que se encontram no meio. Medidas internas.",
+        _ABA_NO_MEIO,
+    )
+
+
+def _fefco_0202() -> dict:
+    return _caixa_com_abas(
+        "FEFCO 0202",
+        "Caixa com abas sobrepostas",
+        "Como a 0201, mas as abas de fora passam uma sobre a outra na medida S, "
+        "o que reforça o fechamento. Medidas internas.",
+        "L / 2 + E / 2 + S / 2",
+        variaveis_extras=({"nome": "S", "rotulo": "Sobreposição das abas (S)", "padrao": 30, "min": 5, "max": 500},),
+        validacoes=(
+            ("S < L", "A sobreposição precisa ser menor que a largura."),
+            ("2*FL <= C + E", "As abas sobre a largura se cruzam: diminua a sobreposição ou aumente o comprimento."),
+        ),
+    )
+
+
+def _fefco_0204() -> dict:
+    return _caixa_com_abas(
+        "FEFCO 0204",
+        "Caixa com todas as abas no meio",
+        "As abas internas e as externas têm alturas diferentes, e as quatro se encontram no centro: "
+        "fundo e tampa ficam cobertos por inteiro, bom para produto pesado. Medidas internas.",
+        _ABA_NO_MEIO,
+        "C / 2 + E / 2",
+    )
+
+
+# ── FEFCO 0301: fundo e tampa em duas peças, lado a lado na faca ──────
+# Cada peça é uma cruz: o painel no meio e 4 paredes, com orelhas nas pontas
+# das paredes de cima e de baixo, que dobram e colam por dentro das outras.
+def _peca_telescopica(x, c, l, h) -> list[dict]:
+    xa, xb = f"{x} + {h}", f"{x} + {h} + {c}"
+    xe, xd = f"{x}", f"{x} + 2*{h} + {c}"
+    y1, y2, y3 = h, f"{h} + {l}", f"2*{h} + {l}"
+    linhas = [
+        # paredes de cima e de baixo
+        _l((xa, "0"), (xb, "0")),
+        _l((xa, y3), (xb, y3)),
+        _l((xa, y1), (xb, y1), "vinco", 90, (0.0, 0.25)),
+        _l((xa, y2), (xb, y2), "vinco", 90, (0.0, 0.25)),
+        # paredes laterais
+        _l((xe, y1), (xa, y1)),
+        _l((xe, y2), (xa, y2)),
+        _l((xe, y1), (xe, y2)),
+        _l((xb, y1), (xd, y1)),
+        _l((xb, y2), (xd, y2)),
+        _l((xd, y1), (xd, y2)),
+        _l((xa, y1), (xa, y2), "vinco", 90, (0.4, 0.65)),
+        _l((xb, y1), (xb, y2), "vinco", 90, (0.4, 0.65)),
+    ]
+    # orelhas: folga de E até a parede lateral, para não dividirem corte
+    for xv, sinal in ((xa, "-"), (xb, "+")):
+        xp = f"{xv} {sinal} ({h} - E)"
+        for ya, yb in (("0", y1), (y2, y3)):
+            linhas += [
+                _l((xv, ya), (xv, f"{ya} + E")),
+                _l((xv, f"{yb} - E"), (xv, yb)),
+                _l((xv, f"{ya} + E"), (xv, f"{yb} - E"), "vinco", 90, (0.25, 0.4)),
+                _l((xv, f"{ya} + E"), (xp, f"{ya} + E")),
+                _l((xp, f"{ya} + E"), (xp, f"{yb} - E")),
+                _l((xp, f"{yb} - E"), (xv, f"{yb} - E")),
+            ]
+    return linhas
+
+
+def _fefco_0301() -> dict:
+    x_tampa = "(2*A + C + VAO)"
+    return {
+        "codigo": "FEFCO 0301",
+        "nome": "Caixa de fundo e tampa",
+        "descricao": "Duas peças: o fundo e uma tampa um pouco maior, que encaixa por fora dele. "
+        "As orelhas dos cantos colam por dentro das paredes. C × L × A são as medidas internas do fundo.",
+        "variaveis": _MEDIDAS + [{"nome": "H", "rotulo": "Altura da tampa (H)", "padrao": 150, "min": 5, "max": 3000}],
+        "derivadas": {"CT": "C + 2*E + 1", "LT": "L + 2*E + 1", "VAO": "20"},
+        "validacoes": [
+            ["H <= A", "A tampa não pode ser mais alta que o fundo."],
+            ["E > 0", "Informe a espessura do papelão: é a folga das orelhas."],
+            ["A > 2*E", "A altura precisa ser maior que 2 espessuras do papelão."],
+            ["H > 2*E", "A altura da tampa precisa ser maior que 2 espessuras do papelão."],
+        ],
+        "linhas": _peca_telescopica("0", "C", "L", "A") + _peca_telescopica(x_tampa, "CT", "LT", "H"),
+        "base": ["A + C / 2", "A + L / 2"],
+        "cotas": [
+            {"de": ["A", "2*A + L + 12"], "ate": ["A + C", "2*A + L + 12"], "rotulo": "C"},
+            {"de": ["2*A + C + 12", "A"], "ate": ["2*A + C + 12", "A + L"], "rotulo": "L"},
+            {"de": ["A", "0"], "ate": ["A", "A"], "rotulo": "A"},
         ],
     }
 
@@ -173,4 +304,4 @@ def _fefco_0427() -> dict:
     }
 
 
-CATALOGO: list[dict] = [_fefco_0201(), _fefco_0427()]
+CATALOGO: list[dict] = [_fefco_0200(), _fefco_0201(), _fefco_0202(), _fefco_0204(), _fefco_0301(), _fefco_0427()]

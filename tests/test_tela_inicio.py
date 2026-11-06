@@ -96,3 +96,20 @@ def test_clicar_de_novo_no_cartao_escolhido_mantem_a_variante():
     inicio.cartoes["Maleta normal"].click()
     assert inicio.tipo_escolhido == TipoCaixa.MALETA_NORMAL_MEIA
     j.close()
+
+
+def test_inicio_com_todos_os_modelos_cabe_em_1366_por_768():
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.resize(1366, 728)
+    j.show()
+    j.mostrar_inicio()
+    QApplication.processEvents()
+    assert j.height() <= 768
+    assert j.tela_inicio.cartoes["FEFCO 0301"].text() == "0301"
+    assert "fundo e tampa" in j.tela_inicio.cartoes["FEFCO 0301"].toolTip()
+    j.close()

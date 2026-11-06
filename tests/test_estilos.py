@@ -84,6 +84,70 @@ def test_fefco_0427_fecha_e_tem_todas_as_partes(medidas):
     assert angulos == [90, 92, 178]
 
 
+@pytest.mark.parametrize("codigo", [d["codigo"] for d in CATALOGO])
+def test_catalogo_sem_linha_repetida_e_com_todas_as_dobras(codigo):
+    estilo = _estilo(codigo)
+    faca = estilo.gerar()
+    segmentos = [tuple(sorted(((round(l.x1, 3), round(l.y1, 3)), (round(l.x2, 3), round(l.y2, 3))))) for l in faca.linhas]
+    assert len(segmentos) == len(set(segmentos))
+    assert len(faca.dobras) == sum(1 for l in estilo.dados["linhas"] if "dobra" in l)
+
+
+def test_fefco_0200_nao_tem_abas_em_cima():
+    faca = _estilo("FEFCO 0200").gerar({"C": 300, "L": 200, "A": 150, "E": 3})
+    _modelo, dims = _dimensoes(faca)
+    assert len(achar_faces(faca.linhas).faces) == 9  # cola + 4 paredes + 4 abas
+    assert dims == pytest.approx(sorted([300, 200, 150]), abs=1.0)
+    assert faca.altura == pytest.approx(150 + 101.5)
+
+
+def test_fefco_0202_as_abas_de_fora_se_sobrepoem():
+    faca = _estilo("FEFCO 0202").gerar({"C": 300, "L": 200, "A": 150, "E": 3, "S": 30})
+    _modelo, dims = _dimensoes(faca)
+    assert len(achar_faces(faca.linhas).faces) == 13
+    assert dims == pytest.approx(sorted([300, 200, 150]), abs=1.0)
+    assert 2 * faca.valores["FC"] - 200 == pytest.approx(33.0)
+
+
+def test_fefco_0202_recusa_abas_que_se_cruzam():
+    assert _estilo("FEFCO 0202").validar({"C": 200, "L": 200, "A": 150, "E": 3, "G": 30, "S": 60})
+
+
+@pytest.mark.parametrize("medidas", [(300, 200, 150), (200, 300, 150)])
+def test_fefco_0204_as_quatro_abas_chegam_no_meio(medidas):
+    c, l, a = medidas
+    faca = _estilo("FEFCO 0204").gerar({"C": c, "L": l, "A": a, "E": 3})
+    _modelo, dims = _dimensoes(faca)
+    assert len(achar_faces(faca.linhas).faces) == 13
+    assert dims == pytest.approx(sorted([c, l, a]), abs=1.0)
+    assert (faca.valores["FC"], faca.valores["FL"]) == pytest.approx((l / 2 + 1.5, c / 2 + 1.5))
+
+
+def test_fefco_0301_tem_as_duas_pecas_e_a_tampa_e_maior():
+    faca = _estilo("FEFCO 0301").gerar({"C": 300, "L": 200, "A": 150, "E": 3, "H": 60})
+    faces = achar_faces(faca.linhas).faces
+    assert len(faces) == 18  # 9 de cada peça: painel, 4 paredes e 4 orelhas
+    assert faca.valores["CT"] == 307 and faca.valores["LT"] == 207
+    assert _estilo("FEFCO 0301").validar({"C": 300, "L": 200, "A": 100, "E": 3, "H": 150})
+
+
+def test_cartao_do_inicio_abre_o_modelo_clicado(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    abertos = []
+    monkeypatch.setattr(j, "_inicio_estilo", abertos.append)
+    botoes = [b for titulo, b in j.tela_inicio.cartoes.items() if titulo.startswith("FEFCO")]
+    assert len(botoes) == 6
+    for botao in botoes:
+        botao.click()
+    assert sorted(abertos) == sorted(d["codigo"] for d in CATALOGO)
+    j.close()
+
+
 def test_validacao_barra_medida_que_nao_cabe():
     estilo = _estilo("FEFCO 0427")
     problemas = estilo.validar({"C": 300, "L": 900, "A": 100, "E": 3})
@@ -197,3 +261,7 @@ def test_catalogo_gera_e_janela_aplica(janela, tmp_path, monkeypatch):
     canvas.descartar_edicoes_faca()
     assert not canvas.faca_editada and janela._estilo_atual is None
     assert canvas.retangulo_pagina().width() == pytest.approx(canvas.layout_atual.largura_total)
+
+
+def test_fefco_0301_pede_a_espessura():
+    assert _estilo("FEFCO 0301").validar({"C": 300, "L": 200, "A": 150, "E": 0, "H": 60})

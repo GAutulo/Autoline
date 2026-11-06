@@ -21,7 +21,7 @@ from ..models import CorImpressao
 from .mockup_itens import ElementoMockup
 
 _ALTURA_TEXTO_PADRAO_MM = 3.5
-_TRACO_MM = 0.25
+_TRACO_POR_ALTURA = 0.06  # fio fino, como na cota linear
 _SETA_MM = 2.5
 _TAMANHO_FONTE_REFERENCIA = 100.0
 _FOLGA_MM = 2.0
@@ -61,7 +61,7 @@ class ElementoCotaAngular(ElementoMockup):
         altura_texto: float = _ALTURA_TEXTO_PADRAO_MM,
         parent=None,
     ) -> None:
-        self._cor_tinta = cor_tinta or CorImpressao(nome="Preto", r=0, g=0, b=0)
+        self._cor_tinta = cor_tinta or CorImpressao(nome="Vermelho", r=237, g=28, b=36)
         self._altura_texto = max(0.5, altura_texto)
         braco = min(math.hypot(*(ponto_a - vertice).toTuple()), math.hypot(*(ponto_b - vertice).toTuple()))
         self._raio = raio if raio is not None else max(6.0, braco * 0.5)
@@ -120,6 +120,10 @@ class ElementoCotaAngular(ElementoMockup):
     def altura_texto(self) -> float:
         return self._altura_texto
 
+    @property
+    def traco_mm(self) -> float:
+        return self._altura_texto * _TRACO_POR_ALTURA
+
     def definir_altura_texto(self, mm: float) -> None:
         self._altura_texto = max(0.5, mm)
         self.update()
@@ -171,7 +175,7 @@ class ElementoCotaAngular(ElementoMockup):
     def _pintar_conteudo(self, painter: QPainter) -> None:
         cor = QColor(self._cor_tinta.r, self._cor_tinta.g, self._cor_tinta.b)
         linhas, arco, setas, rect = self.primitivas_locais()
-        painter.setPen(QPen(cor, _TRACO_MM))
+        painter.setPen(QPen(cor, self.traco_mm))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for p, q in linhas:
             painter.drawLine(p, q)

@@ -14,7 +14,7 @@ from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from gerador_layout.models import TipoCaixa  # noqa: E402
-from gerador_layout.paineis import Painel, distancias_dos_objetos  # noqa: E402
+from gerador_layout.paineis import Painel, distancias_dos_objetos, distancias_por_fora  # noqa: E402
 from gerador_layout.ui.mockup_cota import ElementoCota, criar_cota  # noqa: E402
 
 
@@ -102,7 +102,33 @@ def test_gerar_cotas_inclui_os_objetos_e_nao_mede_cota(janela):
 def test_cota_do_objeto_mede_a_distancia_real(janela):
     _objeto_em(janela, 100.0, 20.0)
     janela.canvas.gerar_cotas_automaticas()
-    assert any(c.valor_mm == pytest.approx(100.0) and c.afastamento <= 2.0 for c in _cotas(janela.canvas))
+    assert any(c.valor_mm == pytest.approx(100.0) for c in _cotas(janela.canvas))
+
+
+def test_cotas_saem_por_fora_da_chapa_e_sem_repetir(janela):
+    canvas = janela.canvas
+    _objeto_em(janela, 100.0, 20.0)
+    _objeto_em(janela, 100.0, 60.0)
+    canvas.gerar_cotas_automaticas()
+    chapa = canvas.retangulo_pagina()
+    embaixo = [c for c in _cotas(canvas) if c.retangulo_conteudo_cena().center().y() > chapa.bottom()]
+    medidas = [round(c.valor_mm, 1) for c in embaixo]
+    assert medidas and len(medidas) == len(set(medidas))  # os dois objetos estão na mesma coluna
+
+
+def test_cota_nova_e_vermelha_e_fina():
+    cota = criar_cota(QPointF(0, 0), QPointF(100, 0), "horizontal", 10.0)
+    assert (cota.cor_tinta.r, cota.cor_tinta.g, cota.cor_tinta.b) == (237, 28, 36)
+    cota.definir_altura_texto(0.5)
+    assert cota.traco_mm == pytest.approx(0.03)
+
+
+def test_cota_cruzada_vai_para_a_fila_seguinte():
+    chapa = (0.0, 0.0, 100.0, 50.0)
+    medidas = [(0.0, 10.0, 40.0, 10.0), (0.0, 20.0, 40.0, 20.0), (30.0, 30.0, 60.0, 30.0), (60.0, 30.0, 100.0, 30.0)]
+    assert distancias_por_fora(medidas, chapa) == [
+        ((0.0, 50.0, 40.0, 50.0), 0), ((30.0, 50.0, 60.0, 50.0), 1), ((60.0, 50.0, 100.0, 50.0), 0),
+    ]
 
 
 def test_campo_de_tamanho_muda_todas_e_as_proximas(janela):
@@ -122,12 +148,12 @@ def test_campo_mostra_o_tamanho_usado_ao_gerar(janela):
     assert janela.spin_tamanho_cotas.value() == pytest.approx(_cotas(janela.canvas)[0].altura_texto, abs=0.05)
 
 
-def test_seta_acompanha_o_tamanho_do_texto():
+def test_traco_acompanha_o_tamanho_do_texto():
     cota = criar_cota(QPointF(0, 0), QPointF(100, 0), "horizontal", 10.0)
     cota.definir_altura_texto(1.0)
-    pequena = cota.setas_locais()[0].boundingRect().width()
+    pequeno = cota.traco_mm
     cota.definir_altura_texto(7.0)
-    assert cota.setas_locais()[0].boundingRect().width() > pequena * 2
+    assert cota.traco_mm > pequeno * 2
 
 
 def test_objeto_que_cruza_o_vinco_nao_some_com_a_cota_do_vizinho():
@@ -143,3 +169,10 @@ def test_tamanho_das_cotas_nao_passa_pro_proximo_projeto(janela):
     janela.novo_projeto()
     janela.spin_comprimento.setValue(900.0)
     assert janela.canvas._altura_cotas is None
+
+
+def test_filas_de_cotas_nao_encostam_em_chapa_pequena():
+    primeira = criar_cota(QPointF(0, 0), QPointF(20, 0), "horizontal", 0.5 * 2.5, altura_texto=0.5)
+    segunda = criar_cota(QPointF(0, 0), QPointF(20, 0), "horizontal", 0.5 * 2.5 + 0.5 * 2.2, altura_texto=0.5)
+    assert primeira.afastamento == pytest.approx(1.25)
+    assert segunda.afastamento - primeira.afastamento == pytest.approx(1.1)

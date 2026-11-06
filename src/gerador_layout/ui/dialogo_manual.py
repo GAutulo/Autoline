@@ -62,7 +62,7 @@ _TOPICOS: list[tuple[str, list[tuple[str, str]]]] = [
                 <b>barra de status</b> (cursor em mm, Encaixe, Guias dinâmicas, ponte com o
                 CorelDRAW, Ajustar à tela e zoom).</p>
                 <p><b>Início</b>: digite C × L × A, escolha o estilo e clique em <b>Criar
-                faca</b>; ou comece pelo FEFCO 0201/0427, faca em branco ou construtor de
+                faca</b>; ou comece por um modelo FEFCO, faca em branco ou construtor de
                 dieline; à direita, os projetos recentes com miniatura.</p>
                 <p><b>Exportar</b> (botão da barra de título): um diálogo só com PDF, SVG,
                 JPG, folha de aprovação, imagem do 3D, salvar tudo e enviar pro CorelDRAW —
