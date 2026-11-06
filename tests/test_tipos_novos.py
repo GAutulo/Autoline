@@ -12,7 +12,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gerador_layout.dobra3d import caixa_envolvente, montar_modelo, posicionar  # noqa: E402
+from gerador_layout.dobra3d import caixa_envolvente, montar_modelo, posicionar, produto_escalar  # noqa: E402
 from gerador_layout.dobra_generica import achar_faces  # noqa: E402
 from gerador_layout.layout_service import ServicoLayoutCaixa  # noqa: E402
 from gerador_layout.models import (  # noqa: E402
@@ -147,3 +147,14 @@ def test_envoltorio_tampa_cantos_e_abas_sao_faces(tipo):
     for i, a in enumerate(lista):
         for b in lista[i + 1:]:
             assert min(a.x2, b.x2) - max(a.x1, b.x1) <= 1e-6 or min(a.y2, b.y2) - max(a.y1, b.y1) <= 1e-6
+
+
+def test_capa_no_3d_fica_com_o_centro_para_cima():
+    """A capa encaixa por cima: o lado impresso do centro é o topo e as
+    paredes descem; a frente é a parede de baixo da chapa."""
+    layout = _layout(TipoCaixa.ENVOLTORIO_CAPA, comprimento=300, largura=200, altura=40)
+    modelo = montar_modelo(TipoCaixa.ENVOLTORIO_CAPA, layout.segmentos_impressora, layout.segmentos_riscador)
+    montada = {pp.painel.id: pp for pp in posicionar(modelo, 1.0)}
+    assert produto_escalar(montada["centro"].normal_externa, modelo.cima) > 0.99
+    assert produto_escalar(montada["parede_inf"].normal_externa, modelo.frente) > 0.99
+    assert modelo.pitch_planificada > 0  # a chapa plana segue mostrando o lado impresso
