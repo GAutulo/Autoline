@@ -912,6 +912,15 @@ class VistaCaixa3D(QWidget):
                 elif recortado:
                     p.setClipRegion(QRegion(tela.toPolygon()))
                 if tem_arte:
+                    # A textura é o RETÂNGULO em volta da face: numa face que não
+                    # é retângulo (faca do Construtor) a arte da vizinha caía
+                    # no ar, fora da caixa. Recorta no contorno da face.
+                    p.save()
+                    if not com_furos:  # com furos, o recorte já é a face
+                        so_a_face = QPainterPath()
+                        so_a_face.addPolygon(tela)
+                        so_a_face.closeSubpath()
+                        p.setClipPath(so_a_face)
                     detalhe = self._detalhes.get(painel.arte_de or painel.id)
                     base = p.transform()  # a da foto do recorte (deslocada); senão, identidade
                     for imagem, k, retangulo in (textura, detalhe):
@@ -925,6 +934,7 @@ class VistaCaixa3D(QWidget):
                         p.setTransform(base)
                         if detalhe is None:
                             break
+                    p.restore()  # o contorno não é recortado: a aresta fica inteira
                 if dados["contorno"] is not None:
                     p.setBrush(Qt.BrushStyle.NoBrush)
                     for linha, vinco in dados["contorno"]:
