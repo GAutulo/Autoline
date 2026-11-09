@@ -1140,7 +1140,7 @@ class PainelPropriedadesMockup(QWidget):
         unidade = QComboBox()
         unidade.addItems(list(UNIDADES_COTA))
         unidade.setCurrentText(el.unidade)
-        unidade.setToolTip("Medida real (o desenho é 1:10)")
+        unidade.setToolTip("Só o nome da unidade: o número é o do desenho")
         unidade.currentTextChanged.connect(lambda u: (el.definir_unidade(u), valor.setText(el.texto_valor())))
         self._layout_campos.addWidget(unidade)
         proprio = QLineEdit(el.texto_proprio)

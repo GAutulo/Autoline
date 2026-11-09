@@ -9,7 +9,8 @@ gráfica quanto por testes automatizados ou por um futuro exportador
 from __future__ import annotations
 
 # As caixas são desenhadas em escala 1:10 (ver o papelão do 3D em
-# ui/configuracoes.py): a ficha e as cotas mostram a medida de VERDADE.
+# ui/configuracoes.py): a ficha mostra a medida de VERDADE. As cotas não
+# convertem: mostram o número do desenho com a unidade escolhida.
 ESCALA_DESENHO = 10
 
 from dataclasses import dataclass, field

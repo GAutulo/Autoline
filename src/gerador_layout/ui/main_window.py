@@ -1881,7 +1881,7 @@ class JanelaPrincipal(QMainWindow):
         self.combo_unidade_cotas = QComboBox()
         self.combo_unidade_cotas.addItems(["cm", "mm"])
         self.combo_unidade_cotas.setToolTip(
-            "Unidade do texto das cotas, já na medida real (o desenho é 1:10): 4,5 mm no desenho saem como 4,5 cm ou 45 mm."
+            "Nome da unidade no texto das cotas. O número é o do desenho: 4,5 sai como 4,5 cm ou 4,5 mm."
         )
         self.combo_unidade_cotas.currentTextChanged.connect(self.canvas.definir_unidade_cotas)
         barra.addWidget(self.combo_unidade_cotas)

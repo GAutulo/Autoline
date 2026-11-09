@@ -27,11 +27,11 @@ import math
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen, QPolygonF, QTransform
 
-from ..models import ESCALA_DESENHO, CorImpressao
+from ..models import CorImpressao
 from .mockup_itens import ElementoMockup
 
 TIPOS_COTA = ("paralela", "horizontal", "vertical")
-UNIDADES_COTA = ("cm", "mm")  # da medida REAL: o desenho é 1:10
+UNIDADES_COTA = ("cm", "mm")  # só o nome: o número é sempre o do desenho
 
 _ALTURA_TEXTO_PADRAO_MM = 3.5
 _AFASTAMENTO_PADRAO_MM = 10.0
@@ -124,14 +124,12 @@ class ElementoCota(ElementoMockup):
         self.update()
 
     def texto_valor(self) -> str:
-        """O texto próprio, se houver; senão a medida real (1 mm no desenho
-        1:10 é 1 cm na caixa), em cm ou mm."""
+        """O texto próprio, se houver; senão a medida do desenho com o nome
+        da unidade escolhida. A unidade não converte nada: no desenho em
+        1:10, 110 mm desenhados são lidos como 110 cm."""
         if self._texto_proprio.strip():
             return self._texto_proprio.strip()
-        real_mm = self._largura * ESCALA_DESENHO
-        if self._unidade == "mm":
-            return f"{round(real_mm):d} mm"
-        return f"{real_mm / 10:.1f} cm".replace(".", ",")
+        return f"{self._largura:.1f} {self._unidade}".replace(".", ",")
 
     @property
     def unidade(self) -> str:

@@ -746,7 +746,7 @@ def _mesmo_ponto(ax: float, ay: float, bx: float, by: float) -> bool:
 class PreviewCanvas(QGraphicsView):
     _altura_cotas: float | None = None  # o que se escolheu; sem isso, conforme a chapa
     altura_cotas_usada = 0.0
-    unidade_cotas = "cm"  # medida real; o desenho é 1:10
+    unidade_cotas = "cm"  # nome da unidade no texto; o número é o do desenho
 
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
