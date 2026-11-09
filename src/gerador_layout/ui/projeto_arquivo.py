@@ -262,7 +262,7 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
             largura=float(g["largura"]), ya=d["ya"], yb=d["yb"], tipo=d["tipo_cota"], cor_tinta=cor,
             altura_texto=d["altura_texto"],
         )
-        el.definir_unidade(d.get("unidade", "cm"))  # antes só havia o valor do desenho; a escala é 1:10
+        el.definir_unidade(d.get("unidade", "cm"))  # projeto antigo sem unidade: cm
         el.definir_texto_proprio(d.get("texto_proprio", ""))
     elif tipo == "ElementoCotaAngular":
         v, a, b = _ponto_de(d["v"]), _ponto_de(d["a"]), _ponto_de(d["b"])

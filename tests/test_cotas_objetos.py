@@ -179,11 +179,11 @@ def test_filas_de_cotas_nao_encostam_em_chapa_pequena():
 
 
 # ── Texto da cota na escala do desenho (1:10) ─────────────────────────
-def test_cota_mostra_a_medida_real_em_cm():
-    cota = criar_cota(QPointF(0, 0), QPointF(4.5, 0), "horizontal", 1.0, altura_texto=0.5)
-    assert cota.texto_valor() == "4,5 cm"  # 4,5 mm no desenho 1:10 são 4,5 cm na caixa
+def test_unidade_so_troca_o_nome_e_nao_o_numero():
+    cota = criar_cota(QPointF(0, 0), QPointF(110, 0), "horizontal", 1.0)
+    assert cota.texto_valor() == "110,0 cm"
     cota.definir_unidade("mm")
-    assert cota.texto_valor() == "45 mm"
+    assert cota.texto_valor() == "110,0 mm"  # e não 1100
 
 
 def test_texto_proprio_substitui_o_automatico_e_volta():
