@@ -172,7 +172,10 @@ def elemento_para_dict(el: ElementoMockup, arquivos: _Arquivos) -> dict | None:
             ],
         )
     elif isinstance(el, ElementoCota):
-        d.update(ya=el._ya, yb=el._yb, tipo_cota=el._tipo, cor=_cor(el.cor_tinta), altura_texto=el._altura_texto)
+        d.update(
+            ya=el._ya, yb=el._yb, tipo_cota=el._tipo, cor=_cor(el.cor_tinta), altura_texto=el._altura_texto,
+            unidade=el.unidade, texto_proprio=el.texto_proprio,
+        )
     elif isinstance(el, ElementoCotaAngular):
         d.update(
             v=_ponto(el._v), a=_ponto(el._a), b=_ponto(el._b), raio=el._raio, base=[el._base_l, el._base_a],
@@ -259,6 +262,8 @@ def elemento_de_dict(d: dict, arquivos: _Arquivos) -> ElementoMockup | None:
             largura=float(g["largura"]), ya=d["ya"], yb=d["yb"], tipo=d["tipo_cota"], cor_tinta=cor,
             altura_texto=d["altura_texto"],
         )
+        el.definir_unidade(d.get("unidade", "cm"))  # antes só havia o valor do desenho; a escala é 1:10
+        el.definir_texto_proprio(d.get("texto_proprio", ""))
     elif tipo == "ElementoCotaAngular":
         v, a, b = _ponto_de(d["v"]), _ponto_de(d["a"]), _ponto_de(d["b"])
         el = ElementoCotaAngular(v, a, b, d["raio"], cor, d["altura_texto"])
@@ -646,6 +651,15 @@ def aplicar_na_janela(janela, dados: dict) -> list[str]:
     for d in dados.get("elementos", []):
         el = _montar_na_cena(canvas, d, arquivos, avisos)
         del el
+
+    # Unidade das próximas cotas: a que o projeto já usa (senão, cm).
+    unidades = [el.unidade for el in canvas.elementos_mockup if isinstance(el, ElementoCota)]
+    canvas.unidade_cotas = max(set(unidades), key=unidades.count) if unidades else "cm"
+    combo = getattr(janela, "combo_unidade_cotas", None)
+    if combo is not None:
+        combo.blockSignals(True)
+        combo.setCurrentText(canvas.unidade_cotas)
+        combo.blockSignals(False)
 
     # Folha de aprovação (cliente, referência, código e datas).
     janela._aprovacao = dict(dados.get("aprovacao") or {})

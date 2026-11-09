@@ -54,7 +54,7 @@ from .estilo import Cor
 from .mockup_acabamento import ElementoAcabamento, TipoAcabamento
 from .mockup_callout import ElementoCallout
 from .mockup_checklist import DISPOSICOES, ElementoChecklistCores
-from .mockup_cota import ElementoCota
+from .mockup_cota import UNIDADES_COTA, ElementoCota
 from .mockup_cota_angular import ElementoCotaAngular
 from .mockup_curva import ElementoCurva
 from .mockup_formas import ElementoElipse, ElementoLinha, ElementoPoligono, ElementoRetangulo
@@ -1137,6 +1137,18 @@ class PainelPropriedadesMockup(QWidget):
         texto.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         texto.valueChanged.connect(el.definir_altura_texto)
         self._grupo("fonte_aa", texto, "Altura do texto da cota")
+        unidade = QComboBox()
+        unidade.addItems(list(UNIDADES_COTA))
+        unidade.setCurrentText(el.unidade)
+        unidade.setToolTip("Medida real (o desenho é 1:10)")
+        unidade.currentTextChanged.connect(lambda u: (el.definir_unidade(u), valor.setText(el.texto_valor())))
+        self._layout_campos.addWidget(unidade)
+        proprio = QLineEdit(el.texto_proprio)
+        proprio.setPlaceholderText("Texto próprio")
+        proprio.setMinimumWidth(150)
+        proprio.setToolTip("Escreva o que deve aparecer no lugar da medida. Apague para voltar à medida.")
+        proprio.editingFinished.connect(lambda: (el.definir_texto_proprio(proprio.text()), valor.setText(el.texto_valor())))
+        self._layout_campos.addWidget(proprio)
         self._linha_cor_tinta(el.cor_tinta, el.definir_cor_tinta)
 
     def _montar_campos_elipse(self, el: ElementoElipse) -> None:
