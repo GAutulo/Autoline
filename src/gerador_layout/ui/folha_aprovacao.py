@@ -23,7 +23,7 @@ from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSizeF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
 from PySide6.QtSvg import QSvgRenderer
 
-from ..models import CorImpressao, LayoutCaixa
+from ..models import ESCALA_DESENHO, CorImpressao, LayoutCaixa
 from .exportacao import _PenasExportacao, _SelecaoOculta
 from .mockup_itens import cache_desligado
 
@@ -72,9 +72,6 @@ def datas_da_vez(criado_em: _dt.date | None, hoje: _dt.date, modificacao: bool |
     return criado_em, (hoje if modificacao else None)
 
 
-# As caixas são desenhadas em escala 1:10 (ver o papelão do 3D em
-# configuracoes.py): a ficha vai pro cliente com a medida de VERDADE.
-ESCALA_DESENHO = 10
 
 
 def texto_medidas(*medidas: float, escala: float = ESCALA_DESENHO) -> str:

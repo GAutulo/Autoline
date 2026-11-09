@@ -27,10 +27,11 @@ import math
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen, QPolygonF, QTransform
 
-from ..models import CorImpressao
+from ..models import ESCALA_DESENHO, CorImpressao
 from .mockup_itens import ElementoMockup
 
 TIPOS_COTA = ("paralela", "horizontal", "vertical")
+UNIDADES_COTA = ("cm", "mm")  # da medida REAL: o desenho é 1:10
 
 _ALTURA_TEXTO_PADRAO_MM = 3.5
 _AFASTAMENTO_PADRAO_MM = 10.0
@@ -62,6 +63,8 @@ class ElementoCota(ElementoMockup):
         self._altura_texto = max(0.5, altura_texto)
         self._tipo = tipo if tipo in TIPOS_COTA else "paralela"
         self._cor_tinta = cor_tinta or CorImpressao(nome="Vermelho", r=237, g=28, b=36)
+        self._unidade = "cm"
+        self._texto_proprio = ""  # vazio: a medida, calculada
         super().__init__(largura=largura, altura=self._altura_para(afastamento), parent=parent)
 
     # ── Geometria da cota ───────────────────────────────────────────
@@ -121,7 +124,49 @@ class ElementoCota(ElementoMockup):
         self.update()
 
     def texto_valor(self) -> str:
-        return f"{self._largura:.1f} mm".replace(".", ",")
+        """O texto próprio, se houver; senão a medida real (1 mm no desenho
+        1:10 é 1 cm na caixa), em cm ou mm."""
+        if self._texto_proprio.strip():
+            return self._texto_proprio.strip()
+        real_mm = self._largura * ESCALA_DESENHO
+        if self._unidade == "mm":
+            return f"{round(real_mm):d} mm"
+        return f"{real_mm / 10:.1f} cm".replace(".", ",")
+
+    @property
+    def unidade(self) -> str:
+        return self._unidade
+
+    def definir_unidade(self, unidade: str) -> None:
+        if unidade in UNIDADES_COTA:
+            self.prepareGeometryChange()  # o texto muda de largura
+            self._unidade = unidade
+            self.update()
+
+    @property
+    def texto_proprio(self) -> str:
+        return self._texto_proprio
+
+    def definir_texto_proprio(self, texto: str) -> None:
+        self.prepareGeometryChange()  # o texto muda de largura
+        self._texto_proprio = texto.strip()
+        self.update()
+
+    def _area_local(self) -> QRectF:
+        """A cota mais o texto que passa das pontas (texto próprio longo,
+        acima da linha): é isso que a folha enquadra e a tela repinta."""
+        area = QRectF(0.0, 0.0, self._largura, self._altura)
+        if self.texto_na_linha():
+            return area
+        _fonte, metricas, escala = self._fonte_e_escala()
+        sobra = (metricas.horizontalAdvance(self.texto_valor()) * escala - self._largura) / 2
+        return area.adjusted(-sobra, 0.0, sobra, 0.0) if sobra > 0 else area
+
+    def retangulo_conteudo_cena(self) -> QRectF:
+        return self.mapRectToScene(self._area_local())
+
+    def boundingRect(self) -> QRectF:  # noqa: N802
+        return super().boundingRect().united(self._area_local())
 
     def _fonte_e_escala(self) -> tuple[QFont, QFontMetricsF, float]:
         fonte = QFont("Arial")
@@ -203,6 +248,7 @@ class ElementoCota(ElementoMockup):
             cor_tinta=self._cor_tinta,
             altura_texto=self._altura_texto,
         )
+        novo._unidade, novo._texto_proprio = self._unidade, self._texto_proprio
         self._copiar_geometria_para(novo)
         return novo
 

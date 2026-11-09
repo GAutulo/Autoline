@@ -57,7 +57,7 @@ def test_valor_acompanha_redimensionar_e_afastamento_preserva_pontos(app):
     cota = criar_cota(QPointF(0, 50), QPointF(100, 50), "paralela")
     cena.addItem(cota)
     cota.definir_tamanho(120.0, cota.altura)
-    assert cota.texto_valor() == "120,0 mm"
+    assert cota.texto_valor() == "120,0 cm"  # 120 mm no desenho 1:10
     antes = cota.mapToScene(QPointF(0.0, cota.altura))
     cota.definir_afastamento(25.0)
     assert cota.afastamento == pytest.approx(25.0)

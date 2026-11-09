@@ -176,3 +176,80 @@ def test_filas_de_cotas_nao_encostam_em_chapa_pequena():
     segunda = criar_cota(QPointF(0, 0), QPointF(20, 0), "horizontal", 0.5 * 2.5 + 0.5 * 2.2, altura_texto=0.5)
     assert primeira.afastamento == pytest.approx(1.25)
     assert segunda.afastamento - primeira.afastamento == pytest.approx(1.1)
+
+
+# ── Texto da cota na escala do desenho (1:10) ─────────────────────────
+def test_cota_mostra_a_medida_real_em_cm():
+    cota = criar_cota(QPointF(0, 0), QPointF(4.5, 0), "horizontal", 1.0, altura_texto=0.5)
+    assert cota.texto_valor() == "4,5 cm"  # 4,5 mm no desenho 1:10 são 4,5 cm na caixa
+    cota.definir_unidade("mm")
+    assert cota.texto_valor() == "45 mm"
+
+
+def test_texto_proprio_substitui_o_automatico_e_volta():
+    cota = criar_cota(QPointF(0, 0), QPointF(90, 0), "horizontal", 1.0)
+    cota.definir_texto_proprio("90 cm (miolo)")
+    assert cota.texto_valor() == "90 cm (miolo)"
+    cota.definir_texto_proprio("  ")
+    assert cota.texto_valor() == "90,0 cm"
+
+
+def test_unidade_e_texto_proprio_vao_pro_arquivo(janela):
+    from gerador_layout.ui import projeto_arquivo
+
+    cota = criar_cota(QPointF(0, 0), QPointF(90, 0), "horizontal", 1.0)
+    cota.definir_unidade("mm")
+    cota.definir_texto_proprio("total")
+    janela.canvas.adicionar_elemento_mockup(cota)
+    dados = projeto_arquivo.estado_da_janela(janela)
+    projeto_arquivo.aplicar_na_janela(janela, dados)
+    lida = _cotas(janela.canvas)[0]
+    assert (lida.unidade, lida.texto_proprio) == ("mm", "total")
+
+
+def test_cota_de_projeto_antigo_abre_em_cm(janela):
+    from gerador_layout.ui import projeto_arquivo
+
+    janela.canvas.adicionar_elemento_mockup(criar_cota(QPointF(0, 0), QPointF(90, 0), "horizontal", 1.0))
+    dados = projeto_arquivo.estado_da_janela(janela)
+    for d in dados["elementos"]:
+        d.pop("unidade", None)
+        d.pop("texto_proprio", None)
+    projeto_arquivo.aplicar_na_janela(janela, dados)
+    assert _cotas(janela.canvas)[0].texto_valor() == "90,0 cm"
+
+
+def test_unidade_na_barra_muda_todas_e_as_proximas(janela):
+    canvas = janela.canvas
+    canvas.adicionar_elemento_mockup(criar_cota(QPointF(0, 0), QPointF(90, 0), "horizontal", 1.0))
+    janela.combo_unidade_cotas.setCurrentText("mm")
+    assert {c.unidade for c in _cotas(canvas)} == {"mm"}
+    canvas.gerar_cotas_automaticas()
+    assert {c.unidade for c in _cotas(canvas)} == {"mm"}
+
+
+def test_fio_fica_fino_num_desenho_pequeno():
+    cota = criar_cota(QPointF(0, 0), QPointF(4.5, 0), "horizontal", 1.0, altura_texto=0.5)
+    assert cota.traco_mm <= 0.03
+
+
+def test_texto_proprio_longo_entra_na_area_da_cota():
+    cota = criar_cota(QPointF(0, 0), QPointF(10, 0), "horizontal", 1.0, altura_texto=2.0)
+    antes = cota.retangulo_conteudo_cena().width()
+    cota.definir_texto_proprio("90 cm (miolo da caixa)")
+    assert cota.retangulo_conteudo_cena().width() > antes
+    assert cota.boundingRect().contains(cota.mapRectFromScene(cota.retangulo_conteudo_cena()))
+
+
+def test_abrir_projeto_traz_a_unidade_que_ele_usa(janela):
+    from gerador_layout.ui import projeto_arquivo
+
+    cota = criar_cota(QPointF(0, 0), QPointF(90, 0), "horizontal", 1.0)
+    cota.definir_unidade("mm")
+    janela.canvas.adicionar_elemento_mockup(cota)
+    dados = projeto_arquivo.estado_da_janela(janela)
+    janela.combo_unidade_cotas.setCurrentText("cm")
+    projeto_arquivo.aplicar_na_janela(janela, dados)
+    assert janela.combo_unidade_cotas.currentText() == "mm" and janela.canvas.unidade_cotas == "mm"
+    janela.novo_projeto()
+    assert janela.combo_unidade_cotas.currentText() == "cm"

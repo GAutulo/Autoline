@@ -746,6 +746,7 @@ def _mesmo_ponto(ax: float, ay: float, bx: float, by: float) -> bool:
 class PreviewCanvas(QGraphicsView):
     _altura_cotas: float | None = None  # o que se escolheu; sem isso, conforme a chapa
     altura_cotas_usada = 0.0
+    unidade_cotas = "cm"  # medida real; o desenho é 1:10
 
     """Área de desenho do layout com zoom (roda do mouse) e pan (arrastar)."""
 
@@ -2434,6 +2435,7 @@ class PreviewCanvas(QGraphicsView):
                     continue
                 cota.definir_altura_texto(letra)
                 cota.cota_automatica = True
+                cota.definir_unidade(self.unidade_cotas)
                 self.adicionar_elemento_mockup(cota)
                 feitas += 1
         finally:
@@ -2448,6 +2450,13 @@ class PreviewCanvas(QGraphicsView):
                 objetos.append((r.left(), r.top(), r.right(), r.bottom()))
         chapa = (pagina.left(), pagina.top(), pagina.right(), pagina.bottom())
         return distancias_dos_objetos(objetos, self._paineis, chapa)
+
+    def definir_unidade_cotas(self, unidade: str) -> None:
+        """Unidade de todas as cotas, e das que forem geradas depois."""
+        self.unidade_cotas = unidade
+        for el in self._elementos_mockup:
+            if isinstance(el, ElementoCota):
+                el.definir_unidade(unidade)
 
     def definir_altura_cotas(self, mm: float) -> None:
         """Tamanho do texto de todas as cotas, e das que forem geradas depois."""

@@ -1878,6 +1878,13 @@ class JanelaPrincipal(QMainWindow):
         self.spin_tamanho_cotas.setToolTip("Tamanho do texto de todas as cotas. Para mudar uma só, selecione a cota e use Propriedades.")
         self.spin_tamanho_cotas.valueChanged.connect(self.canvas.definir_altura_cotas)
         barra.addWidget(self.spin_tamanho_cotas)
+        self.combo_unidade_cotas = QComboBox()
+        self.combo_unidade_cotas.addItems(["cm", "mm"])
+        self.combo_unidade_cotas.setToolTip(
+            "Unidade do texto das cotas, já na medida real (o desenho é 1:10): 4,5 mm no desenho saem como 4,5 cm ou 45 mm."
+        )
+        self.combo_unidade_cotas.currentTextChanged.connect(self.canvas.definir_unidade_cotas)
+        barra.addWidget(self.combo_unidade_cotas)
         barra.hide()
 
     def _gerar_cotas_automaticas(self) -> None:
