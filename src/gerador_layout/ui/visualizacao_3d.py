@@ -162,6 +162,18 @@ _COR_TEXTO_FUNDO = QColor("#6B6862")
 # Luz vinda de cima/esquerda/da frente, em coordenadas de câmera
 # (x direita, y cima, z pra dentro da tela).
 _LUZ = normalizar((-0.35, 0.6, -0.72))
+# Quanto a luz escurece: a face de costas pra luz fica nessa fração da cor
+# (bem perto de 1 — escurecer muito atrapalhava a foto e a leitura da arte).
+_LUZ_MINIMA_FACE = 0.88
+_LUZ_MINIMA_BORDA = 0.8
+# Sombra no chão quase imperceptível (só pra caixa não parecer flutuando):
+# cada camada do esfumado escurece o mínimo que a tela tem, 1/255.
+_SOMBRA_ALFA_CAMADA = 1
+
+
+def fator_luz(normal_cam: Vetor, minimo: float) -> float:
+    """Quanto da cor a superfície mantém: 1 virada pra luz, `minimo` de costas."""
+    return minimo + (1.0 - minimo) * max(0.0, produto_escalar(normal_cam, _LUZ))
 
 
 def _lerp(a: float, b: float, u: float) -> float:
@@ -843,10 +855,10 @@ class VistaCaixa3D(QWidget):
                     produto_escalar(sup.normal, olhar),
                 )
                 if sup.tipo == "face":
-                    luz = 0.55 + 0.45 * max(0.0, produto_escalar(normal_cam, _LUZ))
+                    luz = fator_luz(normal_cam, _LUZ_MINIMA_FACE)
                     base = cor_externa if sup.externo else cor_interna
                 else:
-                    luz = 0.5 + 0.5 * max(0.0, produto_escalar(normal_cam, _LUZ))
+                    luz = fator_luz(normal_cam, _LUZ_MINIMA_BORDA)
                     base = cor_espessura
                 cor = QColor.fromRgbF(min(1.0, base.redF() * luz), min(1.0, base.greenF() * luz), min(1.0, base.blueF() * luz))
                 caneta_fill = QPen(cor, 1.0)
@@ -1058,8 +1070,10 @@ class VistaCaixa3D(QWidget):
         p.save()
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(0, 0, 0, int(6 * u)))
-        for poligono in camadas:
+        p.setBrush(QColor(0, 0, 0, _SOMBRA_ALFA_CAMADA))
+        # Montando, a sombra aparece aos poucos: as camadas de dentro primeiro
+        # (o alfa já é o mínimo, não dá pra diminuir mais sem sumir).
+        for poligono in camadas[len(camadas) - max(1, round(len(camadas) * u)):]:
             p.drawPolygon(poligono)
         p.restore()
 
