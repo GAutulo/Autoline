@@ -321,3 +321,45 @@ def test_sombra_no_chao_e_inteira_na_foto(medidas):
           if img.pixelColor(x, y).red() < 220 and abs(img.pixelColor(x, y).red() - img.pixelColor(x, y).blue()) > 25]
     assert max((max(xs) - min(xs)) / w, (max(ys) - min(ys)) / h) > 0.7
     j.close()
+
+
+def test_faces_escurecem_bem_pouco():
+    """Escurecer muito a face de costas pra luz atrapalhava a foto."""
+    from gerador_layout.ui.visualizacao_3d import _LUZ, _LUZ_MINIMA_FACE, fator_luz
+
+    assert fator_luz(_LUZ, _LUZ_MINIMA_FACE) == pytest.approx(1.0)
+    de_costas = tuple(-c for c in _LUZ)
+    assert fator_luz(de_costas, _LUZ_MINIMA_FACE) == pytest.approx(_LUZ_MINIMA_FACE)
+    assert _LUZ_MINIMA_FACE >= 0.85  # no máximo ~15% mais escura
+
+
+def test_sombra_no_chao_quase_imperceptivel():
+    """A sombra atrapalhava a foto: no chão ela mal aparece."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_NORMAL))
+    img = j._imagem_3d_montada()
+
+    def cinza(x, y):
+        cor = img.pixelColor(x, y)
+        return max(cor.red(), cor.green(), cor.blue()) - min(cor.red(), cor.green(), cor.blue()) <= 4
+
+    # Só o chão de verdade: cinza com os vizinhos também cinza (as arestas
+    # finas da caixa, com antialias, ficam de fora).
+    passo, perto = 3, 4
+    chao = [
+        img.pixelColor(x, y).lightness()
+        for y in range(perto, img.height() - perto, passo)
+        for x in range(perto, img.width() - perto, passo)
+        if all(cinza(x + dx, y + dy) for dx, dy in ((0, 0), (perto, 0), (-perto, 0), (0, perto), (0, -perto)))
+    ]
+    assert min(chao) >= 232  # antes chegava a ~156; agora uns 7% de escuro no máximo
+    assert min(chao) < 255  # mas ainda tem sombra
+    j.close()
