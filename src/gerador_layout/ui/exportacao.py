@@ -207,11 +207,20 @@ def _rect_com_legenda(
     # intersecta esse retângulo, só o TAMANHO do arquivo é que agora vem
     # da caixa, não da soma de tudo que existe na cena.
     rect_desenho = QRectF(0.0, 0.0, layout.largura_total, layout.altura_total)
-    legenda = _LegendaExportacao(scene, layout.cores_legenda, rect_desenho)
+    # As cotas ficam por FORA da chapa: sem isso, o arquivo cortava todas.
+    # Só o conteúdo (traço e texto), não a margem das alças de seleção.
+    # Import aqui: mockup_cota puxa a cadeia de itens de mockup da UI.
+    from .mockup_cota import ElementoCota
+
     rect_final = rect_desenho
-    if legenda._itens:
-        for item in legenda._itens:
-            rect_final = rect_final.united(item.sceneBoundingRect())
+    for item in scene.items():
+        if isinstance(item, ElementoCota) and item.isVisible():
+            rect_final = rect_final.united(item.retangulo_conteudo_cena())
+    # A legenda vai acima de tudo — das cotas também, senão ficava por
+    # cima da fileira de cotas do topo.
+    legenda = _LegendaExportacao(scene, layout.cores_legenda, rect_final)
+    for item in legenda._itens:
+        rect_final = rect_final.united(item.sceneBoundingRect())
     return rect_final, legenda
 
 

@@ -28,7 +28,7 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen, QPolygonF, QTransform
 
 from ..models import CorImpressao
-from .mockup_itens import ElementoMockup
+from .mockup_itens import ElementoMockup, desenhar_texto_escalado
 
 TIPOS_COTA = ("paralela", "horizontal", "vertical")
 UNIDADES_COTA = ("cm", "mm")  # só o nome: o número é sempre o do desenho
@@ -231,10 +231,12 @@ class ElementoCota(ElementoMockup):
         if self.texto_de_cabeca_pra_baixo():
             painter.rotate(180.0)
         painter.scale(escala, escala)
-        painter.setFont(fonte)
-        painter.setPen(cor)
+        painter.setBrush(cor)  # o texto sai como contorno preenchido
         largura_texto = metricas.horizontalAdvance(texto)
-        painter.drawText(QPointF(-largura_texto / 2, metricas.capHeight() / 2), texto)
+        # drawText com fonte grande + escala pequena sumia na exportação
+        # (bug do Qt, ver `desenhar_texto_escalado`): o número da cota não
+        # saía no JPG.
+        desenhar_texto_escalado(painter, QPointF(-largura_texto / 2, metricas.capHeight() / 2), fonte, texto)
         painter.restore()
 
     def clonar(self) -> "ElementoCota":

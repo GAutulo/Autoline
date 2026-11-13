@@ -188,3 +188,37 @@ def test_objeto_redimensionado_volta_a_escolher_a_borda(janela):
     janela.spin_comprimento.setValue(700)
     nova = next(p for p in janela._paineis_atuais if p.id == "frente")
     assert objeto.retangulo_conteudo_cena().center().x() == pytest.approx((nova.x1 + nova.x2) / 2)
+
+
+def test_jpg_inclui_as_cotas_por_fora_da_chapa(janela, monkeypatch):
+    """O JPG cortava no tamanho da chapa: as cotas, por fora dela, sumiam.
+    E o número saía em branco (drawText com escala some na exportação)."""
+    from gerador_layout.ui import exportacao
+
+    canvas = janela.canvas
+    canvas.gerar_cotas_automaticas()
+    cotas = [e for e in canvas.elementos_mockup if isinstance(e, ElementoCota)]
+
+    def vermelhos():
+        imagem = exportacao.imagem_do_layout(canvas.cena, canvas.layout_efetivo, dpi=40)
+        return sum(
+            1
+            for y in range(imagem.height())
+            for x in range(imagem.width())
+            if imagem.pixelColor(x, y).red() > 150 and imagem.pixelColor(x, y).green() < 90
+        )
+
+    com_numero = vermelhos()
+    assert com_numero > 50  # as cotas (vermelhas) saem na imagem
+    monkeypatch.setattr(ElementoCota, "texto_valor", lambda self: "")
+    assert com_numero > vermelhos() * 1.2  # e o número delas também
+
+    rect, legenda = exportacao._rect_com_legenda(canvas.cena, canvas.layout_efetivo)
+    try:
+        for cota in cotas:
+            assert rect.contains(cota.retangulo_conteudo_cena())
+        topo_cotas = min(c.retangulo_conteudo_cena().top() for c in cotas)
+        assert legenda._itens  # a caixa padrão tem legenda de cores
+        assert max(i.sceneBoundingRect().bottom() for i in legenda._itens) <= topo_cotas  # acima de tudo
+    finally:
+        legenda.remover()
