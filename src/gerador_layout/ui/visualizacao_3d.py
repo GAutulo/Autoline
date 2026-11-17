@@ -691,8 +691,9 @@ class VistaCaixa3D(QWidget):
         return imagem
 
     def _area_recorte(self, caixa: QRectF) -> QRectF:
-        # Margem de 6% em volta (e mais embaixo, pra sombra).
-        margem = max(caixa.width(), caixa.height()) * 0.06
+        # Margem de 3% em volta (e mais embaixo, pra sombra): a caixa ocupa
+        # a foto — com mais, uma caixa grande ficava pequena na folha.
+        margem = max(caixa.width(), caixa.height()) * 0.03
         return caixa.adjusted(-margem, -margem, margem, margem * 1.6).intersected(QRectF(self.rect()))
 
     def _renderizar_recorte(self, lado_px: int, fundo: QColor | None) -> QImage:
@@ -1039,7 +1040,10 @@ class VistaCaixa3D(QWidget):
         # proporcional esticava demais as pontas de uma caixa comprida).
         # Pela altura, mas dentro de uma faixa pela base: caixa alta não
         # espalha uma sombra mais larga que ela; caixa baixa ainda tem sombra.
-        espalhar = max(1.0, min(max(self._meia_altura_montada * 0.9, min(meia_a, meia_b) * 0.3), max(meia_a, meia_b) * 0.5))
+        # Teto de 15% do lado maior (na tela e na foto): a foto recorta caixa
+        # + sombra, e com metade do lado (como era) uma caixa comprida ficava
+        # pequena no meio de branco — a sombra, quase invisível, ocupava a foto.
+        espalhar = max(1.0, min(max(self._meia_altura_montada * 0.9, min(meia_a, meia_b) * 0.3), max(meia_a, meia_b) * 0.15))
 
         def contorno(folga: float) -> QPolygonF | None:
             """O retângulo da base no chão, com `folga` mm a mais em volta."""
