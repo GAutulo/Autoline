@@ -221,6 +221,74 @@ def test_faca_editada_herda_o_fechamento_do_tipo(tipo):
         assert _dimensoes(sem_mexer) == pytest.approx(_dimensoes(referencia), abs=2.0)
 
 
+@pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
+def test_fenda_da_faca_nao_abre_fresta_na_caixa_montada(tipo):
+    """A fenda entre parede e canto (folga de 0,5 mm) é da fabricação: no
+    3D a face vai até a borda do painel, senão a quina fica com uma fresta."""
+    layout, referencia = _referencia(tipo)
+    modelo = montar_modelo_generico(layout.linhas, referencia=referencia)
+    conferidos = 0
+    for p in modelo.paineis:
+        x, y = p.ponto_interno
+        dono = min(
+            (r for r in referencia.paineis if r.x1 <= x <= r.x2 and r.y1 <= y <= r.y2),
+            key=lambda r: (r.x2 - r.x1) * (r.y2 - r.y1),
+            default=None,
+        )
+        if dono is None or dono.poligono:
+            continue
+        conferidos += 1
+        assert (p.x1, p.y1, p.x2, p.y2) == pytest.approx((dono.x1, dono.y1, dono.x2, dono.y2), abs=1e-3), p.nome
+        assert len(set(p.poligono)) == len(p.poligono)  # sem vértice repetido
+    assert conferidos > 0
+
+
+def test_fenda_editada_continua_fechada_e_aba_editada_mantem_o_formato():
+    layout, referencia = _referencia(TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE)
+    linhas = list(layout.linhas)
+    # chanfra a ponta da tampa (corte de cima, o mais comprido): o resto da faca fica igual
+    i = max(
+        (k for k, l in enumerate(linhas) if l.tipo == TipoLinha.CORTE and abs(l.y1 - l.y2) < 1e-6 and l.y1 < 1e-6),
+        key=lambda k: abs(linhas[k].x2 - linhas[k].x1),
+    )
+    topo = linhas[i]
+    x_esq, x_dir = min(topo.x1, topo.x2), max(topo.x1, topo.x2)
+    linhas[i] = LinhaDesenho(x_esq + 10, 0.0, x_dir, 0.0, topo.tipo)
+    linhas.append(LinhaDesenho(x_esq, 10.0, x_esq + 10, 0.0, topo.tipo))
+    modelo = montar_modelo_generico(linhas, referencia=referencia)
+    raiz = [p for p in referencia.paineis if p.pai is None][0]
+    tampas = [p for p in modelo.paineis if p.y1 < 1e-6 and raiz.x1 - 1 < p.x1 < raiz.x2]
+    assert len(tampas) == 1
+    assert (x_esq + 10, 0.0) in [tuple(round(c, 3) for c in v) for v in tampas[0].poligono]  # o chanfro continua
+    # parede de cima e de baixo: encostadas na base, na faixa do comprimento
+    paredes = [p for p in modelo.paineis if p.pai and raiz.x1 - 1 < p.x1 < raiz.x2 and p.y2 - p.y1 < raiz.y2 - raiz.y1 and p.y1 > 1]
+    assert len(paredes) >= 2
+    for parede in paredes:
+        assert (parede.x1, parede.x2) == pytest.approx((raiz.x1, raiz.x2), abs=1e-3)
+
+
+def test_sem_referencia_a_face_fica_como_a_faca():
+    """Faca do zero (sem tipo de caixa): não há painel pra encostar, a fenda fica."""
+    layout, _ = _referencia(TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_COM_CORTE)
+    faces = {tuple(f.poligono) for f in achar_faces(layout.linhas).faces}
+    modelo = montar_modelo_generico(layout.linhas)
+    assert {p.poligono for p in modelo.paineis} <= faces
+
+
+def test_fechar_fenda_nao_entorta_vertice_fora_do_painel_nem_sai_do_vinco():
+    from gerador_layout.dobra3d import PainelDobravel
+    from gerador_layout.dobra_generica import _fechar_fenda
+
+    painel = PainelDobravel("p", "P", 0.0, 0.0, 100.0, 50.0)
+    # vértice a 0,5 mm da borda x1 mas 30 mm abaixo do painel: fica
+    fora = [(0.5, 0.0), (99.5, 0.0), (99.5, 80.0), (0.5, 80.0)]
+    assert _fechar_fenda(fora, painel, [])[2:] == [(99.5, 80.0), (0.5, 80.0)]
+    # vinco vertical em x=0,5: o vértice dele não sai da linha da dobra
+    vinco = [((0.5, 0.0), (0.5, 50.0))]
+    face = [(0.5, 0.0), (99.5, 0.0), (99.5, 50.0), (0.5, 50.0)]
+    assert _fechar_fenda(face, painel, vinco) == [(0.5, 0.0), (100.0, 0.0), (100.0, 50.0), (0.5, 50.0)]
+
+
 def test_mudar_corte_da_aba_nao_muda_o_fechamento():
     layout, referencia = _referencia(TipoCaixa.MALETA_NORMAL)
     antes = montar_modelo_generico(layout.linhas, referencia=referencia)

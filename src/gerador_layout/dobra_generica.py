@@ -35,6 +35,9 @@ TIPOS_DOBRA = {TipoLinha.VINCO, TipoLinha.MEIO_CORTE, TipoLinha.DOBRA}
 _CASAS = 3  # pontos iguais até o milésimo de mm são o mesmo nó
 _AREA_MINIMA_MM2 = 1.0
 ANGULO_PADRAO = 90.0
+# Fenda de folga entre painéis (0,5 mm nos tipos prontos): o 3D a fecha.
+# O dobro, pra pegar a fenda com folga sem engolir um recorte de verdade.
+_FOLGA_FENDA_MM = 1.0
 
 Ponto = tuple[float, float]
 
@@ -325,6 +328,61 @@ def _painel_de_referencia(ponto: Ponto, referencia: ModeloCaixa3D) -> PainelDobr
     return min(candidatos, key=lambda p: (p.x2 - p.x1) * (p.y2 - p.y1), default=None)
 
 
+def _fechar_fenda(
+    poligono: list[Ponto], painel: PainelDobravel, dobradicas: list[tuple[Ponto, Ponto]]
+) -> list[Ponto]:
+    """Encosta na borda do painel calculado (só painel retangular) os
+    vértices que ficaram a até `_FOLGA_FENDA_MM` dela por dentro. A fenda
+    entre parede e canto (folga de 0,5 mm pro papelão dobrar) é da
+    fabricação: no 3D, sem espessura, ela deixaria a face mais curta e uma
+    fresta na quina. O resto do contorno (um chanfro, um recorte editado)
+    fica como está.
+
+    Cuidados: o vértice só anda num eixo se estiver na faixa do painel no
+    outro (face que passa do painel não entorta); vértice em cima de um
+    vinco (`dobradicas` da face) só anda AO LONGO do vinco, então a aresta
+    continua na linha da dobra; painel mais estreito que duas folgas não
+    é mexido naquele eixo."""
+    if painel.poligono:
+        return poligono
+    tol = _FOLGA_FENDA_MM
+
+    def encostar(v: float, borda1: float, borda2: float) -> float:
+        if borda2 - borda1 <= 2 * tol:
+            return v
+        if borda1 <= v <= borda1 + tol:
+            return borda1
+        if borda2 - tol <= v <= borda2:
+            return borda2
+        return v
+
+    def eixos_livres(p: Ponto) -> tuple[bool, bool]:
+        """(pode mexer x, pode mexer y): num vinco, só na direção dele."""
+        livre_x = livre_y = True
+        for a, b in dobradicas:
+            if _no_segmento(p, a, b) is None:
+                continue
+            horizontal = abs(b[1] - a[1]) < 1e-6
+            vertical = abs(b[0] - a[0]) < 1e-6
+            livre_x = livre_x and horizontal
+            livre_y = livre_y and vertical
+        return livre_x, livre_y
+
+    resultado: list[Ponto] = []
+    for x, y in poligono:
+        livre_x, livre_y = eixos_livres((x, y))
+        nx, ny = x, y
+        if livre_x and painel.y1 - tol <= y <= painel.y2 + tol:
+            nx = encostar(x, painel.x1, painel.x2)
+        if livre_y and painel.x1 - tol <= x <= painel.x2 + tol:
+            ny = encostar(y, painel.y1, painel.y2)
+        if not resultado or resultado[-1] != (nx, ny):
+            resultado.append((nx, ny))
+    if len(resultado) > 1 and resultado[0] == resultado[-1]:
+        resultado.pop()
+    return resultado if len(resultado) >= 3 else poligono
+
+
 def _dobra_do_estilo(a: Ponto, b: Ponto, dobras: list):
     """O vinco do estilo que contém a dobradiça a–b (colinear e cobrindo)."""
     for d in dobras:
@@ -439,15 +497,21 @@ def montar_modelo_generico(
     for i, face in enumerate(faces):
         if i not in profundidade:
             continue  # pedaço solto, sem vinco com o resto: fica de fora
-        xs = [p[0] for p in face.poligono]
-        ys = [p[1] for p in face.poligono]
+        # A fenda de folga do tipo pronto fecha no 3D (ver _fechar_fenda).
+        poligono = (
+            _fechar_fenda(face.poligono, ref_de[i], [(a, b) for _, a, b, _ in vizinhos[i]])
+            if i in ref_de
+            else face.poligono
+        )
+        xs = [p[0] for p in poligono]
+        ys = [p[1] for p in poligono]
         comum = dict(
             id=f"face_{i}",
             nome="Face base" if i == base else f"Face {i + 1}",
             x1=min(xs), y1=min(ys), x2=max(xs), y2=max(ys),
-            poligono=tuple(face.poligono),
+            poligono=tuple(poligono),
             furos=tuple(tuple(f) for f in face.furos),
-            ponto_interno=ponto_interno(face.poligono, face.furos),
+            ponto_interno=ponto_interno(poligono, face.furos),
         )
         if i == base:
             paineis.append(PainelDobravel(**comum))
