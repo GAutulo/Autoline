@@ -363,3 +363,31 @@ def test_sombra_no_chao_quase_imperceptivel():
     assert min(chao) >= 232  # antes chegava a ~156; agora uns 7% de escuro no máximo
     assert min(chao) < 255  # mas ainda tem sombra
     j.close()
+
+
+def test_caixa_comprida_e_fina_ocupa_a_foto_da_folha():
+    """Caixa grande e fina (meia caixa de painel): a sombra se espalhava meia
+    caixa pra cada lado e a caixa saía pequena no meio da folha."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from gerador_layout.ui.main_window import JanelaPrincipal
+
+    QApplication.instance() or QApplication([])
+    j = JanelaPrincipal()
+    j.combo_tipo.setCurrentIndex(j.combo_tipo.findData(TipoCaixa.MALETA_TRANSPASSADA_MEIA))
+    j.spin_comprimento.setValue(1200)
+    j.spin_largura.setValue(80)
+    j.spin_altura.setValue(550)
+    img = j._imagem_3d_montada()
+    w, h = img.width(), img.height()
+    xs = [x for y in range(0, h, 6) for x in range(0, w, 6)
+          if img.pixelColor(x, y).red() < 220 and img.pixelColor(x, y).red() - img.pixelColor(x, y).blue() > 25]
+    assert xs, "a caixa não apareceu na foto"
+    assert (max(xs) - min(xs)) / w > 0.75  # a caixa ocupa a largura da foto (antes, 56%)
+    borda = [(x, 0) for x in range(0, w, 9)] + [(x, h - 1) for x in range(0, w, 9)]
+    borda += [(0, y) for y in range(0, h, 9)] + [(w - 1, y) for y in range(0, h, 9)]
+    assert max(255 - img.pixelColor(x, y).red() for x, y in borda) <= 12  # sombra não sai cortada na borda
+    j.close()
