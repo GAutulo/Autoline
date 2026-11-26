@@ -41,7 +41,11 @@ _TIPOS_COM_3D = [t for t in TipoCaixa if t != TipoCaixa.CINTA]
 
 @pytest.mark.parametrize("tipo", _TIPOS_COM_3D)
 def test_tipos_prontos_dobram_na_caixa_certa(tipo):
-    layout = ServicoLayoutCaixa().calcular(MedidasCaixa(tipo=tipo, comprimento=300, largura=200, altura=150))
+    # impressora_aba=0 como a tela manda (trecho automático); o padrão do
+    # dataclass (4) seria uma parede de 4 mm na capa.
+    layout = ServicoLayoutCaixa().calcular(
+        MedidasCaixa(tipo=tipo, comprimento=300, largura=200, altura=150, impressora_aba=0.0)
+    )
     modelo = montar_modelo_generico(layout.linhas)
     assert _dimensoes(modelo, 0.0)[0] == pytest.approx(0.0)  # plana
     assert _dimensoes(modelo) == pytest.approx([150.0, 200.0, 300.0], abs=1.5)

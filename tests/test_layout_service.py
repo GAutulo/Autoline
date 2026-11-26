@@ -112,3 +112,69 @@ def test_tipo_nao_implementado_gera_erro_explicito():
     # Esse tipo já está implementado — o teste real de "não implementado"
     # ficaria aqui se algum tipo novo for adicionado ao enum sem cálculo.
     ServicoLayoutCaixa().calcular(medidas)
+
+
+# ── Trechos automáticos seguem os trechos ajustados ──────────────────
+# O campo cinza (automático) que depende de outro trecho usa o valor
+# efetivo desse trecho, não a medida da ficha: senão a faca (e o 3D) não
+# fecha quando o operador ajusta a L ou a A na impressora.
+
+
+def test_maleta_abas_automaticas_seguem_a_largura_ajustada():
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.MALETA_NORMAL, comprimento=65, largura=40, altura=114,
+        impressora_largura_1=65.5, impressora_comprimento_1=40.5,
+        impressora_largura_2=65.5, impressora_comprimento_2=40.5,
+    )
+    layout = ServicoLayoutCaixa().calcular(medidas)
+    assert layout.segmentos_riscador == [32.75, 114, 32.75]
+
+
+def test_maleta_transpassada_abas_automaticas_seguem_a_largura_ajustada():
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.MALETA_TRANSPASSADA, comprimento=300, largura=200, altura=150,
+        impressora_largura_1=210,
+    )
+    layout = ServicoLayoutCaixa().calcular(medidas)
+    assert layout.segmentos_riscador == [210, 150, 210]
+
+
+def test_maleta_aba_digitada_continua_valendo():
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.MALETA_NORMAL, comprimento=300, largura=200, altura=150,
+        impressora_largura_1=210, riscador_superior=90,
+    )
+    layout = ServicoLayoutCaixa().calcular(medidas)
+    assert layout.segmentos_riscador == [90, 150, 105]
+
+
+def test_envoltorio_paredes_automaticas_seguem_a_altura_ajustada():
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE, comprimento=300, largura=200, altura=100,
+        impressora_largura_1=105, impressora_largura_2=104,
+    )
+    layout = ServicoLayoutCaixa().calcular(medidas)
+    assert layout.segmentos_riscador[1] == 105
+    assert layout.segmentos_riscador[3] == 104
+
+
+def test_capa_paredes_automaticas_seguem_a_altura_ajustada():
+    medidas = MedidasCaixa(
+        tipo=TipoCaixa.ENVOLTORIO_CAPA, comprimento=300, largura=200, altura=40,
+        impressora_aba=45, impressora_comprimento_1=44,
+    )
+    layout = ServicoLayoutCaixa().calcular(medidas)
+    assert layout.segmentos_riscador == [45, 200, 44]
+
+
+def test_envoltorio_abas_automaticas_seguem_a_largura_do_riscador():
+    meio = ServicoLayoutCaixa().calcular(MedidasCaixa(
+        tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_MEIO_SEM_CORTE, comprimento=300, largura=200, altura=100,
+        riscador_inferior=210,
+    ))
+    assert meio.segmentos_riscador == [105, 100, 210, 100, 105]
+    normal = ServicoLayoutCaixa().calcular(MedidasCaixa(
+        tipo=TipoCaixa.ENVOLTORIO_FECHAMENTO_NORMAL_SEM_CORTE, comprimento=300, largura=200, altura=100,
+        riscador_inferior=210,
+    ))
+    assert normal.segmentos_riscador[0] == 210
