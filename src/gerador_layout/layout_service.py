@@ -134,13 +134,16 @@ class ServicoLayoutCaixa:
         imp4 = _valor_ou_padrao(m.impressora_largura_2, m.altura)
         imp5 = _valor_ou_padrao(m.impressora_comprimento_2, aba_imp)
 
-        aba_riscador_meio = math.ceil((m.largura / 2.0) * 10.0) / 10.0
-        ris1_padrao = m.largura if fechamento_normal else aba_riscador_meio
+        # Trechos automáticos seguem os que valem (ajustados ou não): as
+        # paredes têm a altura da impressora e as abas, a L do riscador —
+        # senão os cantos e o fechamento não batem.
+        ris2 = _valor_ou_padrao(m.riscador_centro, imp2)
+        ris3 = _valor_ou_padrao(m.riscador_inferior, m.largura)
+        ris4 = _valor_ou_padrao(m.riscador_parte_4, imp4)
+        aba_riscador_meio = math.ceil((ris3 / 2.0) * 10.0) / 10.0
+        ris1_padrao = ris3 if fechamento_normal else aba_riscador_meio
         ris5_padrao = aba_imp if fechamento_normal else aba_riscador_meio
         ris1 = _valor_ou_padrao(m.riscador_superior, ris1_padrao)
-        ris2 = _valor_ou_padrao(m.riscador_centro, m.altura)
-        ris3 = _valor_ou_padrao(m.riscador_inferior, m.largura)
-        ris4 = _valor_ou_padrao(m.riscador_parte_4, m.altura)
         ris5 = _valor_ou_padrao(m.riscador_parte_5, ris5_padrao)
 
         x0 = 0.0
@@ -265,7 +268,9 @@ class ServicoLayoutCaixa:
         largura2 = _valor_ou_padrao(m.impressora_largura_2, m.largura)
         comprimento2 = _valor_ou_padrao(m.impressora_comprimento_2, m.comprimento)
 
-        aba_riscador_padrao = m.largura if m.tipo in TIPOS_TRANSPASSADA else m.largura / 2.0
+        # As abas cobrem a lateral: seguem a L que vale na impressora
+        # (ajustada ou não), senão a tampa e o fundo não fecham.
+        aba_riscador_padrao = largura1 if m.tipo in TIPOS_TRANSPASSADA else largura1 / 2.0
         meia = m.tipo in TIPOS_MEIA_CAIXA
         topo = _valor_ou_padrao(m.riscador_superior, aba_riscador_padrao)
         centro = _valor_ou_padrao(m.riscador_centro, m.altura)
@@ -355,9 +360,10 @@ class ServicoLayoutCaixa:
         imp1 = _valor_ou_padrao(m.impressora_aba, m.altura)
         imp2 = _valor_ou_padrao(m.impressora_largura_1, m.comprimento)
         imp3 = _valor_ou_padrao(m.impressora_comprimento_1, m.altura)
-        ris1 = _valor_ou_padrao(m.riscador_superior, m.altura)
+        # Paredes de cima/baixo com a mesma altura das laterais que valem.
+        ris1 = _valor_ou_padrao(m.riscador_superior, imp1)
         ris2 = _valor_ou_padrao(m.riscador_centro, m.largura)
-        ris3 = _valor_ou_padrao(m.riscador_inferior, m.altura)
+        ris3 = _valor_ou_padrao(m.riscador_inferior, imp3)
 
         x0, x1, x2, x3 = 0.0, imp1, imp1 + imp2, imp1 + imp2 + imp3
         y0, y1, y2, y3 = 0.0, ris1, ris1 + ris2, ris1 + ris2 + ris3
